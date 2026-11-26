@@ -1,18 +1,25 @@
 import { createHash, randomBytes } from "node:crypto";
 import {
+  applyTransition,
+  compileTaskLifecycleWrite,
   isNativeExecution,
+  lifecycleDocumentFetchPaths,
+  normalizeTaskLifecycleCommand,
   taskLifecycleWritePlan,
   type CanonicalContentBlob,
   type CanonicalWriteBundle,
   type ExecutionV1,
   type LeaseV1,
+  type LifecycleDocumentState,
   type TaskV2,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
 import {
   executionStewardshipEpoch,
+  isNativeCommitSha,
   type ExecutionWipCheckpointV1,
 } from "@harness-anything/kernel/internal/domain/execution.ts";
+import { decideReadableTaskLease } from "@harness-anything/kernel/internal/domain/task-lease-policy.ts";
 import {
   compileExecutionStewardshipTransferred,
   compileExecutionWipCheckpointed,
@@ -63,6 +70,7 @@ import {
   type MaterializedHandoffBundle,
   type PreparedHandoffBundle,
 } from "./peer-handoff-bundle.ts";
+import { readCompletionContext } from "./task-completion-read.ts";
 
 const DEFAULT_CLAIM_LEASE_MS = 5 * 60_000;
 const DEFAULT_HANDOFF_LEASE_TTL_MS = 30 * 60_000;
@@ -163,6 +171,84 @@ function requiredString(value: unknown, label: string): string {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function requireValidWipCommitSha(actionValue: unknown, bundleValue: string | undefined): string {
+  const candidate = actionValue !== undefined ? optionalString(actionValue) : optionalString(bundleValue);
+  if (!candidate || !isNativeCommitSha(candidate) || /^0+$/u.test(candidate)) {
+    reject("invalid_field", "wipCommitSha must be a valid non-zero 40-character lowercase hexadecimal Git commit SHA.");
+  }
+  return candidate!;
+}
+
+function compileHandoffLeaseReleaseBundle(input: {
+  readonly cell: RepoCellOperationalContext;
+  readonly taskId: string;
+  readonly activeLease: LeaseV1;
+  readonly binding: RepoCellBinding;
+  readonly requestId: string;
+  readonly toPersonId: string;
+  readonly head: number;
+  readonly now: string;
+}): CanonicalWriteBundle {
+  const { cell, taskId, activeLease, binding, requestId, toPersonId, head, now } = input;
+  const taskRead = cell.projection.read(taskId);
+  if (!cell.projectionReady(taskRead)) {
+    reject("projection_pending", `Task ${taskId} projection is not ready to release its active lease.`);
+  }
+  if (!taskRead.snapshot.task) {
+    reject("entity_not_found", `Task ${taskId} has an active lease but no task record to release.`);
+  }
+  const command = cell.withServerMeta(
+    normalizeTaskLifecycleCommand(
+      {
+        workspaceId: cell.input.repoId,
+        actor: binding.actor,
+        source: binding.source,
+        expectedRevision: taskRead.snapshot.revision,
+      },
+      {
+        type: "ReleaseRuntimeLease",
+        taskId,
+        executionId: activeLease.executionId,
+        leaseVersion: activeLease.version,
+        reason: `Peer handoff ${requestId} to ${toPersonId}`,
+      },
+    ),
+    null,
+    head,
+    now,
+  );
+  const transition = applyTransition(taskRead.snapshot, command, {});
+  const currentDocuments: LifecycleDocumentState[] = [];
+  if (taskRead.packagePath) {
+    for (const docPath of lifecycleDocumentFetchPaths(transition.event, taskRead.packagePath)) {
+      const active = cell.projection.readDocument(docPath),
+        document = active.document ? active : (cell.projection.readDocumentHistory?.(docPath) ?? active);
+      if (!cell.projectionReady(document)) {
+        reject("content_not_ready", `Document ${docPath} is not ready.`);
+      }
+      if (document.document) currentDocuments.push(document.document);
+    }
+  }
+  const compiled = compileTaskLifecycleWrite({
+    event: transition.event,
+    snapshot: transition.snapshot,
+    packagePath: taskRead.packagePath,
+    currentDocuments,
+    completionContext: readCompletionContext(
+      cell.projection,
+      taskId,
+      transition.snapshot,
+      taskRead.status,
+      cell.rootDir,
+    ),
+  });
+  return {
+    event: compiled.event,
+    plan: compiled.plan,
+    blobs: compiled.blobs,
+  };
 }
 
 function makePeerId(repoId: string, personId: string, idempotencyKey?: string): string {
@@ -391,13 +477,13 @@ export function runPeerAction(
     const attachments: PeerAttachment[] = [];
     const blobs: CanonicalContentBlob[] = [];
     let releasedLeaseId: string | null = null;
+    let leaseReleaseBundle: CanonicalWriteBundle | null = null;
 
     if (isHandoff) {
       const targetId = requiredString(action.targetId, "<target-id>");
       anchorRef = anchorRef ?? `task/${targetId}`;
       const bundle = options?.preparedHandoff;
-      const wipCommitSha =
-        bundle?.wipCommitSha ?? optionalString(action.wipCommitSha) ?? "0000000000000000000000000000000000000000";
+      const wipCommitSha = requireValidWipCommitSha(action.wipCommitSha, bundle?.wipCommitSha);
       if (bundle?.bundleBlob && bundle.bundleSha256 && bundle.bundleSize !== undefined) {
         attachments.push({
           sha256: bundle.bundleSha256,
@@ -430,9 +516,18 @@ export function runPeerAction(
       claimText = `Handing off ${anchorRef} at commit ${wipCommitSha}`;
       requestedAction = nextAction;
 
-      const activeLease = cell.projection.currentLease(targetId, now);
+      const activeLease = decideReadableTaskLease(cell.projection.currentLease(targetId, now));
       if (activeLease) {
-        cell.projection.releaseLease(activeLease);
+        leaseReleaseBundle = compileHandoffLeaseReleaseBundle({
+          cell,
+          taskId: targetId,
+          activeLease,
+          binding,
+          requestId,
+          toPersonId,
+          head,
+          now,
+        });
         releasedLeaseId = activeLease.executionId;
       }
     } else {
@@ -469,7 +564,13 @@ export function runPeerAction(
       ...(continuationPacket ? { continuationPacket } : {}),
     };
 
-    const openedRevision = head + 1;
+    const batch: CanonicalWriteBundle[] = [];
+    let nextWorkspaceRev = head;
+    if (leaseReleaseBundle) {
+      batch.push(leaseReleaseBundle);
+      nextWorkspaceRev = leaseReleaseBundle.event.workspaceRevision;
+    }
+    const openedRevision = nextWorkspaceRev + 1;
     const openEvent = compilePeerRequestOpened(
       {
         eventId: `event-${opId}-open`,
@@ -482,7 +583,7 @@ export function runPeerAction(
       { requestRevision: 1, request: requestInput },
     );
     const snapshot = reducePeerRequestEvent(null, openEvent);
-    const inboxRevision = head + 2;
+    const inboxRevision = openedRevision + 1;
     const requiredBlobSha256s = attachments.map((a) => bareSha256(a.sha256));
     const inboxBundle = buildInboxEnqueueBundle({
       opId,
@@ -511,7 +612,7 @@ export function runPeerAction(
         enqueuedAt: now,
       },
     });
-    const batch = [buildPeerEventBundle(openEvent, requestId, blobs), inboxBundle];
+    batch.push(buildPeerEventBundle(openEvent, requestId, blobs), inboxBundle);
     commitBatch(cell, batch);
     return {
       ...cell.readResult(
@@ -1110,8 +1211,7 @@ export function runPeerAction(
     if (!fence.ok) reject(fence.errorCode, fence.message);
 
     const bundle = options?.preparedHandoff;
-    const commitSha =
-      bundle?.wipCommitSha ?? optionalString(action.wipCommitSha) ?? "0000000000000000000000000000000000000000";
+    const commitSha = requireValidWipCommitSha(action.wipCommitSha, bundle?.wipCommitSha);
     const receiptRef = optionalString(action.receiptRef);
     const receiptRefs = receiptRef
       ? [receiptRef]

@@ -6,7 +6,7 @@ import { createHostScratchDirectory, writeCallerOutputFile } from "./host-enviro
 import { runProcessExitAsync } from "./process-port.ts";
 
 export interface PreparedHandoffBundle {
-  readonly wipCommitSha: string;
+  readonly wipCommitSha?: string;
   readonly bundleBlob?: CanonicalContentBlob;
   readonly bundleSha256?: `sha256:${string}`;
   readonly bundleSize?: number;
@@ -36,16 +36,16 @@ export async function prepareHandoffBundle(input: {
   }
   const worktreeDir = path.join(input.rootDir, ".worktrees", input.targetId);
   const gitDir = existsSync(worktreeDir) ? worktreeDir : input.rootDir;
-  let commitSha = input.explicitCommitSha;
+  const explicit = typeof input.explicitCommitSha === "string" ? input.explicitCommitSha.trim() : undefined;
+  let commitSha = explicit && explicit.length > 0 ? explicit : undefined;
   if (!commitSha && existsSync(path.join(gitDir, ".git"))) {
     const rev = await runProcessExitAsync("git", ["rev-parse", "HEAD"], gitDir, undefined, undefined, undefined, {
       timeoutMs: 5_000,
     });
-    if (rev.exitCode === 0 && /^[0-9a-f]{7,64}$/u.test(rev.stdout.trim())) commitSha = rev.stdout.trim();
+    if (rev.exitCode === 0 && /^[0-9a-f]{40}$/u.test(rev.stdout.trim())) commitSha = rev.stdout.trim();
   }
-  if (!commitSha) commitSha = "0000000000000000000000000000000000000000";
 
-  if (!existsSync(path.join(gitDir, ".git"))) return { wipCommitSha: commitSha };
+  if (!existsSync(path.join(gitDir, ".git"))) return commitSha ? { wipCommitSha: commitSha } : {};
 
   const scratch = createHostScratchDirectory("peerHandoffBundle");
   const bundleFile = path.join(scratch.directory, `${input.targetId}.bundle`);
@@ -59,11 +59,11 @@ export async function prepareHandoffBundle(input: {
       undefined,
       { timeoutMs: 15_000 },
     );
-    if (created.exitCode !== 0 || !existsSync(bundleFile)) return { wipCommitSha: commitSha };
+    if (created.exitCode !== 0 || !existsSync(bundleFile)) return commitSha ? { wipCommitSha: commitSha } : {};
     const bytes = readFileSync(bundleFile);
     const hex = createHash("sha256").update(bytes).digest("hex");
     return {
-      wipCommitSha: commitSha,
+      ...(commitSha ? { wipCommitSha: commitSha } : {}),
       bundleBlob: { sha256: hex, size: bytes.byteLength, mediaType: "application/x-git-bundle", body: bytes },
       bundleSha256: `sha256:${hex}`,
       bundleSize: bytes.byteLength,

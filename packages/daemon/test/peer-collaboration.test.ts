@@ -6,6 +6,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { PeerRequestV1 } from "@harness-anything/kernel/internal/domain/peer-collaboration.ts";
+import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
+import { runPeerAction } from "../src/daemon-host/peer-action.ts";
+import { prepareHandoffBundle } from "../src/daemon-host/peer-handoff-bundle.ts";
+import type { RepoCellOperationalContext } from "../src/daemon-host/repo-cell-types.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import {
   acceptedWorkDecision,
@@ -650,5 +654,438 @@ test("peer takeover rejects online holder / missing L1 / sub-threshold, and fenc
   } finally {
     await cell?.close();
     removeTempRepository(rootDir);
+  }
+});
+
+test("peer-handoff releases active lease atomically through canonical lease_released event and survives projection rebuild", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-peer-handoff-atomic-"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  let rebuilt: ReturnType<typeof makeTaskProjection> | undefined;
+  let reader: ReturnType<typeof makeTaskEventReader> | undefined;
+  try {
+    initRepo(rootDir);
+    const repoId = workspaceId("peer-handoff-atomic");
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "peer-handoff-atomic-test",
+    });
+
+    const decisionRef = await acceptedWorkDecision(cell, adminAliceBinding, "peer-handoff-atomic");
+    const work = await cell.run(
+      {
+        kind: "task-create",
+        taskId: "task_atomic_work",
+        title: "Atomic handoff work root",
+        taskClass: "work",
+        decisionRef,
+      },
+      adminAliceBinding,
+    );
+    assert.equal(work.outcome, "applied", JSON.stringify(work));
+
+    const created = await cell.run(
+      {
+        kind: "task-create",
+        taskId: "task_atomic_live",
+        title: "Atomic lease release handoff task",
+        parentTaskId: "task_atomic_work",
+      },
+      aliceBinding,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, aliceBinding);
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, aliceBinding),
+    );
+
+    const started = await cell.run({ kind: "task-start", taskId: "task_atomic_live" }, aliceBinding);
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+    await waitForFixturePublication(cell, started.opId, aliceBinding);
+    const before = evidence(await cell.run({ kind: "task-show", taskId: "task_atomic_live" }, aliceBinding)) as {
+      executions: { schema: string; executionId: string; state: string }[];
+      lease: { phase: string; executionId: string; version: number } | null;
+    };
+    const originalExec = before.executions.find((e) => e.schema === "execution/v1" && e.state === "active");
+    assert.ok(originalExec, "active execution must exist");
+    assert.equal(before.lease?.phase, "held");
+    assert.equal(before.lease?.executionId, originalExec.executionId);
+
+    writeFileSync(path.join(rootDir, "atomic-wip.txt"), "atomic handoff wip\n", "utf8");
+    execFileSync("git", ["-C", rootDir, "add", "atomic-wip.txt"]);
+    execFileSync("git", ["-C", rootDir, "commit", "-m", "wip: atomic handoff"]);
+    const wipSha = execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+
+    // Negative control 1: validation failure after handoff prep (invalid multiline summary) must NOT release the active lease
+    const badSummary = await cell.run(
+      {
+        kind: "peer-handoff",
+        targetId: "task_atomic_live",
+        toPersonId: "person_bob",
+        summary: "invalid\nmultiline summary",
+        wipCommitSha: wipSha,
+      },
+      aliceBinding,
+    );
+    assert.equal(badSummary.outcome, "op_rejected", JSON.stringify(badSummary));
+    const afterBadSummary = evidence(
+      await cell.run({ kind: "task-show", taskId: "task_atomic_live" }, aliceBinding),
+    ) as {
+      lease: { phase: string; executionId: string } | null;
+    };
+    assert.equal(afterBadSummary.lease?.phase, "held", "failed peer-handoff must leave the active lease untouched");
+    assert.equal(afterBadSummary.lease?.executionId, originalExec.executionId);
+
+    // Negative control 2: non-holder principal cannot release Alice's active lease via peer-handoff
+    const nonHolder = await cell.run(
+      {
+        kind: "peer-handoff",
+        targetId: "task_atomic_live",
+        toPersonId: "person_alice",
+        wipCommitSha: wipSha,
+      },
+      bobBinding,
+    );
+    assert.equal(nonHolder.outcome, "op_rejected", JSON.stringify(nonHolder));
+    const afterNonHolder = evidence(
+      await cell.run({ kind: "task-show", taskId: "task_atomic_live" }, aliceBinding),
+    ) as {
+      lease: { phase: string; executionId: string } | null;
+    };
+    assert.equal(afterNonHolder.lease?.phase, "held");
+
+    // Positive case: Alice hands off task_atomic_live -> single atomic batch [lease_released, peer_request_opened, inbox_item_enqueued]
+    const handoff = await cell.run(
+      {
+        kind: "peer-handoff",
+        targetId: "task_atomic_live",
+        toPersonId: "person_bob",
+        wipCommitSha: wipSha,
+        nextAction: "Continue atomic handoff task.",
+      },
+      aliceBinding,
+    );
+    assert.equal(handoff.outcome, "applied", JSON.stringify(handoff));
+    const handoffData = evidence(handoff) as {
+      request: PeerRequestV1;
+      minRevision: number;
+      releasedLeaseExecutionId?: string;
+    };
+    assert.equal(handoffData.releasedLeaseExecutionId, originalExec.executionId);
+
+    const afterHandoff = evidence(await cell.run({ kind: "task-show", taskId: "task_atomic_live" }, aliceBinding)) as {
+      lease: unknown;
+    };
+    assert.equal(afterHandoff.lease, null, "live projection must show released lease");
+
+    reader = makeTaskEventReader({ repoId, rootDir });
+    const events = reader.read().events;
+    const lastThree = events.slice(-3);
+    assert.equal(lastThree.length, 3);
+    const [releaseEvent, openEvent, inboxEvent] = lastThree;
+    assert.equal(releaseEvent!.schema, "task-event/v1");
+    assert.equal(releaseEvent!.type, "lease_released");
+    assert.equal((releaseEvent as { taskId: string }).taskId, "task_atomic_live");
+    assert.equal(
+      (releaseEvent as { payload: { releasedLease: { executionId: string } } }).payload.releasedLease.executionId,
+      originalExec.executionId,
+    );
+    assert.equal(openEvent!.schema, "peer-request-event/v1");
+    assert.equal(openEvent!.type, "peer_request_opened");
+    assert.equal(
+      (openEvent as { payload: { request: { requestId: string } } }).payload.request.requestId,
+      handoffData.request.requestId,
+    );
+    assert.equal(inboxEvent!.type, "inbox_item_enqueued");
+    assert.equal(releaseEvent!.workspaceRevision + 1, openEvent!.workspaceRevision);
+    assert.equal(openEvent!.workspaceRevision + 1, inboxEvent!.workspaceRevision);
+    assert.equal(handoffData.minRevision, inboxEvent!.workspaceRevision);
+
+    // Cold rebuild projection purely from canonical event log -> lease must remain released
+    rebuilt = makeTaskProjection({
+      rootDir,
+      eventStore: reader,
+      projectionPath: path.join(rootDir, ".harness", "cache", "rebuilt-handoff-atomic.sqlite"),
+    });
+    rebuilt.rebuild();
+    assert.equal(
+      rebuilt.currentLease("task_atomic_live")?.phase,
+      "released",
+      "rebuilt projection from canonical event log must show task lease released",
+    );
+    assert.equal(rebuilt.read("task_atomic_live").snapshot.lease, null);
+    const rebuiltReq = rebuilt.readPeerRequests({ by: "id", requestId: handoffData.request.requestId });
+    assert.equal(rebuiltReq.status, "ready");
+    assert.equal(rebuiltReq.requests[0]?.requestId, handoffData.request.requestId);
+
+    // Follow-up handoff after lease is already released emits 2 events (no duplicate lease_released)
+    const revBeforeSecond = reader.readHead()?.revision ?? 0;
+    const secondHandoff = await cell.run(
+      {
+        kind: "peer-handoff",
+        targetId: "task_atomic_live",
+        toPersonId: "person_bob",
+        wipCommitSha: wipSha,
+        nextAction: "Second handoff after release.",
+      },
+      aliceBinding,
+    );
+    assert.equal(secondHandoff.outcome, "applied", JSON.stringify(secondHandoff));
+    const secondData = evidence(secondHandoff) as { minRevision: number; releasedLeaseExecutionId?: string };
+    assert.equal(secondData.releasedLeaseExecutionId, undefined);
+    assert.equal(secondData.minRevision, revBeforeSecond + 2);
+    const tailTwo = reader.read().events.slice(-2);
+    assert.equal(tailTwo[0]?.type, "peer_request_opened");
+    assert.equal(tailTwo[1]?.type, "inbox_item_enqueued");
+  } finally {
+    rebuilt?.close();
+    await cell?.close();
+    removeTempRepository(rootDir);
+  }
+});
+
+test("peer-handoff fails closed on commitBatch store error or missing task record without mutating projection lease", () => {
+  const validSha = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
+  const now = "2026-11-27T00:00:00.000Z";
+  const activeLease = {
+    schema: "lease/v1" as const,
+    taskId: "task_orphan_lease",
+    executionId: "exe_orphan_lease",
+    actor: aliceBinding.actor,
+    source: aliceBinding.source,
+    phase: "held" as const,
+    expiresAt: "2026-11-28T00:00:00.000Z",
+    ttlMs: 86_400_000,
+    version: 1,
+  };
+  let releaseLeaseCalls = 0;
+  let applyCalls = 0;
+  let appendCalls = 0;
+
+  const missingTaskCell = {
+    input: { repoId: "repo-unit" },
+    rootDir: ".",
+    now: () => now,
+    projectionReady: (read: { status: string }) => read.status === "ready",
+    store: {
+      readHead: () => ({ revision: 10 }),
+      append: () => {
+        appendCalls += 1;
+        throw new Error("store.append must not be called");
+      },
+    },
+    projection: {
+      currentLease: () => activeLease,
+      releaseLease: () => {
+        releaseLeaseCalls += 1;
+        throw new Error("projection.releaseLease must never be called directly");
+      },
+      read: () => ({
+        status: "ready",
+        packagePath: null,
+        snapshot: {
+          revision: 10,
+          task: null,
+          executions: [],
+          reviews: [],
+          consents: [],
+          reviewResponses: [],
+          gateWitnesses: [],
+          edgesTaken: [],
+          lease: activeLease,
+          forwardedCuts: [],
+        },
+      }),
+      readRuntimeDispatchesByTaskIds: () => [],
+      apply: () => {
+        applyCalls += 1;
+      },
+    },
+  } as unknown as RepoCellOperationalContext;
+
+  assert.throws(
+    () =>
+      runPeerAction(
+        missingTaskCell,
+        { kind: "peer-handoff", targetId: "task_orphan_lease", toPersonId: "person_bob", wipCommitSha: validSha },
+        aliceBinding,
+        "op-missing-task",
+      ),
+    (err: unknown) => {
+      assert.ok(err instanceof Error);
+      assert.ok(["entity_not_found", "invalid_transition"].includes(String((err as { code?: string }).code)));
+      return true;
+    },
+  );
+  assert.equal(releaseLeaseCalls, 0);
+  assert.equal(applyCalls, 0);
+  assert.equal(appendCalls, 0);
+
+  // When store.append fails inside commitBatch, projection must observe zero side effects (no releaseLease, no apply)
+  const storeFailureCell = {
+    input: { repoId: "repo-unit" },
+    rootDir: ".",
+    now: () => now,
+    projectionReady: (read: { status: string }) => read.status === "ready",
+    store: {
+      readHead: () => ({ revision: 10 }),
+      append: () => {
+        appendCalls += 1;
+        throw Object.assign(new Error("simulated revision conflict"), { code: "revision_conflict" });
+      },
+    },
+    projection: {
+      currentLease: () => null,
+      releaseLease: () => {
+        releaseLeaseCalls += 1;
+        throw new Error("projection.releaseLease must never be called directly");
+      },
+      readRuntimeDispatchesByTaskIds: () => [],
+      apply: () => {
+        applyCalls += 1;
+      },
+    },
+  } as unknown as RepoCellOperationalContext;
+
+  assert.throws(
+    () =>
+      runPeerAction(
+        storeFailureCell,
+        { kind: "peer-handoff", targetId: "task_store_fail", toPersonId: "person_bob", wipCommitSha: validSha },
+        aliceBinding,
+        "op-store-fail",
+      ),
+    (err: unknown) => (err as { code?: string })?.code === "revision_conflict",
+  );
+  assert.equal(appendCalls, 1);
+  assert.equal(releaseLeaseCalls, 0);
+  assert.equal(applyCalls, 0);
+});
+
+test("peer-handoff and peer-checkpoint fail closed on missing, all-zero, or malformed wipCommitSha without side effects", async () => {
+  const nonGitDir = mkdtempSync(path.join(tmpdir(), "ha-peer-nogit-"));
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-peer-badsha-"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    // 1. prepareHandoffBundle on a non-git directory must NOT fabricate a 40-zero SHA
+    const noGitBundle = await prepareHandoffBundle({ rootDir: nonGitDir, targetId: "task_nogit" });
+    assert.equal(noGitBundle.wipCommitSha, undefined);
+
+    initRepo(rootDir);
+    const repoId = workspaceId("peer-badsha");
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "peer-badsha-test",
+    });
+
+    const decisionRef = await acceptedWorkDecision(cell, adminAliceBinding, "peer-badsha");
+    await cell.run(
+      {
+        kind: "task-create",
+        taskId: "task_badsha_work",
+        title: "Bad SHA work root",
+        taskClass: "work",
+        decisionRef,
+      },
+      adminAliceBinding,
+    );
+    const created = await cell.run(
+      {
+        kind: "task-create",
+        taskId: "task_badsha_live",
+        title: "Bad SHA handoff task",
+        parentTaskId: "task_badsha_work",
+      },
+      aliceBinding,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, aliceBinding);
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, aliceBinding),
+    );
+    const started = await cell.run({ kind: "task-start", taskId: "task_badsha_live" }, aliceBinding);
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+
+    const reader = makeTaskEventReader({ repoId, rootDir });
+    const headBefore = reader.readHead()?.revision ?? 0;
+
+    const zeroSha = "0".repeat(40);
+    const invalidShas = [zeroSha, "", "   ", "abc1234", "a".repeat(39), "a".repeat(41), "A".repeat(40), "g".repeat(40)];
+    for (const badSha of invalidShas) {
+      const res = await cell.run(
+        {
+          kind: "peer-handoff",
+          targetId: "task_badsha_live",
+          toPersonId: "person_bob",
+          wipCommitSha: badSha,
+        },
+        aliceBinding,
+      );
+      assert.equal(res.outcome, "op_rejected", `expected rejection for wipCommitSha=${JSON.stringify(badSha)}`);
+      assert.equal(res.code, "invalid_field", `expected invalid_field for wipCommitSha=${JSON.stringify(badSha)}`);
+    }
+
+    // Missing wipCommitSha directly in runPeerAction without preparedHandoff must fail closed
+    assert.throws(
+      () =>
+        runPeerAction(
+          {
+            input: { repoId: "repo-unit" },
+            rootDir: ".",
+            now: () => "2026-11-27T00:00:00.000Z",
+            store: { readHead: () => ({ revision: 1 }) },
+            projection: {
+              currentLease: () => null,
+              readRuntimeDispatchesByTaskIds: () => [],
+            },
+          } as unknown as RepoCellOperationalContext,
+          { kind: "peer-handoff", targetId: "task_missing_sha", toPersonId: "person_bob" },
+          aliceBinding,
+          "op-missing-sha",
+        ),
+      (err: unknown) => (err as { code?: string })?.code === "invalid_field",
+    );
+
+    // peer-checkpoint must also reject all-zero and malformed SHAs
+    for (const badSha of [zeroSha, "not-a-sha"]) {
+      const cpRes = await cell.run(
+        {
+          kind: "peer-checkpoint",
+          targetId: "task_badsha_live",
+          wipCommitSha: badSha,
+          stewardshipEpoch: 1,
+        },
+        aliceBinding,
+      );
+      assert.equal(cpRes.outcome, "op_rejected", `checkpoint expected rejection for ${badSha}`);
+      assert.equal(cpRes.code, "invalid_field", `checkpoint expected invalid_field for ${badSha}`);
+    }
+
+    // Zero events written and active lease intact after all rejected calls
+    assert.equal(reader.readHead()?.revision ?? 0, headBefore, "rejected calls must write zero canonical events");
+    const afterRejects = evidence(await cell.run({ kind: "task-show", taskId: "task_badsha_live" }, aliceBinding)) as {
+      lease: { phase: string } | null;
+    };
+    assert.equal(afterRejects.lease?.phase, "held", "rejected calls must not release active lease");
+
+    // Valid non-zero 40-char lowercase hex SHA succeeds
+    const validSha = "0123456789abcdef0123456789abcdef01234567";
+    const okHandoff = await cell.run(
+      {
+        kind: "peer-handoff",
+        targetId: "task_badsha_live",
+        toPersonId: "person_bob",
+        wipCommitSha: validSha,
+      },
+      aliceBinding,
+    );
+    assert.equal(okHandoff.outcome, "applied", JSON.stringify(okHandoff));
+    const { request } = evidence(okHandoff) as { request: PeerRequestV1 };
+    assert.equal(request.continuationPacket?.wipCommitSha, validSha);
+  } finally {
+    await cell?.close();
+    removeTempRepository(rootDir);
+    removeTempRepository(nonGitDir);
   }
 });
