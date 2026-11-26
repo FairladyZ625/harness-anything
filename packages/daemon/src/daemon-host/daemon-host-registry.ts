@@ -82,7 +82,7 @@ export function openRegistered(
     context.openings.set(repo.repoId, tracked);
     void tracked.then(clearOpening, clearOpening);
   }
-  return context.raceAttachBudget(tracked, repo.repoId, progress);
+  return context.raceAttachBudget(tracked, repo.repoId, repo.canonicalRoot, progress);
   function clearOpening(): void {
     if (context.openings.get(repo.repoId) === tracked) context.openings.delete(repo.repoId);
   }
@@ -92,6 +92,7 @@ export function raceAttachBudget(
   context: DaemonHostRegistryContext,
   opening: Promise<void>,
   repoId: string,
+  rootDir: string,
   progress?: {
     readonly attachIndex: number;
     readonly attachTotal: number;
@@ -102,6 +103,7 @@ export function raceAttachBudget(
       context.input.recordLifecycle?.({
         event: "repo_attach_timed_out",
         repoId,
+        rootDir,
         ...(progress ?? {}),
         durationMs: context.attachTimeoutMs,
       });
@@ -264,16 +266,18 @@ export async function performOpenRegistered(
     const cell = opened;
     opened = undefined;
     context.cells.set(repo.repoId, cell);
-    for (const event of pendingDecisionOutcomes.splice(0)) settleDecision(event, cell);
-    await context.scheduleScheduler.refresh();
     context.settleWarming(repo.repoId);
     context.unavailable.delete(repo.repoId);
+    for (const event of pendingDecisionOutcomes.splice(0)) settleDecision(event, cell);
     context.onAutoClaimTrigger?.("repo-attached");
     context.input.recordLifecycle?.({
       event: "repo_attach_completed",
       ...lifecycle,
       durationMs: performance.now() - started,
     });
+    // Schedule reconciliation can call into the cell's writer worker (e.g. hasBuiltinExecutor);
+    // never block attach publication or repo_attach_completed on unrelated scheduler work.
+    void context.scheduleScheduler.refresh();
   } catch (error) {
     // The publication re-read and the discard close are new throw sites downstream of a live
     // Cell, so an open that never reaches `cells` still gets torn down instead of leaking its
