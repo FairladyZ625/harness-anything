@@ -29,7 +29,8 @@ function run(command, args, cwd = repository) {
       cwd,
       env,
       encoding: "utf8",
-      timeout: process.platform === "win32" ? 360_000 : 180_000,
+      timeout: 180_000,
+      ...(process.platform === "win32" ? { timeout: 180_000 * 2 } : {}),
       ...(invocation ? { windowsVerbatimArguments: invocation.windowsVerbatimArguments } : {}),
     });
   process.stdout.write(result.stdout ?? "");
