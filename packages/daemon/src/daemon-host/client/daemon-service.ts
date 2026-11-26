@@ -77,6 +77,8 @@ export function daemonServiceUnitContent(
     readonly attachTimeoutMs?: number | string | undefined;
     /** Test-only vertical script blocker file propagated across on-demand scheduled launches. */
     readonly verticalScriptBlockFile?: string | undefined;
+    /** Test-runner context propagated so scheduled test daemons suppress background warmup/network refreshes. */
+    readonly nodeTestContext?: string | undefined;
     /** Windows on-demand starts do not opt the user into login autostart. */
     readonly runAtLogin?: boolean;
   },
@@ -101,6 +103,7 @@ export function daemonServiceUnitContent(
       ...(input.verticalScriptBlockFile
         ? { HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE: input.verticalScriptBlockFile }
         : {}),
+      ...(input.nodeTestContext ? { NODE_TEST_CONTEXT: input.nodeTestContext } : {}),
     };
   if (unit.manager === "task-scheduler") {
     // Task Scheduler owns a hidden launcher so PATH/CA and output match the other managers. The

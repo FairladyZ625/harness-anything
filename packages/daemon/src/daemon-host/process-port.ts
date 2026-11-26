@@ -2,7 +2,7 @@ import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cl
 import { cmdShellInvocation } from "@harness-anything/storage/cmd-command-line";
 import { runProcessText } from "../runtime-engine/process-text.ts";
 import { statSync } from "node:fs";
-import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess, type ExecFileException } from "node:child_process";
 import { terminateRuntimePid } from "../runtime-engine/runtime-process-signals.ts";
 import { closeDaemonOutputFd, openDaemonOutputFd } from "./lifecycle-log.ts";
 import { classifyRemoteGitInvocation, writePortExternalObservation } from "./write-port-external-observation.ts";
@@ -130,13 +130,25 @@ function launchProcessText(
     writePortExternalObservation.noteRemoteChildProcess();
   return new Promise((resolve) => {
     let interactionError: Error | null = null;
-    const invocation =
-        process.platform === "win32" && /\.(?:cmd|bat)$/iu.test(command)
-          ? cmdShellInvocation(command, args, env ?? process.env)
-          : null,
+    let timedOut = false;
+    const childRef: { current?: ChildProcess } = {};
+    const isWin32 = process.platform === "win32",
+      timeoutSignal = options.timeoutSignal ?? "SIGTERM",
+      useWindowsTreeTimeout = isWin32 && options.timeoutMs !== undefined,
+      treeKillEnabled = isWin32 || options.timeoutMs !== undefined,
+      invocation =
+        isWin32 && /\.(?:cmd|bat)$/iu.test(command) ? cmdShellInvocation(command, args, env ?? process.env) : null,
       executable = invocation?.command ?? command,
       executableArgs = invocation?.args ?? [...args],
       windowsVerbatimArguments = invocation?.windowsVerbatimArguments ?? options.windowsVerbatimArguments;
+    // Register before execFile so EventTarget runs our tree kill before Node's abort handler
+    // terminates cmd.exe alone (which would orphan .cmd grandchildren holding stdio pipes open).
+    const onAbort = () => {
+      const current = childRef.current;
+      if (current?.pid === undefined || current.exitCode !== null || current.signalCode !== null) return;
+      if (treeKillEnabled) terminateRuntimePid(current.pid, timeoutSignal);
+    };
+    if (signal && !signal.aborted) signal.addEventListener("abort", onAbort, { once: true });
     // execFile's own AbortSignal handling fires the callback as soon as the signal aborts,
     // while SIGTERM is still in flight — settling then would release the caller (and any
     // queue slot it holds) before the child has actually exited. Settle only once the child
@@ -148,9 +160,9 @@ function launchProcessText(
         cwd,
         ...(env ? { env } : {}),
         ...(signal ? { signal } : {}),
-        ...(options.timeoutMs === undefined
+        ...(options.timeoutMs === undefined || useWindowsTreeTimeout
           ? {}
-          : { timeout: options.timeoutMs, killSignal: options.timeoutSignal ?? "SIGTERM" }),
+          : { timeout: options.timeoutMs, killSignal: timeoutSignal }),
         ...(windowsVerbatimArguments === undefined ? {} : { windowsVerbatimArguments }),
         ...(options.maxBuffer === undefined ? {} : { maxBuffer: options.maxBuffer }),
         // Provider commands may launch helpers that inherit stdout/stderr. Put the
@@ -161,7 +173,17 @@ function launchProcessText(
         windowsHide: true,
       },
       (error, stdout, stderr) => {
+        if (timedOut && !interactionError) {
+          if (!error)
+            error = new Error(`Command timed out after ${options.timeoutMs}ms: ${command}`) as ExecFileException;
+          error.killed = true;
+          error.signal = error.signal ?? timeoutSignal;
+        }
         error = interactionError ?? error;
+        const cleanup = () => {
+          if (timeout !== null) clearTimeout(timeout);
+          signal?.removeEventListener("abort", onAbort);
+        };
         const settle = () =>
           resolve({
             error: error
@@ -176,21 +198,23 @@ function launchProcessText(
           });
         if (error && child.exitCode === null && child.signalCode === null) {
           child.once("close", () => {
-            if (timeout !== null) clearTimeout(timeout);
+            cleanup();
             settle();
           });
           return;
         }
-        if (timeout !== null) clearTimeout(timeout);
+        cleanup();
         settle();
       },
     );
+    childRef.current = child;
     const timeout =
-      options.timeoutMs === undefined || process.platform === "win32"
+      options.timeoutMs === undefined
         ? null
         : setTimeout(() => {
+            if (useWindowsTreeTimeout) timedOut = true;
             if (child.pid === undefined) return;
-            terminateRuntimePid(child.pid, options.timeoutSignal);
+            terminateRuntimePid(child.pid, timeoutSignal);
           }, options.timeoutMs);
     timeout?.unref();
     if (typeof input === "function")
@@ -201,9 +225,10 @@ function launchProcessText(
           (error: unknown) => {
             interactionError = error instanceof Error ? error : new Error(String(error));
             if (child.pid !== undefined && child.exitCode === null && child.signalCode === null) {
+              // Kill the process tree first on Windows so cmd.exe cannot exit before taskkill walks it.
+              if (treeKillEnabled) terminateRuntimePid(child.pid);
               // An opening callback can fail before the child has established its group.
               child.kill("SIGTERM");
-              if (options.timeoutMs !== undefined) terminateRuntimePid(child.pid);
             }
           },
         );

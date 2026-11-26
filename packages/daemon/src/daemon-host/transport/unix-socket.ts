@@ -33,7 +33,10 @@ export interface UnixSocketTransportServer {
 
 export function createUnixSocketTransportServer(options: UnixSocketTransportOptions): UnixSocketTransportServer {
   const connections = new Set<DaemonTransportConnection>();
-  const connectionClosures = new Map<DaemonTransportConnection, Promise<void>>();
+  const connectionClosures = new Map<
+    DaemonTransportConnection,
+    { readonly closed: Promise<void>; readonly socket: net.Socket }
+  >();
   const endpoint = options.socketPath ?? defaultUnixSocketPath(options.daemonId);
   const server = net.createServer((socket) => {
     // Windows endpoints are named pipes, which have no filesystem owner to
@@ -69,7 +72,10 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
     connections.add(connection);
     options.onConnection?.(connection);
     let confirmClosed!: () => void;
-    connectionClosures.set(connection, new Promise((resolve) => (confirmClosed = resolve)));
+    connectionClosures.set(connection, {
+      closed: new Promise((resolve) => (confirmClosed = resolve)),
+      socket,
+    });
     socket.once("close", () => {
       connections.delete(connection);
       options.onConnectionClosed?.(connection);
@@ -102,17 +108,21 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
       });
     },
     stop: async () => {
+      if (!server.listening && connectionClosures.size === 0) return;
       // Stop accepting new work before draining already accepted connections. A client holding a
       // stream subscription never disconnects on its own, so each connection is then closed to
       // bound the wait (notably on Windows named pipes, where half-close delivery is async).
-      const serverClosed = new Promise<void>((resolve, reject) => {
-          server.close((error) => (error ? reject(error) : resolve()));
-        }),
+      const serverClosed = server.listening
+          ? new Promise<void>((resolve, reject) => {
+              server.close((error) => (error ? reject(error) : resolve()));
+            })
+          : Promise.resolve(),
         closing = [...connections].map((connection) => ({
           connection,
-          closed: connectionClosures.get(connection) ?? Promise.resolve(),
+          closed: connectionClosures.get(connection)?.closed ?? Promise.resolve(),
         }));
       await Promise.all(closing.map(async ({ connection, closed }) => Promise.all([connection.close(), closed])));
+      for (const { socket } of connectionClosures.values()) socket.destroy();
       await serverClosed;
       if (process.platform !== "win32")
         /* @gate-identity non-state/environment-io.961cdcaa9a92cbbe */ rmSync(endpoint, { force: true });

@@ -29,8 +29,15 @@ await realm.control({
 
 export const cli = path.resolve("packages/cli/src/index.ts");
 
-export function run(root: string, env: NodeJS.ProcessEnv, args: readonly string[]): Record<string, unknown> {
-  const result = runMaybe(root, env, args);
+const DEFAULT_CLI_SYNC_TIMEOUT_MS = 60_000;
+
+export function run(
+  root: string,
+  env: NodeJS.ProcessEnv,
+  args: readonly string[],
+  timeoutMs = DEFAULT_CLI_SYNC_TIMEOUT_MS,
+): Record<string, unknown> {
+  const result = runMaybe(root, env, args, timeoutMs);
   assert.equal(result.status, 0, `${result.stderr}\n${JSON.stringify(result.receipt)}`);
   return result.receipt;
 }
@@ -47,17 +54,39 @@ export function runMaybe(
   root: string,
   env: NodeJS.ProcessEnv,
   args: readonly string[],
+  timeoutMs = DEFAULT_CLI_SYNC_TIMEOUT_MS,
 ): {
   readonly status: number | null;
   readonly pid: number | undefined;
   readonly receipt: Record<string, unknown>;
   readonly stderr: string;
 } {
-  const result = spawnSync(process.execPath, [cli, "--root", root, "--json", ...args], { encoding: "utf8", env });
+  const result = spawnSync(process.execPath, [cli, "--root", root, "--json", ...args], {
+    encoding: "utf8",
+    env,
+    timeout: timeoutMs,
+  });
+  if (result.error) {
+    throw new Error(
+      `CLI command ${JSON.stringify(args)} failed before exit (timeoutMs=${timeoutMs}, status=${String(result.status)}, signal=${String(result.signal)}): ${result.error.message}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+      { cause: result.error },
+    );
+  }
+  let receipt: Record<string, unknown> = {};
+  if (result.stdout.trim()) {
+    try {
+      receipt = JSON.parse(result.stdout) as Record<string, unknown>;
+    } catch (error) {
+      throw new Error(
+        `CLI command ${JSON.stringify(args)} returned invalid JSON (status=${String(result.status)}, signal=${String(result.signal)}): ${error instanceof Error ? error.message : String(error)}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+        { cause: error },
+      );
+    }
+  }
   return {
     status: result.status,
     pid: result.pid,
-    receipt: result.stdout.trim() ? (JSON.parse(result.stdout) as Record<string, unknown>) : {},
+    receipt,
     stderr: result.stderr,
   };
 }
@@ -95,7 +124,7 @@ export function runAsync(
 function writeProvider(target: string, version: string): void {
   writeProviderExecutable(
     target,
-    `const fs = require("node:fs");\nconst args = process.argv.slice(2);\nif (args[0] === "--version") { console.log("codex ${version}"); process.exit(0); }\nif (args[0] === "login" && args[1] === "status") process.exit(0);\nconst prompt = fs.readFileSync(0, "utf8"), assignment = "\\n# Assigned Mission\\n", assignmentOffset = prompt.indexOf(assignment), mission = assignmentOffset < 0 ? prompt : prompt.slice(assignmentOffset + assignment.length), taskMission = mission.split("\\n\\n# Previous runtime continuation context\\n")[0], body = taskMission.includes("# 台账查询引导") ? taskMission.split("\\n\\n").at(-1) : taskMission, secret = "sk-runtime-secret-1234567890";\nif (prompt.includes("failure:empty")) process.exit(1);\nif (prompt.includes("failure:secret")) process.stderr.write("OPENAI_API_KEY=" + secret + "\\n", () => process.exit(1));\nelse if (prompt.includes("failure:structured")) process.stdout.write([JSON.stringify({ type: "thread.started", thread_id: "provider-cli-session" }), JSON.stringify({ type: "turn.failed", error: { message: "structured provider failure", apiToken: secret } })].join("\\n") + "\\n", () => process.exit(1));\nelse { const resumed = args[0] === "exec" && args[1] === "resume", readOnly = body === "read-only", noAction = body === "no-action";\nif (readOnly && !args.includes("read-only")) process.exit(9);\nconst session = resumed ? args.at(-2) : "provider-cli-session";\nconst batch = body.includes("batch hold"), mark = (event) => { if (batch) fs.appendFileSync(".batch-tracker", event + "\\n"); };\nconst emit = () => { mark("start"); console.log(JSON.stringify({ type: "thread.started", thread_id: session })); if (readOnly) console.log(JSON.stringify({ type: "item.completed", item: { id: "inspect", type: "command_execution", command: "ls packages", aggregated_output: "cli daemon kernel", exit_code: 0, status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "live", type: "agent_message", text: "live:" + prompt } })); if (body === "hold") setInterval(() => {}, 1000); else { if (!readOnly && !noAction) console.log(JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "result.txt", kind: "add" }], status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "final", type: "agent_message", text: resumed ? "resumed:" + session + ":" + prompt : "final:" + prompt } })); console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); mark("end"); } };\nif (body === "stream prompt") setTimeout(emit, 3000); else if (batch) setTimeout(emit, 250); else emit(); }\n`,
+    `const fs = require("node:fs");\nconst args = process.argv.slice(2);\nif (args[0] === "--version") { console.log("codex ${version}"); process.exit(0); }\nif (args[0] === "login" && args[1] === "status") process.exit(0);\nif (args[0] === "app-server") process.exit(0);\nconst prompt = fs.readFileSync(0, "utf8"), assignment = "\\n# Assigned Mission\\n", assignmentOffset = prompt.indexOf(assignment), mission = assignmentOffset < 0 ? prompt : prompt.slice(assignmentOffset + assignment.length), taskMission = mission.split("\\n\\n# Previous runtime continuation context\\n")[0], body = taskMission.includes("# 台账查询引导") ? taskMission.split("\\n\\n").at(-1) : taskMission, secret = "sk-runtime-secret-1234567890";\nif (prompt.includes("failure:empty")) process.exit(1);\nif (prompt.includes("failure:secret")) process.stderr.write("OPENAI_API_KEY=" + secret + "\\n", () => process.exit(1));\nelse if (prompt.includes("failure:structured")) process.stdout.write([JSON.stringify({ type: "thread.started", thread_id: "provider-cli-session" }), JSON.stringify({ type: "turn.failed", error: { message: "structured provider failure", apiToken: secret } })].join("\\n") + "\\n", () => process.exit(1));\nelse { const resumed = args[0] === "exec" && args[1] === "resume", readOnly = body === "read-only", noAction = body === "no-action";\nif (readOnly && !args.includes("read-only")) process.exit(9);\nconst session = resumed ? args.at(-2) : "provider-cli-session";\nconst batch = body.includes("batch hold"), mark = (event) => { if (batch) fs.appendFileSync(".batch-tracker", event + "\\n"); };\nconst emit = () => { mark("start"); console.log(JSON.stringify({ type: "thread.started", thread_id: session })); if (readOnly) console.log(JSON.stringify({ type: "item.completed", item: { id: "inspect", type: "command_execution", command: "ls packages", aggregated_output: "cli daemon kernel", exit_code: 0, status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "live", type: "agent_message", text: "live:" + prompt } })); if (body === "hold") setInterval(() => {}, 1000); else { if (!readOnly && !noAction) console.log(JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "result.txt", kind: "add" }], status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "final", type: "agent_message", text: resumed ? "resumed:" + session + ":" + prompt : "final:" + prompt } })); console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); mark("end"); } };\nif (body === "stream prompt") setTimeout(emit, 3000); else if (batch) setTimeout(emit, 250); else emit(); }\n`,
   );
 }
 export function writeProgressProvider(target: string, version: string): void {
@@ -111,8 +140,8 @@ export function writeProgressProvider(target: string, version: string): void {
       `${batchMarker}const progressTask = body.startsWith("progress-middle:") ? body.slice("progress-middle:".length) : null;\n` +
       'const submitTask = body.startsWith("submit-before-exit:") ? body.slice("submit-before-exit:".length).split(":")[0] : null;\n',
     progressWrite =
-      `console.log(JSON.stringify({ type: "thread.started", thread_id: session })); if (progressTask) { for (const text of ["Provider checkpoint one.", "Provider checkpoint two."]) { const result = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "progress", "append", progressTask, "--text", text, "--evidence", "test:reports/runtime-progress.txt:provider checkpoint"], { encoding: "utf8", env: process.env }); if (result.status !== 0) { process.stderr.write("progress append failed: " + result.stdout + result.stderr); process.exit(8); } } } ` +
-      `if (submitTask) { const packageRoot = prompt.split("Task package root: ")[1].split("\\n")[0]; fs.writeFileSync(require("node:path").join(packageRoot, "closeout.md"), "# Closeout\\n\\n## Summary\\n\\nRuntime worker submitted before exit at " + mission.split(":").at(-1) + ".\\n\\n## Verification\\n\\nIntegration runtime submission.\\n\\n## Residual Risk\\n\\nNone.\\n\\n## Same Mechanism Elsewhere\\n\\nRuntime archive lifecycle.\\n"); const result = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "submit", submitTask], { encoding: "utf8", env: process.env }); if (result.status !== 0) { process.stderr.write("task submit failed: " + result.stdout + result.stderr); process.exit(8); } } if (readOnly)`,
+      `console.log(JSON.stringify({ type: "thread.started", thread_id: session })); if (progressTask) { for (const text of ["Provider checkpoint one.", "Provider checkpoint two."]) { const result = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "progress", "append", progressTask, "--text", text, "--evidence", "test:reports/runtime-progress.txt:provider checkpoint"], { encoding: "utf8", env: process.env, timeout: 60_000 }); if (result.error || result.status !== 0) { process.stderr.write("progress append failed: " + (result.error ? result.error.message + "\\n" : "") + result.stdout + result.stderr); process.exit(8); } } } ` +
+      `if (submitTask) { const packageRoot = prompt.split("Task package root: ")[1].split("\\n")[0]; fs.writeFileSync(require("node:path").join(packageRoot, "closeout.md"), "# Closeout\\n\\n## Summary\\n\\nRuntime worker submitted before exit at " + mission.split(":").at(-1) + ".\\n\\n## Verification\\n\\nIntegration runtime submission.\\n\\n## Residual Risk\\n\\nNone.\\n\\n## Same Mechanism Elsewhere\\n\\nRuntime archive lifecycle.\\n"); const result = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "submit", submitTask], { encoding: "utf8", env: process.env, timeout: 60_000 }); if (result.error || result.status !== 0) { process.stderr.write("task submit failed: " + (result.error ? result.error.message + "\\n" : "") + result.stdout + result.stderr); process.exit(8); } } if (readOnly)`,
     next = source
       .replace(batchMarker, progressSetup)
       .replace(threadMarker, progressWrite)

@@ -361,6 +361,8 @@ function stopRuntimeInstanceDaemon(root: string, userRoot: string, daemonId: str
   waitForDaemonProcessExitSync(pid);
 }
 
+const DEFAULT_CLI_SYNC_TIMEOUT_MS = 60_000;
+
 function run(root: string, env: NodeJS.ProcessEnv, args: readonly string[]): Record<string, unknown> {
   const result = runMaybe(root, env, args);
   assert.equal(result.status, 0, `${result.stderr}\n${JSON.stringify(result.receipt)}`);
@@ -370,11 +372,33 @@ function runMaybe(
   root: string,
   env: NodeJS.ProcessEnv,
   args: readonly string[],
+  timeoutMs = DEFAULT_CLI_SYNC_TIMEOUT_MS,
 ): { readonly status: number | null; readonly receipt: Record<string, unknown>; readonly stderr: string } {
-  const result = spawnSync(process.execPath, [cli, "--root", root, "--json", ...args], { encoding: "utf8", env });
+  const result = spawnSync(process.execPath, [cli, "--root", root, "--json", ...args], {
+    encoding: "utf8",
+    env,
+    timeout: timeoutMs,
+  });
+  if (result.error) {
+    throw new Error(
+      `CLI command ${JSON.stringify(args)} failed before exit (timeoutMs=${timeoutMs}, status=${String(result.status)}, signal=${String(result.signal)}): ${result.error.message}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+      { cause: result.error },
+    );
+  }
+  let receipt: Record<string, unknown> = {};
+  if (result.stdout.trim()) {
+    try {
+      receipt = JSON.parse(result.stdout) as Record<string, unknown>;
+    } catch (error) {
+      throw new Error(
+        `CLI command ${JSON.stringify(args)} returned invalid JSON (status=${String(result.status)}, signal=${String(result.signal)}): ${error instanceof Error ? error.message : String(error)}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+        { cause: error },
+      );
+    }
+  }
   return {
     status: result.status,
-    receipt: result.stdout.trim() ? (JSON.parse(result.stdout) as Record<string, unknown>) : {},
+    receipt,
     stderr: result.stderr,
   };
 }
