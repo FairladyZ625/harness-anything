@@ -90,7 +90,8 @@ export function executionCredentialRejected(
         "Execution write was rejected because it requires human approval or access administration. Use the corresponding human review or access command.",
       "read-only-allowlist":
         "This read-only dispatch may only run the allowlisted ledger queries " +
-        "(ha work list/show, ha task list/show, ha agenda, ha runtime status, ha schedule list/runs); " +
+        "(ha work list/show, ha task list/show, ha agenda, ha runtime status, ha schedule list/runs, " +
+        "ha daemon fleet status, ha runtime instance list); " +
         "the daemon rejected this command outside that allowlist.",
     }[reason];
     if (context?.detail) message = `${message} ${context.detail}`;

@@ -27,7 +27,13 @@ import {
   daemonProtocolCommands,
 } from "../src/daemon-host/protocol/daemon-protocol-commands.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { parseClientRpcResponse } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
+import {
+  projectReadOnlyFleetOverview,
+  projectReadOnlyRuntimeInstanceList,
+} from "../src/daemon-host/read-only-status-projection.ts";
+import { validateFleetOverview, type FleetOverviewResult } from "../src/daemon-host/fleet/fleet-overview-read.ts";
 import { executeRepoAction } from "../src/daemon-host/repo-cell-action-dispatch.ts";
 import { bindVerifiedExecutorClaim } from "../src/daemon-host/repo-cell-authorization.ts";
 import { BuiltinPolicyAdapter } from "@harness-anything/authorization/builtin";
@@ -1190,5 +1196,343 @@ test("execution credentials keep validator sources inside the dispatched reposit
     );
   } finally {
     removeTempRepository(rootDir);
+  }
+});
+
+test("read-only dispatch admits sanitized fleet overview and runtime instance list while rejecting probe, cross-repo, and admin methods", () => {
+  const p = readOnlyPrincipal();
+  // Positive allowlist checks
+  assert.doesNotThrow(() => requireExecutionRequestScope(p, "daemon.runtimeInstance.list", { payload: {} }));
+  assert.doesNotThrow(() =>
+    requireExecutionRequestScope(p, "daemon.runtimeInstance.list", {
+      repo: { repoId: p.repoId },
+      payload: { all: true },
+    }),
+  );
+  assert.doesNotThrow(() =>
+    requireExecutionRequestScope(p, "daemon.runtimeInstance.list", {
+      repo: { repoId: p.repoId },
+      payload: { probe: false },
+    }),
+  );
+  assert.doesNotThrow(() =>
+    requireExecutionRequestScope(p, "repo.fleet.overview.read", { repo: { repoId: p.repoId } }),
+  );
+  assert.doesNotThrow(() =>
+    requireExecutionRequestScope(p, "repo.fleet.overview.read", { repo: { repoId: p.repoId }, payload: {} }),
+  );
+  assert.doesNotThrow(() => requireExecutionActionScope(p, { kind: "fleet-overview-read" }));
+
+  // Negative checks: probing, invalid params, cross-repo, and non-allowlisted host/repo methods
+  for (const [label, method, params] of [
+    ["probe: true", "daemon.runtimeInstance.list", { repo: { repoId: p.repoId }, payload: { probe: true } }],
+    ["non-boolean all", "daemon.runtimeInstance.list", { payload: { all: "yes" } }],
+    ["unknown payload field", "daemon.runtimeInstance.list", { payload: { extra: true } }],
+    ["unknown top-level key", "daemon.runtimeInstance.list", { payload: {}, extra: true }],
+    ["missing payload", "daemon.runtimeInstance.list", {}],
+    ["fleet overview unknown payload", "repo.fleet.overview.read", { repo: { repoId: p.repoId }, payload: { all: 1 } }],
+    ["runtimeInstance.show", "daemon.runtimeInstance.show", { payload: { instanceId: "codex-1" } }],
+    ["runtimeInstance.create", "daemon.runtimeInstance.create", { payload: { instanceId: "codex-1" } }],
+    ["runtimeInstance.update", "daemon.runtimeInstance.update", { payload: { instanceId: "codex-1" } }],
+    ["runtimeInstance.delete", "daemon.runtimeInstance.delete", { payload: { instanceId: "codex-1" } }],
+    [
+      "runtimeInstance.hostingCredential.set",
+      "daemon.runtimeInstance.hostingCredential.set",
+      { payload: { instanceId: "codex-1" } },
+    ],
+    [
+      "runtimeInstance.auth.login",
+      "repo.runtimeInstance.auth.login",
+      { repo: { repoId: p.repoId }, payload: { instanceId: "codex-1" } },
+    ],
+    ["fleet.center.start", "daemon.fleet.center.start", { payload: { port: 7443 } }],
+    ["fleet.center.read", "daemon.fleet.center.read", { payload: {} }],
+    ["fleet.edge.sync", "daemon.fleet.edge.sync", { payload: {} }],
+    ["residentCeo.config", "repo.residentCeo.config", { repo: { repoId: p.repoId }, payload: {} }],
+    ["residentCeo.start", "repo.residentCeo.start", { repo: { repoId: p.repoId }, payload: {} }],
+    ["residentCeo.stop", "repo.residentCeo.stop", { repo: { repoId: p.repoId }, payload: {} }],
+    ["residentCeo.status", "repo.residentCeo.status", { repo: { repoId: p.repoId }, payload: {} }],
+    ["residentCeo.chat", "repo.residentCeo.chat", { repo: { repoId: p.repoId }, payload: { message: "hi" } }],
+    ["residentCeo.proposals", "repo.residentCeo.proposals", { repo: { repoId: p.repoId }, payload: {} }],
+    ["residentCeo.approve", "repo.residentCeo.approve", { repo: { repoId: p.repoId }, payload: { proposalId: "p" } }],
+    ["residentCeo.reject", "repo.residentCeo.reject", { repo: { repoId: p.repoId }, payload: { proposalId: "p" } }],
+  ] as const) {
+    assert.throws(
+      () => requireExecutionRequestScope(p, method, params as never),
+      {
+        code: "execution_credential_rejected",
+        message: /allowlisted ledger queries.*ha daemon fleet status.*ha runtime instance list/u,
+      },
+      `${label} must be rejected with read-only-allowlist`,
+    );
+  }
+
+  // Cross-repo attempts must be rejected
+  for (const [label, method, params] of [
+    ["runtimeInstance.list wrong repo", "daemon.runtimeInstance.list", { repo: { repoId: "other-repo" }, payload: {} }],
+    ["fleet.overview.read wrong repo", "repo.fleet.overview.read", { repo: { repoId: "other-repo" } }],
+    ["fleet.overview.read missing repo", "repo.fleet.overview.read", {}],
+  ] as const) {
+    assert.throws(
+      () => requireExecutionRequestScope(p, method, params as never),
+      { code: "execution_credential_rejected" },
+      `${label} must be rejected`,
+    );
+  }
+
+  // Non-read-only execution principals do not gain host runtimeInstance.list or fleet.overview.read scope
+  for (const role of ["implementation", "reviewer", "session"] as const) {
+    const worker = { ...principal(), role };
+    assert.throws(
+      () => requireExecutionRequestScope(worker, "daemon.runtimeInstance.list", { payload: {} }),
+      { code: "execution_credential_rejected" },
+      `${role} must not gain daemon.runtimeInstance.list`,
+    );
+    assert.throws(
+      () => requireExecutionRequestScope(worker, "repo.fleet.overview.read", { repo: { repoId: worker.repoId } }),
+      { code: "execution_credential_rejected" },
+      `${role} must not gain repo.fleet.overview.read`,
+    );
+  }
+});
+
+test("read-only projections strip secrets, headers, credentialRefs, baseUrls, host paths, and cross-repo rows", () => {
+  const now = "2026-11-26T15:00:00.000Z";
+  const runtimeReceipt = projectReadOnlyRuntimeInstanceList({
+    nodeId: "edge-node-a",
+    now,
+    instances: [
+      {
+        schemaVersion: 2,
+        instanceId: "codex-prod",
+        name: "Codex Primary",
+        kindId: "codex",
+        providerId: "openai",
+        installationId: "inst-codex-1",
+        executablePath: "/Users/alice/.local/bin/codex",
+        models: ["gpt-6-sol", "gpt-6-mini"],
+        availableModels: ["gpt-6-sol"],
+        defaultModel: "gpt-6-sol",
+        enabled: true,
+        tier: 2,
+        credentialSource: "operator",
+        credentialRef: "credential:v1:openai-prod",
+        apiKey: "sk-live-secret1234567890",
+        hostingCredentialState: "configured",
+        authMode: "api-key",
+        authState: "configured",
+        authReadiness: {
+          status: "not_ready",
+          code: "runtime_auth_failed",
+          hint: "Missing /Users/alice/.codex/auth.json with token sk-secret1234567890",
+          basis: "metadata",
+        },
+        permissionMode: "read-only",
+        mcpPolicy: "disabled",
+        isolationState: "enforced",
+        configuration: {
+          reasoningEffort: "high",
+          fast: true,
+          webSearch: "cached",
+          baseUrl: "https://user:secretpass@gateway.internal/v1?api_key=sk-1234567890",
+          baseUrlConfigured: true,
+          allow_insecure_http: true,
+          wire_api: "responses",
+          requires_openai_auth: false,
+          http_headers: { Authorization: "Bearer super-secret-token" },
+          credential_header: "X-Custom-Key",
+        },
+        providerHealth: {
+          nodeId: "edge-node-a",
+          failureStreak: 3,
+          cooldownUntil: null,
+          frozen: true,
+          frozenUntil: "2026-11-27T00:00:00.000Z",
+          reason: "TLS key /etc/harness/tls/key.pem failed with Bearer secret-token-99999",
+          lastFailureAt: "2026-11-26T14:55:00.000Z",
+          lastResetAt: null,
+        },
+      },
+    ],
+  });
+  assert.doesNotThrow(() => parseClientRpcResponse("daemon.runtimeInstance.list", runtimeReceipt));
+  const serializedRuntime = JSON.stringify(runtimeReceipt);
+  const projectedInstance = (runtimeReceipt.instances as Record<string, unknown>[])[0]!;
+  assert.equal(projectedInstance.instanceId, "codex-prod");
+  assert.equal(projectedInstance.kindId, "codex");
+  assert.equal(projectedInstance.providerId, "openai");
+  assert.deepEqual(projectedInstance.models, ["gpt-6-sol", "gpt-6-mini"]);
+  assert.equal(projectedInstance.defaultModel, "gpt-6-sol");
+  assert.equal(projectedInstance.enabled, true);
+  assert.deepEqual(projectedInstance.configuration, {
+    reasoningEffort: "high",
+    fast: true,
+    webSearch: "cached",
+    baseUrlConfigured: true,
+  });
+  assert.equal((projectedInstance.providerHealth as Record<string, unknown>).status, "frozen");
+  assert.equal((projectedInstance.authReadiness as Record<string, unknown>).hint, null);
+  for (const forbidden of [
+    "credentialRef",
+    "credential:v1:",
+    "apiKey",
+    "sk-live-secret",
+    "sk-secret1234567890",
+    "secretpass",
+    "gateway.internal",
+    "http_headers",
+    "httpHeaders",
+    "credential_header",
+    "credentialHeader",
+    "X-Custom-Key",
+    "super-secret-token",
+    "secret-token-99999",
+    "/Users/alice",
+    "/etc/harness",
+    "executablePath",
+    "installationId",
+    "credentialSource",
+    "hostingCredentialState",
+    "allow_insecure_http",
+  ]) {
+    assert.equal(serializedRuntime.includes(forbidden), false, `runtime receipt must not leak ${forbidden}`);
+  }
+
+  const rawOverview: FleetOverviewResult = {
+    schema: "daemon.fleet-overview/v1",
+    ok: true,
+    repoId: "repo-alpha",
+    mode: "remote-center",
+    generatedAt: now,
+    center: {
+      nodeId: "center",
+      daemonId: "default",
+      startedAt: "2026-11-26T00:00:00.000Z",
+      version: "0.1.0",
+      commitSha: "abc1234",
+    },
+    centerRevision: 42,
+    nodes: [
+      {
+        nodeId: "center",
+        role: "center",
+        owner: { kind: "value", text: "daemon" },
+        build: { kind: "value", text: "0.1.0 @ abc1234" },
+        online: { kind: "value", text: "running" },
+        leases: [],
+        replica: null,
+        replicaReason: "center-local-writer",
+        watch: { kind: "value", text: "local canonical writer" },
+        lastFailure: { kind: "unavailable", reason: "no-session-failure-observed" },
+      },
+      {
+        nodeId: "edge-alpha",
+        role: "edge",
+        owner: { kind: "unavailable", reason: "ENOENT /var/lib/harness/certs/node.pem" },
+        build: { kind: "value", text: "abc1234" },
+        online: { kind: "value", text: "connected" },
+        leases: [],
+        replica: {
+          repoId: "repo-alpha",
+          viewId: "view-alpha",
+          centerRevision: 42,
+          centerSequence: 100,
+          ackRevision: 41,
+          ackSequence: 99,
+          ackedAt: now,
+          lagRevisions: 1,
+          lagCommits: 1,
+          lagMs: 500,
+          connected: true,
+          delivery: "delta",
+          syncFailure: {
+            code: "tls_error",
+            message: "Failed reading C:\\Users\\bob\\.harness\\ca.pem with credential:v1:edge-secret",
+          },
+        },
+        replicaReason: "sync-failure:tls_error",
+        watch: { kind: "unavailable", reason: "edge-sync-internals-not-exposed" },
+        lastFailure: {
+          kind: "value",
+          text: "auth_failed @ 2026-11-26T14:50:00.000Z: key /Users/alice/.harness/tls/center.key Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1MSJ9.c2lnbmF0dXJlMTIzNA",
+        },
+      },
+      {
+        nodeId: "edge-other-repo",
+        role: "edge",
+        owner: { kind: "value", text: "person_other" },
+        build: { kind: "value", text: "abc1234" },
+        online: { kind: "value", text: "connected" },
+        leases: [],
+        replica: {
+          repoId: "repo-beta",
+          viewId: "view-beta",
+          centerRevision: 10,
+          centerSequence: 10,
+          ackRevision: 10,
+          ackSequence: 10,
+          ackedAt: now,
+          lagRevisions: 0,
+          lagCommits: 0,
+          lagMs: 0,
+          connected: true,
+          delivery: "current",
+          syncFailure: null,
+        },
+        replicaReason: "replica-current",
+        watch: { kind: "unavailable", reason: "edge-sync-internals-not-exposed" },
+        lastFailure: { kind: "unavailable", reason: "no-session-failure-observed" },
+      },
+    ],
+    links: [
+      {
+        nodeId: "edge-alpha",
+        state: "lag",
+        delivery: "delta",
+        lagRevisions: 1,
+        lagMs: 500,
+        ackedAt: now,
+        centerRevision: 42,
+      },
+      {
+        nodeId: "edge-other-repo",
+        state: "fresh",
+        delivery: "current",
+        lagRevisions: 0,
+        lagMs: 0,
+        ackedAt: now,
+        centerRevision: 10,
+      },
+    ],
+    events: [],
+    notes: ["events-attribution=event-source"],
+    warnings: ["failed reading ~/secrets/token.txt"],
+  };
+  assert.throws(() => projectReadOnlyFleetOverview(rawOverview, "repo-wrong"), {
+    code: "execution_credential_rejected",
+  });
+  const sanitizedOverview = projectReadOnlyFleetOverview(rawOverview, "repo-alpha");
+  assert.deepEqual(validateFleetOverview(sanitizedOverview), []);
+  assert.deepEqual(
+    sanitizedOverview.nodes.map((node) => node.nodeId),
+    ["center", "edge-alpha"],
+  );
+  assert.deepEqual(
+    sanitizedOverview.links.map((link) => link.nodeId),
+    ["edge-alpha"],
+  );
+  const serializedOverview = JSON.stringify(sanitizedOverview);
+  for (const forbidden of [
+    "repo-beta",
+    "edge-other-repo",
+    "person_other",
+    "/var/lib/harness",
+    "C:\\\\Users\\\\bob",
+    "credential:v1:edge-secret",
+    "/Users/alice",
+    "eyJhbGciOiJIUzI1NiJ9",
+    "~/secrets/token.txt",
+  ]) {
+    assert.equal(serializedOverview.includes(forbidden), false, `fleet overview must not leak ${forbidden}`);
   }
 });

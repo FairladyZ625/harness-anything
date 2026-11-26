@@ -9,7 +9,8 @@ import { openGuiCatalog } from "./gui-catalog.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
 /** @daemon-transport-authority Daemon ingress filtering and repository dispatch. */
 import { repositoryReadDescriptor } from "./repository-read-contract.ts";
-import { readFleetOverviewFromHost } from "./fleet/fleet-overview-read.ts";
+import { readFleetOverviewFromHost, type FleetOverviewResult } from "./fleet/fleet-overview-read.ts";
+import { projectReadOnlyFleetOverview } from "./read-only-status-projection.ts";
 import { readClaimableTasks } from "./task-claimable-read.ts";
 import { nodeAutoClaimLeaseKey } from "./node-auto-claim.ts";
 import { readEntityAssignmentDirectory } from "./entity-assignment-directory.ts";
@@ -1221,17 +1222,23 @@ export function createDaemonHostRepositoryApi(
               );
           }
           try {
+            const forwarded = await forward({
+              userRoot: context.input.userRoot,
+              repoId,
+              intent: { kind: "operational-read", method, inputs: payload },
+              auth,
+              oidc: context.oidc,
+              signal: context.closeSignal,
+              runRuntime: (request, requestAuth) => context.host.fleet.edgeRuntime(request, requestAuth),
+            });
             const result = parseDaemonReadResult(
               method,
-              await forward({
-                userRoot: context.input.userRoot,
-                repoId,
-                intent: { kind: "operational-read", method, inputs: payload },
-                auth,
-                oidc: context.oidc,
-                signal: context.closeSignal,
-                runRuntime: (request, requestAuth) => context.host.fleet.edgeRuntime(request, requestAuth),
-              }),
+              method === "repo.fleet.overview.read" && auth.executionPrincipal?.role === "read-only"
+                ? projectReadOnlyFleetOverview(
+                    forwarded as unknown as FleetOverviewResult,
+                    auth.executionPrincipal.repoId,
+                  )
+                : forwarded,
             );
             if (method !== "repo.task.dispatches") return result;
             const dispatches = result as DaemonGuiReadResultMap["repo.task.dispatches"];
@@ -1382,7 +1389,7 @@ export function createDaemonHostRepositoryApi(
       else if (method === "repo.fleet.overview.read") {
         const warning = context.fleetVersionWarnings.get(repoId),
           fleetStatus = context.fleetCenter?.status();
-        result = await readFleetOverviewFromHost({
+        const overview = await readFleetOverviewFromHost({
           repoId,
           mode:
             readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find((repo) => repo.repoId === repoId)
@@ -1406,6 +1413,10 @@ export function createDaemonHostRepositoryApi(
               }
             : {}),
         });
+        result =
+          auth.executionPrincipal?.role === "read-only"
+            ? projectReadOnlyFleetOverview(overview, auth.executionPrincipal.repoId)
+            : overview;
       } else {
         if (!isRepoCellReadMethod(method))
           throw context.hostCodedError("invalid_request", `${method} is not a repository read method.`);

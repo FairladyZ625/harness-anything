@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { renderDaemonFleetStatus, runDaemonFleetStatus } from "../src/daemon/fleet-status.ts";
+import { runDaemonControl } from "../src/daemon/control.ts";
 import { emit } from "../src/index.ts";
 import type { DaemonGuiReadResultMap } from "@harness-anything/daemon/internal/protocol/daemon-protocol-results";
 
@@ -314,4 +315,30 @@ test("fleet status rejects unknown options before contacting a daemon", async ()
     ),
     (error: unknown) => (error as { code?: string }).code === "invalid_field",
   );
+});
+
+test("daemon control admits only fleet status past the client execution-credential block while rejecting controls", async () => {
+  const prev = process.env.HARNESS_EXECUTION_CREDENTIAL;
+  process.env.HARNESS_EXECUTION_CREDENTIAL = "harness-execution-dispatch_test:fake";
+  try {
+    for (const args of [
+      ["daemon", "status", "--json"],
+      ["daemon", "fleet", "center", "start", "--port", "0", "--repo", "demo", "--quota-bytes", "1024", "--json"],
+    ]) {
+      const receipts: Record<string, unknown>[] = [];
+      const exit = await runDaemonControl(args, (receipt) => receipts.push(receipt));
+      assert.equal(exit, 1);
+      assert.equal(receipts[0]?.code, "execution_credential_rejected");
+    }
+    // `daemon fleet status` reaches its option validation instead of failing the client-side control guard.
+    const receipts: Record<string, unknown>[] = [];
+    const exit = await runDaemonControl(["daemon", "fleet", "status", "--nonsense", "--json"], (receipt) =>
+      receipts.push(receipt),
+    );
+    assert.equal(exit, 1);
+    assert.equal(receipts[0]?.code, "invalid_field");
+  } finally {
+    if (prev === undefined) delete process.env.HARNESS_EXECUTION_CREDENTIAL;
+    else process.env.HARNESS_EXECUTION_CREDENTIAL = prev;
+  }
 });

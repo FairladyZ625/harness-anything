@@ -21,7 +21,9 @@ import {
 } from "./fleet/center-switchover-transport.ts";
 import { centerMovedError, throwIfCenterMigrating, throwIfCenterRelocated } from "@harness-anything/storage";
 import { annotateHostingCredentialNotice } from "./hosting-credential-readiness.ts";
-import { requireExecutionActionScope } from "./runtime-execution-scope.ts";
+import { parseReadOnlyRuntimeInstanceListPayload, requireExecutionActionScope } from "./runtime-execution-scope.ts";
+import { executionCredentialRejected } from "./runtime-execution-credential.ts";
+import { projectReadOnlyRuntimeInstanceList } from "./read-only-status-projection.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import {
   consumeKnownError,
@@ -1551,8 +1553,17 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
     },
     system: context.system,
     runtimeInstance: async (method, payload, auth, repoId) => {
+      const readOnlyExecution = auth.executionPrincipal?.role === "read-only";
+      let parsedReadOnlyList: { readonly all: boolean } | null = null;
+      if (auth.executionPrincipal) {
+        if (!readOnlyExecution) throw executionCredentialRejected();
+        if (method !== "daemon.runtimeInstance.list") throw executionCredentialRejected("read-only-allowlist");
+        if (repoId !== undefined && repoId !== auth.executionPrincipal.repoId) throw executionCredentialRejected();
+        parsedReadOnlyList = parseReadOnlyRuntimeInstanceListPayload(payload);
+      }
       const operation = method.replace("daemon.runtimeInstance.", ""),
-        nodeId = runtimeNodeId(repoId),
+        effectiveRepoId = repoId ?? auth.executionPrincipal?.repoId,
+        nodeId = runtimeNodeId(effectiveRepoId),
         actionKind =
           operation === "hostingCredential.set" || operation === "hostingCredential.unset"
             ? `runtime-instance-${operation === "hostingCredential.set" ? "hosting-credential-set" : "hosting-credential-unset"}`
@@ -1570,14 +1581,16 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
         now: context.now(),
       });
       const needsInstallationWitness =
-        payload.probe === true ||
-        actionKind === "runtime-instance-create" ||
-        (actionKind === "runtime-instance-update" &&
-          (payload.installationId !== undefined || context.instances.recordedInstallations() === null)) ||
-        (actionKind === "runtime-instance-list" && context.instances.recordedInstallations() === null);
+        !readOnlyExecution &&
+        (payload.probe === true ||
+          actionKind === "runtime-instance-create" ||
+          (actionKind === "runtime-instance-update" &&
+            (payload.installationId !== undefined || context.instances.recordedInstallations() === null)) ||
+          (actionKind === "runtime-instance-list" && context.instances.recordedInstallations() === null));
       if (needsInstallationWitness) await context.instances.refreshInstallations();
+      const commandPayload = parsedReadOnlyList ?? payload;
       const receipt = (await context.instances.command({
-        ...payload,
+        ...commandPayload,
         kind: actionKind,
       })) as JsonObject;
       if (operation === "update" && payload.clearFreeze === true && typeof payload.instanceId === "string")
@@ -1595,8 +1608,14 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
             }
           : value;
       };
-      const instances = Array.isArray(receipt.instances) ? receipt.instances.map(withHealth) : undefined,
-        instance = receipt.instance === undefined ? undefined : withHealth(receipt.instance),
+      const instances = Array.isArray(receipt.instances) ? receipt.instances.map(withHealth) : undefined;
+      if (readOnlyExecution)
+        return projectReadOnlyRuntimeInstanceList({
+          instances: (instances ?? []) as readonly Record<string, unknown>[],
+          nodeId,
+          now: context.now(),
+        });
+      const instance = receipt.instance === undefined ? undefined : withHealth(receipt.instance),
         summary =
           instances === undefined
             ? receipt.summary

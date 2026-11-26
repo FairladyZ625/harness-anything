@@ -576,7 +576,7 @@ export function createJsonRpcProtocolServer(options: {
             method,
             params.payload,
             options.authContext,
-            params.repo === undefined ? undefined : repoIdFromParams(params),
+            params.repo === undefined ? options.authContext.executionPrincipal?.repoId : repoIdFromParams(params),
           ),
         );
       } catch (error) {
