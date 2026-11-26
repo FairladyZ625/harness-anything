@@ -60,6 +60,10 @@ export function cmdShellInvocation(
   readonly args: readonly string[];
   readonly windowsVerbatimArguments: true;
 } {
+  if (/[\0\r\n]/u.test(script))
+    throw new Error(
+      `cmd.exe command lines cannot carry NUL, CR or LF characters: ${JSON.stringify(script.slice(0, 60))}`,
+    );
   if (script.includes('"') || script.endsWith("\\"))
     throw new Error(`cmd.exe script paths may not contain '"' or end with '\\': ${script}`);
   return {
