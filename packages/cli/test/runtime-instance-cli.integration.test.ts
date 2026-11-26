@@ -96,7 +96,19 @@ test("real CLI performs machine runtime instance CRUD through an isolated reside
     const shown = run(root, env, ["runtime", "instance", "show", "cli-isolated"]),
       probed = run(root, env, ["runtime", "instance", "show", "cli-isolated", "--probe"]),
       listed = run(root, env, ["runtime", "instance", "list"]);
-    assert.deepEqual(shown.instance, created.instance);
+    // Background auth warmup can settle a legacy `keychain:` lookup between `create` and `show`
+    // (synchronously on non-macOS hosts), moving authReadiness from `runtime_auth_not_checked` to
+    // `runtime_credential_unavailable`. Assert every other field matches verbatim and validate
+    // `authReadiness` explicitly.
+    const { authReadiness: shownReadiness, ...shownInstance } = shown.instance as Record<string, unknown>,
+      { authReadiness: _createdReadiness, ...createdInstance } = created.instance as Record<string, unknown>;
+    assert.deepEqual(shownInstance, createdInstance);
+    const readinessRecord = shownReadiness as Record<string, unknown>;
+    assert.equal(readinessRecord.status, "not-ready");
+    assert.ok(
+      readinessRecord.code === "runtime_auth_not_checked" || readinessRecord.code === "runtime_credential_unavailable",
+      JSON.stringify(readinessRecord),
+    );
     assert.equal((shown.instance as Record<string, unknown>).tier, 2);
     run(root, env, ["runtime", "instance", "update", "cli-isolated", "--tier", "1"]);
     assert.equal(
@@ -156,11 +168,14 @@ test("real CLI performs machine runtime instance CRUD through an isolated reside
     const target = path.join(userRoot, "runtime-instances.json"),
       stateRoot = path.join(userRoot, "runtime-instances", "cli-isolated"),
       codexConfig = path.join(stateRoot, "home", ".codex", "config.toml");
-    assert.equal(statSync(target).mode & 0o777, 0o600);
+    assert.equal(existsSync(target), true);
+    if (process.platform !== "win32") assert.equal(statSync(target).mode & 0o777, 0o600);
     for (const directory of [stateRoot, "home", "tmp", "run"].map((entry) =>
       entry === stateRoot ? entry : path.join(stateRoot, entry),
-    ))
-      assert.equal(statSync(directory).mode & 0o777, 0o700, directory);
+    )) {
+      assert.equal(existsSync(directory), true, directory);
+      if (process.platform !== "win32") assert.equal(statSync(directory).mode & 0o777, 0o700, directory);
+    }
     const persisted = readFileSync(codexConfig, "utf8");
     assert.match(persisted, /wire_api = "responses"/u);
     assert.match(persisted, /requires_openai_auth = true/u);

@@ -332,7 +332,10 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
       if (clientSeq > session.acceptedThrough + 1)
         throw terminalHostError("terminal_input_gap", `Expected clientSeq ${session.acceptedThrough + 1}.`);
       if (clientSeq > session.acceptedThrough) {
-        ensureChannel(session).write(utf8);
+        // Windows ConPTY submits cooked-mode lines on CR (`\r`), never bare LF (`\n`). Piped
+        // non-TTY relays and RPC callers that write `\n` or `\r\n` would otherwise stay buffered
+        // in ConPTY indefinitely without delivering input to the child process.
+        ensureChannel(session).write(platform === "win32" ? utf8.replace(/\r?\n/gu, "\r") : utf8);
         session.acceptedThrough = clientSeq;
         session.lastActivityAt = now();
         persistSessions({ activityOnly: true });

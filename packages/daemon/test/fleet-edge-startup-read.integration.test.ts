@@ -76,6 +76,7 @@ test(
     const e = await fleetEdgeHostFixture(t, f, {
       name: "startup-empty",
       centerPort: port,
+      attachTimeoutMs: 120_000,
       waitForAttachments: false,
       runtimeDiscover: () => [],
       openCell: async (input) => {

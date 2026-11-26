@@ -75,7 +75,7 @@ async function createManagedRoot() {
     };
   mkdirSync(bin, { recursive: true });
   mkdirSync(data, { recursive: true });
-  writeFileSync(path.join(bin, "postgres"), "fixture");
+  writeFileSync(path.join(bin, process.platform === "win32" ? "postgres.exe" : "postgres"), "fixture");
   execFileSync(
     "openssl",
     [

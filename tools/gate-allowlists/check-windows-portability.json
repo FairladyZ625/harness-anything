@@ -103,12 +103,6 @@
     "unguardedCmdSpawn": [],
     "unguardedPosixModeAssertion": [
       {
-        "path": "packages/cli/test/runtime-instance-cli.integration.test.ts",
-        "count": 2,
-        "ref": "task_60653ee4139523060fac49b667",
-        "reason": "Pre-existing legacy unguarded-posix-mode-assertion occurrence(s) frozen at baseline; zero growth allowed."
-      },
-      {
         "path": "packages/daemon/test/decision-point-live-smoke.integration.test.ts",
         "count": 1,
         "ref": "task_60653ee4139523060fac49b667",

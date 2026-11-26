@@ -577,6 +577,8 @@ export function launchNative(
       ...persistence,
       executablePath: command.executablePath,
       args: command.args,
+      providerExecutablePath: input.executablePath,
+      providerArgs: input.args,
       cwd: input.cwd,
       env: input.env,
       prompt: input.prompt,

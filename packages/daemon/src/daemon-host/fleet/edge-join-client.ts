@@ -193,14 +193,17 @@ export async function joinFleetEdge(
         ),
       },
     );
-  const session = await ports.session(loginTarget);
+  const session = await ports.session(loginTarget),
+    normalizePem = (certificate: string | undefined): string | undefined =>
+      certificate?.replaceAll("\r\n", "\n").trim();
   // An invitation CA is authoritative when present; public-trust invitations leave CA rotation unpinned.
   if (
     !session ||
     session.authority.url !== authority.url ||
     session.authority.realm !== authority.realm ||
     session.authority.servername !== authority.servername ||
-    (link.loginCertificate !== undefined && session.authority.certificate !== link.loginCertificate)
+    (link.loginCertificate !== undefined &&
+      normalizePem(session.authority.certificate) !== normalizePem(link.loginCertificate))
   ) {
     const login = await ports.beginLogin(authority, loginTarget);
     return {

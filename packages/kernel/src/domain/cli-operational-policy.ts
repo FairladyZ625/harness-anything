@@ -496,7 +496,7 @@ export const daemonRuntimeContractPolicy = {
     "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.spawnClaimAttempt.tokenLimit:66890bd5b7122be93c828738ed022d2b",
     "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.spawnClaimAttempt:a012a97a2ce4cbac0087d11ec1d1e41e",
     "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-acp.ts#runAcpProviderSession.request.timeout:41185da8dd427ca231f76df66e2ed0a7",
-    "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-host.ts#parseManifest:fc5850d062358d233af275351e75da63",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-host.ts#parseManifest:92fe70901048397add143c32c84ac60f",
     "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost.settleAttempted:80a663a97e46f17a66f3281f5fdb9a58",
     "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost:14dbc20b6c46090c9e0a96acb2732d01",
     "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost:cf4a339f7a46ded9e0593f9bc257e1c4",

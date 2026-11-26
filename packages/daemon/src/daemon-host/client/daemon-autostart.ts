@@ -204,10 +204,12 @@ export async function ensureLocalDaemonRunning(input: {
         // An installed service unit owns this daemon: starting it any other way would leave a
         // daemon the service manager neither restarts nor knows about.
         const target = daemonLaunchTarget(launch)!,
-          unit = installedDaemonServiceUnit(target);
+          unit = installedDaemonServiceUnit(target),
+          onDemandWindowsUnit =
+            process.platform === "win32" && (!unit || !readFileSync(unit.unitPath, "utf8").includes("<LogonTrigger>"));
         // Windows SSH-launched detached children disappear when the session ends. The task manager is
         // the sole Windows launcher, even before an explicit login-autostart install.
-        if (!unit && process.platform === "win32") {
+        if (onDemandWindowsUnit) {
           spawnCwd = daemonCheckoutRoot(input.invokingRoot);
           if (!existsSync(spawnCwd)) throw spawnRootMissingError(spawnCwd);
           // Copying process.env loses its Windows case-insensitive property access.
@@ -226,6 +228,7 @@ export async function ensureLocalDaemonRunning(input: {
               extraCaCerts: environment.NODE_EXTRA_CA_CERTS,
               ownerPid: environment.HARNESS_DAEMON_OWNER_PID,
               ...(attachTimeoutMs === undefined ? {} : { attachTimeoutMs }),
+              verticalScriptBlockFile: environment.HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE,
               runAtLogin: false,
             }),
             daemonStdioLogPath(target.userRoot, target.daemonId),
