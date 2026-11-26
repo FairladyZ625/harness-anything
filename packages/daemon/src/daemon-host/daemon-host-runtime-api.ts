@@ -62,7 +62,8 @@ import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { readAllTaskDispatchPages } from "./dispatch-read.ts";
 import {
   evaluateFleetAction,
-  makeOpaqueTaskAncestorReader,
+  evaluateFleetActionBatch,
+  prepareBatchTaskAncestorReader,
   requireAuthorizedFleetAction,
   requireAuthorizedHostAction,
   resolveTaskReadAuthorizationScopes,
@@ -852,39 +853,38 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
             kind,
             ...(entityRef === undefined ? {} : { taskId: entityRef.slice("task/".length) }),
           });
-      const readTask = makeOpaqueTaskAncestorReader(cell, auth.connectionSignal);
+      const readTask = await prepareBatchTaskAncestorReader(cell, scopes, auth.connectionSignal);
+      if (kind === "repository-read" || kind === "fleet-overview-read")
+        return evaluateFleetActionBatch({
+          kind,
+          binding,
+          repoId,
+          scopes,
+          evaluatedAtCut: `repository:${repoId}:current`,
+          ...(readTask === undefined ? {} : { readTask }),
+          ...(target?.opaqueDenial === true ? { opaqueDenial: true } : {}),
+        });
       let decision: AuthorizationDecision | undefined;
       for (const entityRef of scopes) {
         const taskId = entityRef?.slice("task/".length);
         decision =
-          kind === "repository-read" || kind === "fleet-overview-read"
-            ? await evaluateFleetAction({
+          taskId !== undefined
+            ? await evaluateRepoCellAction({
+                action: { kind, taskId },
+                binding,
+                actionId: `${kind}:${repoId}:${taskId}`,
+                repoId,
+                revision: cell.status().ledgerRevision ?? 0,
+                now: new Date().toISOString(),
+                ...(readTask === undefined ? {} : { readTask }),
+              })
+            : await evaluateFleetAction({
                 kind,
                 binding,
-                actionId: entityRef === undefined ? `${kind}:${repoId}` : `${kind}:${repoId}:${entityRef}`,
+                actionId: `${kind}:${repoId}`,
                 evaluatedAtCut: `repository:${repoId}:current`,
                 repoId,
-                ...(entityRef === undefined ? {} : { entityRef }),
-                ...(entityRef === undefined || readTask === undefined ? {} : { readTask }),
-                ...(target?.opaqueDenial === true ? { opaqueDenial: true } : {}),
-              })
-            : taskId !== undefined
-              ? await evaluateRepoCellAction({
-                  action: { kind, taskId },
-                  binding,
-                  actionId: `${kind}:${repoId}:${taskId}`,
-                  repoId,
-                  revision: cell.status().ledgerRevision ?? 0,
-                  now: new Date().toISOString(),
-                  ...(readTask === undefined ? {} : { readTask }),
-                })
-              : await evaluateFleetAction({
-                  kind,
-                  binding,
-                  actionId: `${kind}:${repoId}`,
-                  evaluatedAtCut: `repository:${repoId}:current`,
-                  repoId,
-                });
+              });
         if (decision.outcome === "denied") return decision;
       }
       return decision!;

@@ -11,6 +11,7 @@ import { readEdgeRuntimeRepository } from "../src/daemon-host/fleet-edge-runtime
 import { openFleetEdgeRuntime } from "../src/daemon-host/fleet-edge-runtime.ts";
 import { fleetFixture, localAuthFixture, rawPeer } from "./fleet-runtime-recovery.fixtures.ts";
 import { scheduleRuntimePorts, definition as settlementDefinition } from "./schedule-actions.fixtures.ts";
+import { recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 const replicaQuota = 64 * 1024 * 1024;
 test("edge terminal task settlement rejects a changed node owner", { timeout: 120_000 }, async (t) => {
@@ -74,8 +75,9 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 12
       endpoint: path.join(fixture.root, "settlement.sock"),
     },
     ports: scheduleRuntimePorts(),
-    launch: () => {
+    launch: (_prepared, persistence) => {
       let output: ((chunk: string) => void) | undefined;
+      recordStoppedFixtureContainment(persistence, 2_147_483_647);
       return {
         pid: 2_147_483_647,
         onOutput: (listener) => {
@@ -251,8 +253,9 @@ for (const restart of [false, true])
             endpoint: path.join(fixture.root, "settlement.sock"),
           },
           ports: scheduleRuntimePorts(),
-          launch: () => {
+          launch: (_prepared, persistence) => {
             let output: ((chunk: string) => void) | undefined;
+            recordStoppedFixtureContainment(persistence, 2_147_483_647);
             return {
               pid: 2_147_483_647,
               onOutput: (listener) => {
@@ -402,8 +405,9 @@ test(
           endpoint: path.join(fixture.root, "expired-edge.sock"),
         },
         ports: scheduleRuntimePorts(),
-        launch: () => {
+        launch: (_prepared, persistence) => {
           let output: ((chunk: string) => void) | undefined;
+          recordStoppedFixtureContainment(persistence, 2_147_483_647);
           return {
             pid: 2_147_483_647,
             onOutput: (listener) => {

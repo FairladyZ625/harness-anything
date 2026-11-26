@@ -662,6 +662,7 @@ test("standalone changed mode selects every cheap local gate for a path it check
     "dependency-policy": "package-lock.json",
     "cost-budget": "packages/storage/src/store/task-event-store.ts",
     "check-test-temp-cleanup": "packages/cli/test/daemon-metrics.integration.test.ts",
+    "check-windows-portability": "packages/daemon/test/durable-file.test.ts",
   };
   const selectedIds = (changedPath) => {
     const options = parseManifestGateArgs(["--changed", "origin/main"]);

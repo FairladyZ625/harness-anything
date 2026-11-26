@@ -518,7 +518,7 @@ export function createDaemonHostRepositoryApi(
     admin: async (request, auth) => {
       context.localOnly(auth);
       if (request.kind === "backup" || request.kind === "restore-drill") {
-        const rootDir = realpathSync(request.rootDir),
+        const rootDir = realpathSync.native(request.rootDir),
           repo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
             (candidate) => candidate.state === "enabled" && candidate.canonicalRoot === rootDir,
           ),
@@ -644,7 +644,7 @@ export function createDaemonHostRepositoryApi(
             actionId: `daemon-repo-update:${request.repoId}`,
             evaluatedAtCut: "daemon-registry:current",
           }),
-          requestedRoot = request.rootDir === undefined ? undefined : realpathSync(request.rootDir),
+          requestedRoot = request.rootDir === undefined ? undefined : realpathSync.native(request.rootDir),
           oldRoot = existing?.canonicalRoot;
         if (
           requestedRoot !== undefined &&
@@ -753,7 +753,7 @@ export function createDaemonHostRepositoryApi(
       if (
         purging &&
         (!existsSync(registeredRepo!.canonicalRoot!) ||
-          realpathSync(registeredRepo!.canonicalRoot!) !== registeredRepo!.canonicalRoot)
+          realpathSync.native(registeredRepo!.canonicalRoot!) !== registeredRepo!.canonicalRoot)
       )
         throw context.hostCodedError(
           "repo_root_unavailable",

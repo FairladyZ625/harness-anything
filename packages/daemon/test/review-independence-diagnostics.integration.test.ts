@@ -280,8 +280,8 @@ test("a lightweight child bare-invocation execution closes without a review disp
         cwd: request.cwd,
         prompt: request.prompt,
       }),
-      runtimeLaunch: () => ({
-        ...runtimeProcessFixture(t),
+      runtimeLaunch: (_prepared, persistence) => ({
+        ...runtimeProcessFixture(t, persistence),
         onOutput: (listener) => {
           queueMicrotask(() => {
             listener(`${JSON.stringify({ type: "thread.started", thread_id: "provider-review-bare" })}\n`);
@@ -865,8 +865,8 @@ test("review binding permits independent runtimes but still rejects the executio
           prompt: request.prompt,
         };
       },
-      runtimeLaunch: (prepared) => {
-        const runtime = runtimeProcessFixture(t),
+      runtimeLaunch: (prepared, persistence) => {
+        const runtime = runtimeProcessFixture(t, persistence),
           providerSessionId = prepared.args[0]!,
           threadStarted = Promise.withResolvers<void>(),
           process: { exit: ((code: number | null) => void) | null; threadStarted: Promise<void> } = {

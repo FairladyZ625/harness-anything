@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { cmdShellInvocation } from "@harness-anything/storage/cmd-command-line";
 import { workspaceDependencyClosure } from "../../../tools/smoke-cli-package.mjs";
 import { preparePackageExports, restorePackageExports } from "../../../tools/package-exports-lifecycle.mjs";
 
@@ -13,7 +14,8 @@ const repository = path.resolve(import.meta.dirname, "../../..");
 const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-package-"));
 const consumer = path.join(parent, "consumer");
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("HARNESS_")));
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+const winNpm = path.join(path.dirname(process.execPath), "npm.cmd");
+const npm = process.platform === "win32" ? (existsSync(winNpm) ? winNpm : "npm.cmd") : "npm";
 const emissionOnlyPackages = new Set([
   "@harness-anything/cli",
   "@harness-anything/application",
@@ -21,7 +23,15 @@ const emissionOnlyPackages = new Set([
 ]);
 function run(command, args, cwd = repository) {
   console.log(JSON.stringify({ command, args, cwd }));
-  const result = spawnSync(command, args, { cwd, env, encoding: "utf8", timeout: 180_000 });
+  const invocation =
+      process.platform === "win32" && /\.(?:cmd|bat)$/iu.test(command) ? cmdShellInvocation(command, args, env) : null,
+    result = spawnSync(invocation?.command ?? command, invocation?.args ?? args, {
+      cwd,
+      env,
+      encoding: "utf8",
+      timeout: 180_000,
+      ...(invocation ? { windowsVerbatimArguments: invocation.windowsVerbatimArguments } : {}),
+    });
   process.stdout.write(result.stdout ?? "");
   process.stderr.write(result.stderr ?? "");
   console.log(`exit=${result.status}`);

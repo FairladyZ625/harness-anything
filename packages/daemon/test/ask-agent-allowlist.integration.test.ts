@@ -6,7 +6,7 @@ import {
 } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -38,7 +38,7 @@ for (const scenario of [
   { name: "#4401 ordinary taskless session retains repository writes under person RBAC", session: true },
 ])
   test(scenario.name, { timeout: 120_000 }, async (t) => {
-    const parent = mkdtempSync(path.join(tmpdir(), "ha-ask-allowlist-")),
+    const parent = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ha-ask-allowlist-"))),
       root = path.join(parent, "repo"),
       userRoot = path.join(parent, "user"),
       repoId = "ask-allowlist",
@@ -47,6 +47,7 @@ for (const scenario of [
       realm = await serveKeycloak();
     let stop = async (): Promise<void> => {};
     t.after(async () => {
+      if (existsSync(parent)) writeFileSync(path.join(parent, "ask-finish"), "");
       await stop();
       await realm.close();
       removeTempRepository(parent);
@@ -180,10 +181,22 @@ for (const scenario of [
     assert.equal(receipt(agenda).ok, true, `allowlisted agenda read failed: ${agenda.stderr}${agenda.stdout}`);
     const workList = await cli(["work", "list"]);
     assert.equal(receipt(workList).ok, true, `allowlisted work list failed: ${workList.stderr}${workList.stdout}`);
+    const settleTurn = async (): Promise<void> => {
+      writeFileSync(path.join(parent, "ask-finish"), "");
+      if (!spawned.runtimeSessionId) return;
+      await waitForArrival(async () => {
+        const value = await rpc("repo.agentRuntime.sessions.read", {
+          repo: { repoId },
+          payload: { runtimeSessionId: spawned.runtimeSessionId },
+        });
+        const session = value.session as { readonly activity?: { readonly outcome?: string | null } } | undefined;
+        return session?.activity?.outcome ? session : null;
+      }, watchDirectoryArrival(parent));
+    };
     if (scenario.session) {
       const write = await cli(["task", "create", "--title", "Ordinary session write control"]);
       assert.equal(receipt(write).ok, true, `ordinary session write failed: ${write.stderr}${write.stdout}`);
-      writeFileSync(path.join(parent, "ask-finish"), "");
+      await settleTurn();
       return;
     }
     for (const [label, response] of [
@@ -202,5 +215,5 @@ for (const scenario of [
       assert.match(`${response.stdout}${response.stderr}`, /allowlisted ledger queries/u);
     }
     // Release the provider turn so the runtime settles and the test daemon can stop cleanly.
-    writeFileSync(path.join(parent, "ask-finish"), "");
+    await settleTurn();
   });

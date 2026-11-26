@@ -11,6 +11,7 @@ import {
 import { localDefaultBinding, localSystemActionBinding } from "./daemon-host-binding.ts";
 import {
   evaluateOnlinePersonAction,
+  evaluateOnlinePersonActionBatch,
   onlineAuthorizationCredential,
   type TaskAncestorAuthorizationMetadata,
 } from "./repo-cell-authorization.ts";
@@ -267,10 +268,150 @@ export function makeOpaqueTaskAncestorReader(
 ): ((taskId: string) => Promise<TaskAncestorAuthorizationMetadata | null>) | undefined {
   if (typeof cell.readTaskAuthorizationMetadata !== "function") return undefined;
   const readMetadata = cell.readTaskAuthorizationMetadata.bind(cell);
-  return async (taskId) => {
-    const [row] = await readMetadata([taskId], signal);
-    return row === undefined ? null : { taskClass: row.taskClass, metadata: { parentTaskId: row.parentTaskId } };
+  const memo = new Map<string, Promise<TaskAncestorAuthorizationMetadata | null>>();
+  return (taskId) => {
+    let pending = memo.get(taskId);
+    if (pending === undefined) {
+      pending = readMetadata([taskId], signal).then((rows) => {
+        const row = rows.find((candidate) => candidate.taskId === taskId);
+        return row === undefined ? null : { taskClass: row.taskClass, metadata: { parentTaskId: row.parentTaskId } };
+      });
+      memo.set(taskId, pending);
+    }
+    return pending;
   };
+}
+
+/**
+ * Prefetch the complete ancestor metadata closure for all task scopes in one batched IPC call
+ * (falling back to batched frontier prefetch when a test double only exposes readTaskAuthorizationMetadata),
+ * returning a synchronous O(1) lookup reader for the batch.
+ */
+export async function prepareBatchTaskAncestorReader(
+  cell: Pick<RepoCell, "readTaskAuthorizationMetadata" | "readTaskAuthorizationAncestry">,
+  scopes: readonly (EntityRef | undefined)[],
+  signal?: AbortSignal,
+): Promise<((taskId: string) => TaskAncestorAuthorizationMetadata | null) | undefined> {
+  const taskIds = [
+    ...new Set(
+      scopes
+        .filter((scope): scope is EntityRef => scope !== undefined && scope.startsWith("task/"))
+        .map((scope) => scope.slice("task/".length)),
+    ),
+  ];
+  if (taskIds.length === 0) return undefined;
+  if (typeof cell.readTaskAuthorizationAncestry === "function") {
+    const rows = await cell.readTaskAuthorizationAncestry(taskIds, signal);
+    const cache = new Map<string, TaskAncestorAuthorizationMetadata>(
+      rows.map((row) => [row.taskId, { taskClass: row.taskClass, metadata: { parentTaskId: row.parentTaskId } }]),
+    );
+    return (taskId) => cache.get(taskId) ?? null;
+  }
+  if (typeof cell.readTaskAuthorizationMetadata !== "function") return undefined;
+  const readMetadata = cell.readTaskAuthorizationMetadata.bind(cell);
+  const cache = new Map<string, TaskAncestorAuthorizationMetadata | null>();
+  let frontier = taskIds;
+  while (frontier.length > 0) {
+    const rows = await readMetadata(frontier, signal);
+    const byId = new Map(rows.map((row) => [row.taskId, row]));
+    const nextFrontier: string[] = [];
+    const queued = new Set<string>();
+    for (const id of frontier) {
+      const row = byId.get(id);
+      cache.set(
+        id,
+        row === undefined ? null : { taskClass: row.taskClass, metadata: { parentTaskId: row.parentTaskId } },
+      );
+      const parentTaskId = row?.parentTaskId ?? null;
+      if (parentTaskId !== null && !cache.has(parentTaskId) && !queued.has(parentTaskId)) {
+        queued.add(parentTaskId);
+        nextFrontier.push(parentTaskId);
+      }
+    }
+    frontier = nextFrontier;
+  }
+  return (taskId) => cache.get(taskId) ?? null;
+}
+
+/** Batch counterpart of evaluateFleetAction: evaluates every scope in order with shared session/covering-resource work. */
+export async function evaluateFleetActionBatch(input: {
+  readonly kind: string;
+  readonly binding: RepoCellBinding;
+  readonly repoId: string;
+  readonly scopes: readonly (EntityRef | undefined)[];
+  readonly evaluatedAtCut: string;
+  readonly readTask?: (
+    taskId: string,
+  ) => TaskAncestorAuthorizationMetadata | null | Promise<TaskAncestorAuthorizationMetadata | null>;
+  readonly opaqueDenial?: boolean;
+  readonly fetchPort?: typeof fetch;
+}): Promise<AuthorizationDecision> {
+  const scopes = input.scopes.length === 0 ? [undefined] : input.scopes;
+  if (scopes.length === 1) {
+    const entityRef = scopes[0];
+    return evaluateFleetAction({
+      kind: input.kind,
+      binding: input.binding,
+      repoId: input.repoId,
+      ...(entityRef === undefined ? {} : { entityRef }),
+      ...(entityRef === undefined || input.readTask === undefined ? {} : { readTask: input.readTask }),
+      ...(input.opaqueDenial === true ? { opaqueDenial: true } : {}),
+      actionId:
+        entityRef === undefined ? `${input.kind}:${input.repoId}` : `${input.kind}:${input.repoId}:${entityRef}`,
+      evaluatedAtCut: input.evaluatedAtCut,
+      ...(input.fetchPort === undefined ? {} : { fetchPort: input.fetchPort }),
+    });
+  }
+  const credential = onlineAuthorizationCredential({ binding: input.binding });
+  if (!credential) {
+    let decision: AuthorizationDecision | undefined;
+    for (const entityRef of scopes) {
+      decision = await evaluateFleetAction({
+        kind: input.kind,
+        binding: input.binding,
+        repoId: input.repoId,
+        ...(entityRef === undefined ? {} : { entityRef }),
+        ...(input.opaqueDenial === true ? { opaqueDenial: true } : {}),
+        actionId:
+          entityRef === undefined ? `${input.kind}:${input.repoId}` : `${input.kind}:${input.repoId}:${entityRef}`,
+        evaluatedAtCut: input.evaluatedAtCut,
+        ...(input.fetchPort === undefined ? {} : { fetchPort: input.fetchPort }),
+      });
+      if (decision.outcome === "denied") return decision;
+    }
+    return decision!;
+  }
+  const targets = scopes.map((entityRef) => {
+    const target: EntityRef = entityRef ?? "settings/repository",
+      envelope = composeDurableActionEnvelope({
+        actionId:
+          entityRef === undefined ? `${input.kind}:${input.repoId}` : `${input.kind}:${input.repoId}:${entityRef}`,
+        kind: input.kind,
+        target,
+        actor: input.binding.actor,
+        authorizationRef: input.binding.authorizationDecision?.policyRef ?? "authorization-provider@1",
+      }),
+      resource: AuthorizationResource =
+        entityRef === undefined
+          ? { kind: "repository", repoId: input.repoId }
+          : { kind: "entity", repoId: input.repoId, entityRef };
+    return { envelope, resource };
+  });
+  const decision = await evaluateOnlinePersonActionBatch({
+    credential,
+    binding: input.binding,
+    action: input.kind,
+    evaluatedAtCut: input.evaluatedAtCut,
+    targets,
+    ...(input.readTask === undefined ? {} : { readTask: input.readTask }),
+    ...(input.fetchPort === undefined ? {} : { fetchPort: input.fetchPort }),
+  });
+  if (decision.outcome !== "denied" || input.opaqueDenial !== true) return decision;
+  return Object.freeze({
+    ...decision,
+    subject: "settings/repository",
+    nextActions: Object.freeze(["Access denied."]),
+  });
 }
 
 /**
@@ -280,7 +421,10 @@ export function makeOpaqueTaskAncestorReader(
 export async function authorizeTaskScopedRepositoryRead(input: {
   readonly kind: string;
   readonly repoId: string;
-  readonly cell: Pick<RepoCell, "readTaskAuthorizationMetadata" | "taskIdForDocumentPath"> & {
+  readonly cell: Pick<
+    RepoCell,
+    "readTaskAuthorizationMetadata" | "readTaskAuthorizationAncestry" | "taskIdForDocumentPath"
+  > & {
     readonly status?: () => { readonly rootDir: string };
   };
   readonly binding: RepoCellBinding;
@@ -288,25 +432,26 @@ export async function authorizeTaskScopedRepositoryRead(input: {
   readonly signal?: AbortSignal;
 }): Promise<AuthorizationDecision> {
   const scopes = await resolveTaskReadAuthorizationScopes(input.cell, input.target, input.signal),
-    readTask = makeOpaqueTaskAncestorReader(input.cell, input.signal),
-    authorize = (entityRef?: EntityRef) =>
-      requireAuthorizedHostAction({
-        kind: input.kind,
-        repoId: input.repoId,
-        ...(entityRef === undefined ? {} : { entityRef }),
-        ...(entityRef === undefined || readTask === undefined ? {} : { readTask }),
-        ...(input.target?.opaqueDenial === true ? { opaqueDenial: true } : {}),
-        binding: input.binding,
-        actionId:
-          entityRef === undefined ? `${input.kind}:${input.repoId}` : `${input.kind}:${input.repoId}:${entityRef}`,
-        evaluatedAtCut: `repository:${input.repoId}:current`,
-      });
-  let decision: AuthorizationDecision | undefined;
-  for (const entityRef of scopes) {
-    decision = await authorize(entityRef);
-    if (decision.outcome === "denied") return decision;
+    readTask = await prepareBatchTaskAncestorReader(input.cell, scopes, input.signal),
+    decision = await evaluateFleetActionBatch({
+      kind: input.kind,
+      repoId: input.repoId,
+      scopes,
+      ...(readTask === undefined ? {} : { readTask }),
+      ...(input.target?.opaqueDenial === true ? { opaqueDenial: true } : {}),
+      binding: input.binding,
+      evaluatedAtCut: `repository:${input.repoId}:current`,
+    });
+  if (decision.outcome === "denied") {
+    const error = new Error(decision.nextActions.join(" ") || "Access denied.") as Error & {
+      code: string;
+      authorizationDecision: AuthorizationDecision;
+    };
+    error.code = "authorization_denied";
+    error.authorizationDecision = decision;
+    throw error;
   }
-  return decision!;
+  return decision;
 }
 
 function nonEmptyString(value: unknown): string | null {

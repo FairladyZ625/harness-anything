@@ -117,7 +117,7 @@ test(
         },
         ...scheduleRuntimePorts(),
         runtimeLaunch: (_prepared, persistence) => {
-          const runtime = fixtureRuntimeProcess(context);
+          const runtime = fixtureRuntimeProcess(context, persistence);
           appendRuntimeWorkerRecord(root, persistence.dispatchId, { kind: "process_started", pid: runtime.pid });
           return {
             ...runtime,

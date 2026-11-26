@@ -52,6 +52,7 @@ import type { RepoCellApiContext } from "../src/daemon-host/repo-cell-types.ts";
 import { appendRuntimeWorkerRecord } from "../src/daemon-host/dispatch-stream.ts";
 import type { RuntimeLauncher } from "../src/daemon-host/runtime-spawn-types.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 
 const actor = { principal: { personId: "person-latch" }, executor: null } as const;
@@ -699,7 +700,15 @@ test(
           stdio: ["pipe", "ignore", "ignore"],
         });
         if (!child.pid) throw new Error("stub runtime child did not expose a pid");
+        const pid = child.pid;
         child.unref();
+        let containmentRecorded = false;
+        const markStopped = () => {
+          if (containmentRecorded) return;
+          containmentRecorded = true;
+          recordStoppedFixtureContainment(persistence, pid);
+        };
+        child.once("exit", markStopped);
         const provider: StubProvider = {
           dispatchId: persistence.dispatchId,
           sessionId: prepared.args[0] ?? `provider-${persistence.dispatchId}`,
@@ -708,7 +717,7 @@ test(
         providers.push(provider);
         queueMicrotask(wakeActivity);
         return {
-          pid: child.pid,
+          pid,
           onOutput: (listener) => {
             provider.output = listener;
             queueMicrotask(() =>
@@ -720,9 +729,12 @@ test(
             provider.exit = listener;
           },
           terminate: () => {
-            void stopStubProcess(child);
+            void stopStubProcess(child).then(markStopped);
           },
-          terminateTree: () => stopStubProcess(child),
+          terminateTree: async () => {
+            await stopStubProcess(child);
+            markStopped();
+          },
         };
       };
 

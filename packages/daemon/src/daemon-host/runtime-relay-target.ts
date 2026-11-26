@@ -31,8 +31,14 @@ export function perUserSocketRoot(uid = process.getuid?.() ?? 0): string {
   return path.join("/tmp", `harness-anything-${uid}`);
 }
 
-export function defaultUnixSocketPath(daemonId: string, uid = process.getuid?.() ?? 0): string {
-  return path.join(perUserSocketRoot(uid), `daemon-${uid}-${daemonId.replace(/[^A-Za-z0-9_.-]/gu, "-")}.sock`);
+export function defaultUnixSocketPath(
+  daemonId: string,
+  uid = process.getuid?.() ?? 0,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const safeId = daemonId.replace(/[^A-Za-z0-9_.-]/gu, "-");
+  if (platform === "win32") return `\\\\.\\pipe\\harness-anything-daemon-${uid}-${safeId}`;
+  return path.join(perUserSocketRoot(uid), `daemon-${uid}-${safeId}.sock`);
 }
 
 export function localUserDaemonEndpoint(

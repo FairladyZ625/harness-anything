@@ -3,7 +3,7 @@ import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -17,13 +17,13 @@ import { removeTempRepository } from "../../../tools/fixtures/remove-temp-reposi
 
 // A failed hello must dominate every later side effect, including host control fallbacks.
 async function fixture(stopOk: boolean) {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-release-skew-repro-")),
+  const parent = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ha-release-skew-repro-"))),
     userRoot = path.join(parent, "user"),
     daemonId = "release-skew-repro",
     endpoint = localUserDaemonEndpoint(userRoot, daemonId),
     methods: string[] = [],
     sockets = new Set<net.Socket>();
-  mkdirSync(path.dirname(endpoint), { recursive: true, mode: 0o700 });
+  if (process.platform !== "win32") mkdirSync(path.dirname(endpoint), { recursive: true, mode: 0o700 });
   mkdirSync(userRoot, { recursive: true });
   const server = net.createServer((socket) => {
     sockets.add(socket);

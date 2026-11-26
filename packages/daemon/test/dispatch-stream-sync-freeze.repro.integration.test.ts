@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
@@ -110,7 +111,7 @@ function measureInProbe(
   archive: boolean,
 ): ProbeSample {
   const script = `
-    import { readAllDispatchStreamSummaries, readDispatchStreamHeaders } from ${JSON.stringify(path.join(here, "src/daemon-host/dispatch-stream.ts"))};
+    import { readAllDispatchStreamSummaries, readDispatchStreamHeaders } from ${JSON.stringify(pathToFileURL(path.join(here, "src/daemon-host/dispatch-stream.ts")).href)};
     const rootDir = ${JSON.stringify(rootDir)};
     let scanFinished = false;
     let timerFiredDuringScan = false;

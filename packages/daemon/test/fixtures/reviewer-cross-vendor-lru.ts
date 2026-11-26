@@ -188,11 +188,14 @@ export async function createMultiVendorHarness() {
         args: prepared.args,
         prompt: prepared.prompt,
       });
-      const runtime = fixtureRuntimeProcess({
-        after: (stop) => {
-          runtimeStops.push(stop);
+      const runtime = fixtureRuntimeProcess(
+        {
+          after: (stop) => {
+            runtimeStops.push(stop);
+          },
         },
-      });
+        persistence,
+      );
       appendRuntimeWorkerRecord(persistence.rootDir, persistence.dispatchId, {
         kind: "process_started",
         occurredAt: new Date().toISOString(),

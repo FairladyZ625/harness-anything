@@ -1208,14 +1208,14 @@ describe("runtime wait reconnect", { concurrency: 4 }, () => {
 async function openFixtureDaemon(daemonId: string): Promise<FixtureDaemon> {
   // The registry records the root as `ha daemon repo register` would, resolved: the CLI matches the
   // realpath of --root, and macOS's tmpdir sits behind the /var -> /private/var symlink.
-  const parent = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-runtime-wait-"))),
+  const parent = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ha-runtime-wait-"))),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     socketPath = localUserDaemonEndpoint(userRoot, daemonId),
     sockets = new Set<net.Socket>();
   mkdirSync(root, { recursive: true });
   mkdirSync(userRoot, { recursive: true });
-  mkdirSync(path.dirname(socketPath), { recursive: true });
+  if (process.platform !== "win32") mkdirSync(path.dirname(socketPath), { recursive: true });
   writeFileSync(
     path.join(userRoot, "registry.json"),
     JSON.stringify({
@@ -1237,7 +1237,7 @@ async function openFixtureDaemon(daemonId: string): Promise<FixtureDaemon> {
   );
   let server: net.Server;
   const start = async (): Promise<void> => {
-      rmSync(socketPath, { force: true });
+      if (process.platform !== "win32") rmSync(socketPath, { force: true });
       server = net.createServer((socket) => {
         sockets.add(socket);
         socket.once("close", () => sockets.delete(socket));
@@ -1270,7 +1270,7 @@ async function openFixtureDaemon(daemonId: string): Promise<FixtureDaemon> {
         rmSync(daemonPidPath(userRoot, daemonId), { force: true });
         if (server.listening) server.close();
         for (const socket of sockets) socket.destroy();
-        rmSync(socketPath, { force: true });
+        if (process.platform !== "win32") rmSync(socketPath, { force: true });
       },
       restart: async () => {
         await new Promise<void>((resolve) => {

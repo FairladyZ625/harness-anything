@@ -35,6 +35,7 @@ test(
       realm = await serveKeycloak();
     let stop = async (): Promise<void> => {};
     t.after(async () => {
+      if (existsSync(parent)) writeFileSync(path.join(parent, "all.finish"), "finish");
       await stop();
       await realm.close();
       removeTempRepository(parent);
@@ -59,7 +60,7 @@ test(
     const envPath = path.join(dir, id + ".json");
     fs.writeFileSync(envPath + ".tmp", JSON.stringify(Object.fromEntries(keys.map(k => [k, process.env[k]]))), { mode: 0o600 });
     fs.renameSync(envPath + ".tmp", envPath);
-    const finish = () => { if (!fs.existsSync(path.join(dir, id + ".finish"))) return;
+    const finish = () => { if (!fs.existsSync(path.join(dir, id + ".finish")) && !fs.existsSync(path.join(dir, "all.finish"))) return;
       watcher.close(); console.log(JSON.stringify({ type: "item.completed", item: { id: "final", type: "agent_message", text: "Reads exercised." } }));
       console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); };
     const watcher = fs.watch(dir, finish); finish();
@@ -169,8 +170,13 @@ test(
         watchDirectoryArrival(parent),
       );
     assert.ok(env.HARNESS_EXECUTION_CREDENTIAL);
-    assert.equal(env.HARNESS_DAEMON_RELAY, "1");
-    assert.match(String(env.HARNESS_DAEMON_ENDPOINT), /\/tmp\/harness-anything-\d+\/r-[a-f0-9]{24}\.sock$/u);
+    if (process.platform === "win32") {
+      assert.equal(env.HARNESS_DAEMON_RELAY, undefined);
+      assert.match(String(env.HARNESS_DAEMON_ENDPOINT), /^\\\\\.\\pipe\\harness-anything-u-[a-f0-9]{16}$/u);
+    } else {
+      assert.equal(env.HARNESS_DAEMON_RELAY, "1");
+      assert.match(String(env.HARNESS_DAEMON_ENDPOINT), /\/tmp\/harness-anything-\d+\/r-[a-f0-9]{24}\.sock$/u);
+    }
     const cli = async (args: string[]) => {
       const response = await spawnCli(["--root", root, "--json", ...args], { ...process.env, ...env });
       assert.ok(response.stdout.trim(), response.stderr);
@@ -219,6 +225,7 @@ test(
     // The per-dispatch relay socket lives only while the provider runs, so the worker completes
     // on this marker after the CLI reads; the early cleanup hook then stops the fixture daemon.
     writeFileSync(path.join(parent, `${runtime}.finish`), "finish");
+    writeFileSync(path.join(parent, "all.finish"), "finish");
     const terminal = await waitForArrival(async () => {
       const value = await rpc("repo.agentRuntime.sessions.read", {
         repo: { repoId },

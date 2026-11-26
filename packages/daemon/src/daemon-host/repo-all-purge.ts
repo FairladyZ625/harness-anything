@@ -119,7 +119,7 @@ export async function drillRepoBackup(input: {
 }
 
 export function removeRepoHarnessData(rootDir: string): readonly string[] {
-  const canonicalRoot = realpathSync(rootDir),
+  const canonicalRoot = realpathSync.native(rootDir),
     layout = resolveHarnessLayout(canonicalRoot),
     removed = removeRepoHarnessRoots(canonicalRoot);
   removeHarnessIgnoreRules(canonicalRoot, layout.authoredRoot, layout.localRoot);
@@ -140,5 +140,5 @@ function canonicalProspectivePath(candidate: string): string {
     remainder.unshift(path.basename(existing));
     existing = parent;
   }
-  return path.join(realpathSync(existing), ...remainder);
+  return path.join(realpathSync.native(existing), ...remainder);
 }

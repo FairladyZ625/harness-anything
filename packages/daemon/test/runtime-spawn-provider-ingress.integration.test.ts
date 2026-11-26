@@ -454,7 +454,7 @@ test("daemon ingress resumes the same provider session for Claude and Codex", { 
       daemonId: "runtime-resume",
       userRoot,
       runtimeDiscover: () => installations,
-      runtimeLaunch: (prepared) => {
+      runtimeLaunch: (prepared, persistence) => {
         const kindId = prepared.definition.kindId,
           resumed = prepared.args.includes("--resume") || prepared.args.includes("resume"),
           providerSessionId = kindId === "claude" ? "claude-resume-session" : "codex-resume-session";
@@ -503,7 +503,7 @@ test("daemon ingress resumes the same provider session for Claude and Codex", { 
                 },
               ];
         return {
-          ...fixtureRuntimeProcess(t),
+          ...fixtureRuntimeProcess(t, persistence),
           onOutput: (listener) => {
             queueMicrotask(() => output.forEach((frame) => listener(`${JSON.stringify(frame)}\n`)));
           },
@@ -535,6 +535,7 @@ test("daemon ingress resumes the same provider session for Claude and Codex", { 
     },
   } as const;
   try {
+    await host.attachmentsSettled();
     for (const definition of Object.values(definitions))
       await host.runtimeInstance("daemon.runtimeInstance.create", definition, auth);
     for (const kindId of ["claude", "codex"] as const)
@@ -647,8 +648,8 @@ test(
         daemonId: "runtime-cancel",
         userRoot,
         runtimeDiscover: () => [installation],
-        runtimeLaunch: () => ({
-          ...fixtureRuntimeProcess(t),
+        runtimeLaunch: (_prepared, persistence) => ({
+          ...fixtureRuntimeProcess(t, persistence),
           onOutput: () => undefined,
           onErrorOutput: () => undefined,
           onExit: () => undefined,
@@ -656,6 +657,7 @@ test(
         recordLifecycle: (entry) => lifecycle.push(entry),
       });
     try {
+      await host.attachmentsSettled();
       const definition = {
         instanceId: "codex-cancel",
         name: "codex cancel",
@@ -798,7 +800,7 @@ test("agy consumes only its closed stream-json event protocol", { timeout: 300_0
       daemonId: "runtime-agy-events",
       userRoot,
       runtimeDiscover: () => [installation],
-      runtimeLaunch: (prepared) => {
+      runtimeLaunch: (prepared, persistence) => {
         assert.deepEqual(prepared.args, [
           "--output-format",
           "stream-json",
@@ -834,7 +836,7 @@ test("agy consumes only its closed stream-json event protocol", { timeout: 300_0
               },
             ];
         return {
-          ...fixtureRuntimeProcess(t),
+          ...fixtureRuntimeProcess(t, persistence),
           onOutput: (listener) => {
             queueMicrotask(() => output.forEach((frame) => listener(`${JSON.stringify(frame)}\n`)));
           },
@@ -846,6 +848,7 @@ test("agy consumes only its closed stream-json event protocol", { timeout: 300_0
       },
     });
   try {
+    await host.attachmentsSettled();
     await host.runtimeInstance(
       "daemon.runtimeInstance.create",
       {

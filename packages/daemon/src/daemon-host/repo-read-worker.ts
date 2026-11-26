@@ -84,6 +84,9 @@ function executeRead(request: RepoWriterRequestV1): unknown {
     case "readTaskAuthorizationMetadata":
       value = reader.readTaskAuthorizationMetadata(args[0] as readonly string[]);
       break;
+    case "readTaskAuthorizationAncestry":
+      value = reader.readTaskAuthorizationAncestry(args[0] as readonly string[]);
+      break;
     case "inFlightWork":
       value = reader.inFlightWork(Number(args[0]));
       break;
