@@ -5,10 +5,15 @@ import {
   assertResidentCeoExecutionAllowed,
   assertResidentCeoPrincipal,
   createResidentCeoProfile,
+  effectiveResidentCeoApprovalGate,
   effectiveResidentCeoExecutionPolicy,
   evaluateResidentCeoAutoApproval,
+  evaluateResidentCeoGateDecision,
   parseResidentCeoDelegationDecision,
+  recordResidentCeoProposalGateVerdict,
   recordResidentCeoProposalTerminalOutcome,
+  RESIDENT_CEO_DEFAULT_GATE_MIN_CONFIDENCE,
+  RESIDENT_CEO_GATE_ABSTAIN_OPTION_ID,
   RESIDENT_CEO_MAX_PROPOSALS,
   ResidentCeoProfileError,
   residentCeoWakeDue,
@@ -245,4 +250,264 @@ test("proposal transitions enforce pending_approval guard, record idempotent ter
   }
   assert.equal(bounded.proposals?.length, RESIDENT_CEO_MAX_PROPOSALS);
   assert.equal(bounded.proposals?.filter((p) => p.status === "pending_approval").length, 5);
+});
+
+test("approvalGate configuration defaults to off/0.85 and validates mode, providerId, and minConfidence in (0, 1]", () => {
+  assert.deepEqual(effectiveResidentCeoApprovalGate(profile), {
+    mode: "off",
+    providerId: null,
+    minConfidence: RESIDENT_CEO_DEFAULT_GATE_MIN_CONFIDENCE,
+  });
+
+  const configured = createResidentCeoProfile(
+    {
+      principalPersonId: "person_owner",
+      runtimeInstanceId: "runtime_local",
+      model: "model-a",
+      heartbeatIntervalSec: 60,
+      executionPolicy: "approval-gated",
+      approvalGate: {
+        mode: "auto-promote",
+        providerId: "  openrouter-decider  ",
+        minConfidence: 0.9,
+      },
+    },
+    "2026-11-26T00:00:00.000Z",
+  );
+  assert.deepEqual(configured.approvalGate, {
+    mode: "auto-promote",
+    providerId: "openrouter-decider",
+    minConfidence: 0.9,
+  });
+  assert.deepEqual(effectiveResidentCeoApprovalGate(configured), {
+    mode: "auto-promote",
+    providerId: "openrouter-decider",
+    minConfidence: 0.9,
+  });
+
+  const clearedProvider = createResidentCeoProfile(
+    {
+      ...profile,
+      approvalGate: { mode: "secondary-guard", providerId: "   ", minConfidence: 1 },
+    },
+    "2026-11-26T00:00:00.000Z",
+  );
+  assert.equal(clearedProvider.approvalGate?.providerId, null);
+  assert.equal(clearedProvider.approvalGate?.minConfidence, 1);
+
+  for (const invalidGate of [
+    { mode: "autonomous" as never },
+    { mode: "auto-promote" as const, providerId: "bad provider id" },
+    { mode: "auto-promote" as const, minConfidence: 0 },
+    { mode: "auto-promote" as const, minConfidence: -0.2 },
+    { mode: "auto-promote" as const, minConfidence: 1.01 },
+    { mode: "auto-promote" as const, minConfidence: Number.NaN },
+  ]) {
+    assert.throws(
+      () => createResidentCeoProfile({ ...profile, approvalGate: invalidGate }, "2026-11-26T00:00:00.000Z"),
+      (error: unknown) => error instanceof ResidentCeoProfileError && error.code === "resident_ceo_invalid_profile",
+    );
+  }
+});
+
+test("evaluateResidentCeoGateDecision enforces deterministic guards, abstain handling, and minConfidence thresholds fail-closed", () => {
+  const autoPromoteProfile = createResidentCeoProfile(
+    {
+      principalPersonId: "person_owner",
+      runtimeInstanceId: "runtime_local",
+      model: "model-a",
+      heartbeatIntervalSec: 60,
+      executionPolicy: "approval-gated",
+      defaultWorkId: "task_work_default",
+      defaultAgentId: "neon",
+      approvalGate: { mode: "auto-promote", providerId: "decider-1", minConfidence: 0.85 },
+    },
+    "2026-11-26T00:00:00.000Z",
+  );
+  const secondaryGuardProfile = createResidentCeoProfile(
+    {
+      ...autoPromoteProfile,
+      autoApproveSenders: ["person_alice"],
+      approvalGate: { mode: "secondary-guard", providerId: "decider-1", minConfidence: 0.85 },
+    },
+    "2026-11-26T00:00:00.000Z",
+  );
+
+  // Positive: exact threshold boundary (0.85 >= 0.85) under auto-promote
+  const boundaryPass = evaluateResidentCeoGateDecision({
+    profile: autoPromoteProfile,
+    proposal: { fromPersonId: "person_stranger", proposedWorkId: null, proposedAgentId: null },
+    observation: {
+      selected: "approve_low_risk",
+      distribution: { approve_low_risk: 0.85, require_human_approval: 0.1, insufficient_information: 0.05 },
+      providerId: "decider-1",
+      model: "pplx-decider",
+      evaluatedAt: "2026-11-26T00:01:00.000Z",
+    },
+  });
+  assert.equal(boundaryPass.allowAutoPromote, true);
+  if (boundaryPass.allowAutoPromote) {
+    assert.equal(boundaryPass.workId, "task_work_default");
+    assert.equal(boundaryPass.verdict.fallbackReason, null);
+    assert.equal(boundaryPass.verdict.confidence, 0.85);
+  }
+
+  // Positive: secondary-guard with allowlisted sender
+  const guardPass = evaluateResidentCeoGateDecision({
+    profile: secondaryGuardProfile,
+    proposal: { fromPersonId: "person_alice", proposedWorkId: "task_work_custom", proposedAgentId: "sol" },
+    observation: {
+      selected: "approve_low_risk",
+      distribution: { approve_low_risk: 0.92, require_human_approval: 0.05, insufficient_information: 0.03 },
+      providerId: "decider-1",
+      model: "pplx-decider",
+      evaluatedAt: "2026-11-26T00:01:00.000Z",
+    },
+  });
+  assert.equal(guardPass.allowAutoPromote, true);
+  if (guardPass.allowAutoPromote) assert.equal(guardPass.workId, "task_work_custom");
+
+  // Negative: below threshold (0.849 < 0.85)
+  const lowConfidence = evaluateResidentCeoGateDecision({
+    profile: autoPromoteProfile,
+    proposal: { fromPersonId: "person_stranger", proposedWorkId: "task_work_1", proposedAgentId: "neon" },
+    observation: {
+      selected: "approve_low_risk",
+      distribution: { approve_low_risk: 0.849, require_human_approval: 0.101, insufficient_information: 0.05 },
+      providerId: "decider-1",
+      model: "pplx-decider",
+      evaluatedAt: "2026-11-26T00:01:00.000Z",
+    },
+  });
+  assert.equal(lowConfidence.allowAutoPromote, false);
+  assert.equal(lowConfidence.verdict.fallbackReason, "confidence_below_threshold");
+  assert.equal(lowConfidence.verdict.confidence, 0.849);
+
+  // Negative: require_human_approval
+  const humanRequired = evaluateResidentCeoGateDecision({
+    profile: autoPromoteProfile,
+    proposal: { fromPersonId: "person_stranger", proposedWorkId: "task_work_1", proposedAgentId: "neon" },
+    observation: {
+      selected: "require_human_approval",
+      distribution: { approve_low_risk: 0.08, require_human_approval: 0.9, insufficient_information: 0.02 },
+      providerId: "decider-1",
+      model: "pplx-decider",
+      evaluatedAt: "2026-11-26T00:01:00.000Z",
+    },
+  });
+  assert.equal(humanRequired.allowAutoPromote, false);
+  assert.equal(humanRequired.verdict.fallbackReason, "selected_require_human_approval");
+
+  // Negative: abstain (insufficient_information)
+  const abstained = evaluateResidentCeoGateDecision({
+    profile: autoPromoteProfile,
+    proposal: { fromPersonId: "person_stranger", proposedWorkId: "task_work_1", proposedAgentId: "neon" },
+    observation: {
+      selected: RESIDENT_CEO_GATE_ABSTAIN_OPTION_ID,
+      distribution: { approve_low_risk: 0.1, require_human_approval: 0.1, insufficient_information: 0.8 },
+      providerId: "decider-1",
+      model: "pplx-decider",
+      evaluatedAt: "2026-11-26T00:01:00.000Z",
+    },
+  });
+  assert.equal(abstained.allowAutoPromote, false);
+  assert.equal(abstained.verdict.fallbackReason, "abstained_insufficient_information");
+
+  // Negative: provider error
+  const providerFailed = evaluateResidentCeoGateDecision({
+    profile: autoPromoteProfile,
+    proposal: { fromPersonId: "person_stranger", proposedWorkId: "task_work_1", proposedAgentId: "neon" },
+    observation: {
+      selected: null,
+      distribution: null,
+      providerId: "decider-1",
+      model: "pplx-decider",
+      evaluatedAt: "2026-11-26T00:01:00.000Z",
+      errorReason: "decision_timeout: timed out",
+    },
+  });
+  assert.equal(providerFailed.allowAutoPromote, false);
+  assert.equal(providerFailed.verdict.fallbackReason, "decision_timeout: timed out");
+
+  // Deterministic guards always beat 0.99 model probability
+  const highConfidenceObs = {
+    selected: "approve_low_risk",
+    distribution: { approve_low_risk: 0.99, require_human_approval: 0.005, insufficient_information: 0.005 },
+    providerId: "decider-1",
+    model: "pplx-decider",
+    evaluatedAt: "2026-11-26T00:01:00.000Z",
+  };
+  assert.equal(
+    evaluateResidentCeoGateDecision({
+      profile: { ...autoPromoteProfile, defaultWorkId: null },
+      proposal: { fromPersonId: "person_stranger", proposedWorkId: null, proposedAgentId: "neon" },
+      observation: highConfidenceObs,
+    }).verdict.fallbackReason,
+    "missing_work_id",
+  );
+  assert.equal(
+    evaluateResidentCeoGateDecision({
+      profile: { ...autoPromoteProfile, executionPolicy: "advisory-only" },
+      proposal: { fromPersonId: "person_stranger", proposedWorkId: "task_work_1", proposedAgentId: "neon" },
+      observation: highConfidenceObs,
+    }).verdict.fallbackReason,
+    "execution_policy_not_approval_gated",
+  );
+  assert.equal(
+    evaluateResidentCeoGateDecision({
+      profile: secondaryGuardProfile,
+      proposal: { fromPersonId: "person_mallory", proposedWorkId: "task_work_1", proposedAgentId: "neon" },
+      observation: highConfidenceObs,
+    }).verdict.fallbackReason,
+    "sender_not_allowlisted",
+  );
+  assert.equal(
+    evaluateResidentCeoGateDecision({
+      profile: autoPromoteProfile,
+      proposal: { fromPersonId: "person_stranger", proposedWorkId: "task_work_1", proposedAgentId: "bad agent id" },
+      observation: highConfidenceObs,
+    }).verdict.fallbackReason,
+    "invalid_agent_id",
+  );
+
+  // Gate verdict persists across decider-auto promotion
+  const proposal: ResidentCeoDelegationProposal = {
+    proposalId: "prop_gate_1",
+    peerRequestId: "peer_gate_1",
+    fromPersonId: "person_stranger",
+    summary: "Run read-only audit",
+    proposedTitle: "Run read-only audit",
+    proposedWorkId: "task_work_default",
+    proposedAgentId: "neon",
+    proposedPrompt: "Audit logs",
+    rationale: "Low risk",
+    wakeId: "wake_gate_1",
+    status: "pending_approval",
+    approvalMode: null,
+    createdAt: "2026-11-26T00:00:00.000Z",
+    decidedAt: null,
+    decidedByPersonId: null,
+    promotedTaskId: null,
+    dispatchRuntimeSessionId: null,
+    dispatchError: null,
+    rejectionReason: null,
+    gateVerdict: null,
+    terminalOutcome: null,
+  };
+  let next = upsertResidentCeoProposal(autoPromoteProfile, proposal, "2026-11-26T00:00:01.000Z");
+  next = recordResidentCeoProposalGateVerdict(next, "prop_gate_1", boundaryPass.verdict);
+  next = transitionResidentCeoProposal(next, "prop_gate_1", {
+    status: "promoted",
+    approvalMode: "decider-auto",
+    decidedAt: "2026-11-26T00:01:02.000Z",
+    decidedByPersonId: "person_owner",
+    promotedTaskId: "task_decider_1",
+    proposedWorkId: "task_work_default",
+    proposedTitle: "Run read-only audit",
+    proposedAgentId: "neon",
+    dispatchRuntimeSessionId: "session_decider_1",
+    dispatchError: null,
+  });
+  assert.equal(next.proposals?.[0]?.approvalMode, "decider-auto");
+  assert.deepEqual(next.proposals?.[0]?.gateVerdict, boundaryPass.verdict);
 });

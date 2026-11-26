@@ -362,6 +362,51 @@ export const daemonResidentCeoPolicySources = [
     "Resident CEO profile creation enforces valid execution policy and bounded heartbeat interval.",
   ],
   [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo.ts#checkResidentCeoGatePreconditions:7188e0b1b563047165cc4c5c40a9f495",
+    "residentCeoApprovalGate",
+    "Resident CEO approval gate preconditions require explicit approval-gated execution policy.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo.ts#evaluateResidentCeoGateDecision.allowAutoPromote:ecae9f54f5851a040147a46f3f70a8fa",
+    "residentCeoApprovalGate",
+    "Resident CEO approval gate fails closed when deterministic preconditions are unmet.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo.ts#evaluateResidentCeoGateDecision.allowAutoPromote:ecae9f54f5851a040147a46f3f70a8fa:2",
+    "residentCeoApprovalGate",
+    "Resident CEO approval gate fails closed on provider or transport errors.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo.ts#evaluateResidentCeoGateDecision.allowAutoPromote:ecae9f54f5851a040147a46f3f70a8fa:3",
+    "residentCeoApprovalGate",
+    "Resident CEO approval gate fails closed when selected option is unrecognized.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo.ts#evaluateResidentCeoGateDecision.allowAutoPromote:ecae9f54f5851a040147a46f3f70a8fa:4",
+    "residentCeoApprovalGate",
+    "Resident CEO approval gate fails closed on abstain option insufficient_information.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo.ts#evaluateResidentCeoGateDecision.allowAutoPromote:ecae9f54f5851a040147a46f3f70a8fa:5",
+    "residentCeoApprovalGate",
+    "Resident CEO approval gate fails closed when Decider selects require_human_approval.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo.ts#evaluateResidentCeoGateDecision.allowAutoPromote:ecae9f54f5851a040147a46f3f70a8fa:6",
+    "residentCeoApprovalGate",
+    "Resident CEO approval gate fails closed when approve_low_risk confidence is missing.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo.ts#evaluateResidentCeoGateDecision.allowAutoPromote:ecae9f54f5851a040147a46f3f70a8fa:7",
+    "residentCeoApprovalGate",
+    "Resident CEO approval gate fails closed when approve_low_risk confidence is below minConfidence.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo.ts#evaluateResidentCeoGateDecision.allowAutoPromote:7b92a32a854808f8f3ce383852ccd840",
+    "residentCeoApprovalGate",
+    "Resident CEO approval gate permits auto-promotion only when deterministic preconditions and calibrated confidence threshold hold.",
+  ],
+  [
     "policy:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.commitProfileMutation.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
     "residentCeoProfileCas",
     "Resident CEO profile mutations retry optimistic CAS conflicts with a bounded 4-attempt ceiling.",

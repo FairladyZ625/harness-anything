@@ -18,6 +18,7 @@ import type {
 } from "@harness-anything/kernel";
 import type { CanonicalMaterializationState } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import type {
+  ResidentCeoApprovalGateMode,
   ResidentCeoExecutionPolicy,
   ResidentCeoProposalStatus,
 } from "@harness-anything/kernel/internal/domain/resident-ceo.ts";
@@ -124,6 +125,12 @@ export const residentCeoExecutionPolicyWords = Object.freeze([
   "approval-gated",
 ] as const satisfies readonly ResidentCeoExecutionPolicy[]);
 
+export const residentCeoApprovalGateModeWords = Object.freeze([
+  "off",
+  "secondary-guard",
+  "auto-promote",
+] as const satisfies readonly ResidentCeoApprovalGateMode[]);
+
 export const residentCeoProposalStatusWords = Object.freeze([
   "pending_approval",
   "promoted",
@@ -136,6 +143,11 @@ type _AssertExactResidentCeoExecutionPolicy = [ResidentCeoExecutionPolicy] exten
 ]
   ? true
   : never;
+type _AssertExactResidentCeoApprovalGateMode = [ResidentCeoApprovalGateMode] extends [
+  (typeof residentCeoApprovalGateModeWords)[number],
+]
+  ? true
+  : never;
 type _AssertExactResidentCeoProposalStatus = [ResidentCeoProposalStatus] extends [
   (typeof residentCeoProposalStatusWords)[number],
 ]
@@ -143,6 +155,7 @@ type _AssertExactResidentCeoProposalStatus = [ResidentCeoProposalStatus] extends
   : never;
 export type ResidentCeoProtocolVocabularyExact = readonly [
   _AssertExactResidentCeoExecutionPolicy,
+  _AssertExactResidentCeoApprovalGateMode,
   _AssertExactResidentCeoProposalStatus,
 ];
 

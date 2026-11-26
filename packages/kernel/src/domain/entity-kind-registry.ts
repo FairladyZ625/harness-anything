@@ -1089,6 +1089,7 @@ const daemonRuntimeSessionPolicy = daemonDomainPolicy("runtime-session", daemonR
 const daemonResidentCeoPolicy = daemonDomainPolicy("resident-ceo", daemonResidentCeoPolicySources, [
   "packages/daemon/test/resident-ceo.integration.test.ts",
   "packages/daemon/test/resident-ceo-phase2.integration.test.ts",
+  "packages/daemon/test/resident-ceo-phase3.integration.test.ts",
 ]);
 
 const daemonHostPolicy = daemonDomainPolicy(

@@ -2,11 +2,19 @@ export const RESIDENT_CEO_PROFILE_SCHEMA = "resident-ceo-profile/v1" as const;
 export const RESIDENT_CEO_MIN_HEARTBEAT_INTERVAL_SEC = 30;
 export const RESIDENT_CEO_MAX_HEARTBEAT_INTERVAL_SEC = 86_400;
 export const RESIDENT_CEO_MAX_PROPOSALS = 50;
+export const RESIDENT_CEO_DEFAULT_GATE_MIN_CONFIDENCE = 0.85;
+export const RESIDENT_CEO_GATE_ABSTAIN_OPTION_ID = "insufficient_information" as const;
 export const residentCeoProfileStatuses = ["stopped", "running"] as const;
 export const residentCeoWakeStatuses = ["running", "succeeded", "failed"] as const;
 export const residentCeoExecutionPolicies = ["advisory-only", "approval-gated"] as const;
 export const residentCeoProposalStatuses = ["pending_approval", "promoted", "rejected", "failed"] as const;
-export const residentCeoApprovalModes = ["manual", "allowlist-auto"] as const;
+export const residentCeoApprovalModes = ["manual", "allowlist-auto", "decider-auto"] as const;
+export const residentCeoApprovalGateModes = ["off", "secondary-guard", "auto-promote"] as const;
+export const residentCeoGateOptionIds = [
+  "approve_low_risk",
+  "require_human_approval",
+  RESIDENT_CEO_GATE_ABSTAIN_OPTION_ID,
+] as const;
 
 export type ResidentCeoWakeCause = "heartbeat" | "peer-request" | "human-chat";
 export type ResidentCeoProfileStatus = (typeof residentCeoProfileStatuses)[number];
@@ -14,7 +22,46 @@ export type ResidentCeoWakeStatus = (typeof residentCeoWakeStatuses)[number];
 export type ResidentCeoExecutionPolicy = (typeof residentCeoExecutionPolicies)[number];
 export type ResidentCeoProposalStatus = (typeof residentCeoProposalStatuses)[number];
 export type ResidentCeoApprovalMode = (typeof residentCeoApprovalModes)[number];
+export type ResidentCeoApprovalGateMode = (typeof residentCeoApprovalGateModes)[number];
+export type ResidentCeoGateOptionId = (typeof residentCeoGateOptionIds)[number];
 export type ResidentCeoPromotedTaskTerminalState = "done" | "cancelled";
+
+export interface ResidentCeoApprovalGateConfig {
+  readonly mode: ResidentCeoApprovalGateMode;
+  readonly providerId?: string | null;
+  readonly minConfidence?: number;
+}
+
+export interface ResidentCeoGateVerdict {
+  readonly mode: ResidentCeoApprovalGateMode;
+  readonly selected: ResidentCeoGateOptionId | null;
+  readonly confidence: number | null;
+  readonly minConfidence: number;
+  readonly providerId: string | null;
+  readonly model: string | null;
+  readonly evaluatedAt: string;
+  readonly fallbackReason: string | null;
+}
+
+export interface ResidentCeoGateObservation {
+  readonly selected: string | null;
+  readonly distribution: Readonly<Record<string, number>> | null;
+  readonly providerId: string | null;
+  readonly model: string | null;
+  readonly evaluatedAt: string;
+  readonly errorReason?: string | null;
+}
+
+export type ResidentCeoGateEvaluation =
+  | {
+      readonly allowAutoPromote: true;
+      readonly workId: string;
+      readonly verdict: ResidentCeoGateVerdict;
+    }
+  | {
+      readonly allowAutoPromote: false;
+      readonly verdict: ResidentCeoGateVerdict;
+    };
 
 export interface ResidentCeoWakeReceipt {
   readonly wakeId: string;
@@ -53,6 +100,7 @@ export interface ResidentCeoDelegationProposal {
   readonly dispatchRuntimeSessionId: string | null;
   readonly dispatchError: string | null;
   readonly rejectionReason: string | null;
+  readonly gateVerdict?: ResidentCeoGateVerdict | null;
   readonly terminalOutcome: ResidentCeoProposalTerminalOutcome | null;
 }
 
@@ -67,6 +115,7 @@ export interface ResidentCeoProfile {
   readonly defaultWorkId?: string | null;
   readonly defaultAgentId?: string | null;
   readonly autoApproveSenders?: readonly string[];
+  readonly approvalGate?: ResidentCeoApprovalGateConfig;
   readonly persistentSessionId: string | null;
   readonly status: ResidentCeoProfileStatus;
   readonly lastWake: ResidentCeoWakeReceipt | null;
@@ -85,6 +134,7 @@ export type ResidentCeoProfileInput = Pick<
   | "defaultWorkId"
   | "defaultAgentId"
   | "autoApproveSenders"
+  | "approvalGate"
 >;
 
 export type ResidentCeoErrorCode =
@@ -150,6 +200,55 @@ export function assertResidentCeoExecutionAllowed(
   }
 }
 
+function isValidGateMinConfidence(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 1;
+}
+
+export function isResidentCeoApprovalGateMode(value: unknown): value is ResidentCeoApprovalGateMode {
+  return typeof value === "string" && (residentCeoApprovalGateModes as readonly string[]).includes(value);
+}
+
+function isResidentCeoGateOptionId(value: unknown): value is ResidentCeoGateOptionId {
+  return typeof value === "string" && (residentCeoGateOptionIds as readonly string[]).includes(value);
+}
+
+function normalizeApprovalGate(
+  gate: ResidentCeoApprovalGateConfig | undefined,
+): ResidentCeoApprovalGateConfig | undefined {
+  if (gate === undefined) return undefined;
+  if (!isResidentCeoApprovalGateMode(gate.mode)) {
+    throw new ResidentCeoProfileError(
+      "resident_ceo_invalid_profile",
+      `Invalid approvalGate.mode: ${String(gate.mode)}. Expected off, secondary-guard, or auto-promote.`,
+    );
+  }
+  const providerId = normalizeOptionalEntityId(gate.providerId, "approvalGate.providerId");
+  if (gate.minConfidence !== undefined && !isValidGateMinConfidence(gate.minConfidence)) {
+    throw new ResidentCeoProfileError(
+      "resident_ceo_invalid_profile",
+      `Invalid approvalGate.minConfidence: ${String(gate.minConfidence)}. Expected a finite number in (0, 1].`,
+    );
+  }
+  return {
+    mode: gate.mode,
+    ...(providerId === undefined ? {} : { providerId }),
+    ...(gate.minConfidence === undefined ? {} : { minConfidence: gate.minConfidence }),
+  };
+}
+
+export function effectiveResidentCeoApprovalGate(profile: Pick<ResidentCeoProfile, "approvalGate">): {
+  readonly mode: ResidentCeoApprovalGateMode;
+  readonly providerId: string | null;
+  readonly minConfidence: number;
+} {
+  const configured = profile.approvalGate;
+  return {
+    mode: configured?.mode ?? "off",
+    providerId: configured?.providerId ?? null,
+    minConfidence: configured?.minConfidence ?? RESIDENT_CEO_DEFAULT_GATE_MIN_CONFIDENCE,
+  };
+}
+
 export function evaluateResidentCeoAutoApproval(
   profile: Pick<ResidentCeoProfile, "executionPolicy" | "autoApproveSenders" | "defaultWorkId">,
   proposal: Pick<ResidentCeoDelegationProposal, "fromPersonId" | "proposedWorkId">,
@@ -160,6 +259,89 @@ export function evaluateResidentCeoAutoApproval(
   const workId = proposal.proposedWorkId ?? profile.defaultWorkId ?? null;
   if (workId === null || workId.trim().length === 0) return { autoApprove: false };
   return { autoApprove: true, workId };
+}
+
+function readOptionProbability(distribution: Readonly<Record<string, number>> | null, optionId: string): number | null {
+  if (distribution === null || !Object.hasOwn(distribution, optionId)) return null;
+  const value = distribution[optionId];
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1 ? value : null;
+}
+
+export function checkResidentCeoGatePreconditions(
+  profile: Pick<
+    ResidentCeoProfile,
+    "executionPolicy" | "autoApproveSenders" | "defaultWorkId" | "defaultAgentId" | "approvalGate"
+  >,
+  proposal: Pick<ResidentCeoDelegationProposal, "fromPersonId" | "proposedWorkId" | "proposedAgentId">,
+): { readonly ok: true; readonly workId: string } | { readonly ok: false; readonly reason: string } {
+  const gate = effectiveResidentCeoApprovalGate(profile);
+  if (effectiveResidentCeoExecutionPolicy(profile) !== "approval-gated")
+    return { ok: false, reason: "execution_policy_not_approval_gated" };
+  if (!isResidentCeoApprovalGateMode(gate.mode) || gate.mode === "off") return { ok: false, reason: "gate_mode_off" };
+  if (!isValidGateMinConfidence(gate.minConfidence)) return { ok: false, reason: "invalid_min_confidence" };
+  if (gate.mode === "secondary-guard" && !(profile.autoApproveSenders ?? []).includes(proposal.fromPersonId))
+    return { ok: false, reason: "sender_not_allowlisted" };
+  const rawWorkId = proposal.proposedWorkId ?? profile.defaultWorkId ?? null;
+  const workId = rawWorkId?.trim() ?? "";
+  if (workId.length === 0) return { ok: false, reason: "missing_work_id" };
+  if (!ENTITY_ID_PATTERN.test(workId)) return { ok: false, reason: "invalid_work_id" };
+  const rawAgentId = proposal.proposedAgentId ?? profile.defaultAgentId ?? null;
+  if (rawAgentId !== null && rawAgentId.trim().length > 0 && !ENTITY_ID_PATTERN.test(rawAgentId.trim()))
+    return { ok: false, reason: "invalid_agent_id" };
+  return { ok: true, workId };
+}
+
+export function evaluateResidentCeoGateDecision(input: {
+  readonly profile: Pick<
+    ResidentCeoProfile,
+    "executionPolicy" | "autoApproveSenders" | "defaultWorkId" | "defaultAgentId" | "approvalGate"
+  >;
+  readonly proposal: Pick<ResidentCeoDelegationProposal, "fromPersonId" | "proposedWorkId" | "proposedAgentId">;
+  readonly observation: ResidentCeoGateObservation;
+}): ResidentCeoGateEvaluation {
+  const gate = effectiveResidentCeoApprovalGate(input.profile);
+  const selected = isResidentCeoGateOptionId(input.observation.selected) ? input.observation.selected : null;
+  const selectedConfidence = selected !== null ? readOptionProbability(input.observation.distribution, selected) : null;
+  const approveConfidence = readOptionProbability(input.observation.distribution, "approve_low_risk");
+  const buildVerdict = (fallbackReason: string | null, confidence: number | null): ResidentCeoGateVerdict => ({
+    mode: gate.mode,
+    selected,
+    confidence,
+    minConfidence: gate.minConfidence,
+    providerId: input.observation.providerId,
+    model: input.observation.model,
+    evaluatedAt: input.observation.evaluatedAt,
+    fallbackReason,
+  });
+
+  const precheck = checkResidentCeoGatePreconditions(input.profile, input.proposal);
+  if (!precheck.ok) {
+    return { allowAutoPromote: false, verdict: buildVerdict(precheck.reason, selectedConfidence) };
+  }
+  const errorReason = input.observation.errorReason?.trim() ?? "";
+  if (errorReason.length > 0) {
+    return { allowAutoPromote: false, verdict: buildVerdict(errorReason, selectedConfidence) };
+  }
+  if (selected === null) {
+    return { allowAutoPromote: false, verdict: buildVerdict("invalid_decision_option", null) };
+  }
+  if (selected === RESIDENT_CEO_GATE_ABSTAIN_OPTION_ID) {
+    return { allowAutoPromote: false, verdict: buildVerdict("abstained_insufficient_information", selectedConfidence) };
+  }
+  if (selected !== "approve_low_risk") {
+    return { allowAutoPromote: false, verdict: buildVerdict("selected_require_human_approval", selectedConfidence) };
+  }
+  if (approveConfidence === null) {
+    return { allowAutoPromote: false, verdict: buildVerdict("missing_confidence", null) };
+  }
+  if (approveConfidence < gate.minConfidence) {
+    return { allowAutoPromote: false, verdict: buildVerdict("confidence_below_threshold", approveConfidence) };
+  }
+  return {
+    allowAutoPromote: true,
+    workId: precheck.workId,
+    verdict: buildVerdict(null, approveConfidence),
+  };
 }
 
 export type ParsedResidentCeoDelegationDecision =
@@ -251,6 +433,7 @@ export function createResidentCeoProfile(input: ResidentCeoProfileInput, updated
   const defaultWorkId = normalizeOptionalEntityId(input.defaultWorkId, "defaultWorkId");
   const defaultAgentId = normalizeOptionalEntityId(input.defaultAgentId, "defaultAgentId");
   const autoApproveSenders = normalizeAutoApproveSenders(input.autoApproveSenders);
+  const approvalGate = normalizeApprovalGate(input.approvalGate);
   return {
     schema: RESIDENT_CEO_PROFILE_SCHEMA,
     principalPersonId: input.principalPersonId,
@@ -262,6 +445,7 @@ export function createResidentCeoProfile(input: ResidentCeoProfileInput, updated
     ...(defaultWorkId === undefined ? {} : { defaultWorkId }),
     ...(defaultAgentId === undefined ? {} : { defaultAgentId }),
     ...(autoApproveSenders === undefined ? {} : { autoApproveSenders }),
+    ...(approvalGate === undefined ? {} : { approvalGate }),
     persistentSessionId: null,
     status: "stopped",
     lastWake: null,
@@ -427,6 +611,15 @@ export function transitionResidentCeoProposal(
             dispatchError: transition.dispatchError,
           };
   return upsertResidentCeoProposal(profile, updated, transition.decidedAt);
+}
+
+export function recordResidentCeoProposalGateVerdict(
+  profile: ResidentCeoProfile,
+  proposalId: string,
+  verdict: ResidentCeoGateVerdict,
+): ResidentCeoProfile {
+  const current = findResidentCeoProposal(profile, proposalId);
+  return upsertResidentCeoProposal(profile, { ...current, gateVerdict: verdict }, verdict.evaluatedAt);
 }
 
 export function recordResidentCeoProposalTerminalOutcome(

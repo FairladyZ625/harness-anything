@@ -494,3 +494,309 @@ test("proposal rejection retries profile CAS cleanly if a concurrent wake update
   assert.equal(rejected.proposal.status, "rejected");
   assert.equal(rejected.proposal.rejectionReason, "Superseded");
 });
+
+test("Phase 3 approvalGate supports auto-promote, secondary-guard interception, fail-closed fallbacks, and mode=off zero-regression", async () => {
+  let profile: ResidentCeoProfile | null = null;
+  let seq = 0;
+  const promoted: unknown[] = [];
+  const dispatched: unknown[] = [];
+  const gateCalls: { readonly mode: string; readonly providerId: string | null; readonly proposalId: string }[] = [];
+  let nextGateResponse:
+    | (() => Promise<{
+        readonly selected: string | null;
+        readonly distribution: Readonly<Record<string, number>> | null;
+        readonly providerId: string | null;
+        readonly model: string | null;
+        readonly evaluatedAt: string;
+        readonly errorReason?: string | null;
+      }>)
+    | null = null;
+
+  const service = makeResidentCeoService({
+    profiles: {
+      read: async () => profile,
+      write: async (next, expectedUpdatedAt) => {
+        assert.equal(expectedUpdatedAt, profile?.updatedAt ?? null);
+        profile = next;
+      },
+    },
+    runtime: {
+      run: async () => ({
+        runtimeSessionId: "session-1",
+        awaitResponse: async () => ({ response: "ok", persistentSessionId: "p-1" }),
+      }),
+    },
+    delegation: {
+      promote: async (req) => {
+        promoted.push(req);
+        return { promotedTaskId: `task_gate_${promoted.length}` };
+      },
+      dispatchAgent: async (req) => {
+        dispatched.push(req);
+        return { runtimeSessionId: `runtime_gate_${dispatched.length}` };
+      },
+      rejectPeerRequest: async () => undefined,
+      reportTerminalOutcome: async () => undefined,
+    },
+    approvalGate: {
+      evaluate: async (req) => {
+        gateCalls.push({ mode: req.mode, providerId: req.providerId, proposalId: req.proposal.proposalId });
+        assert.ok(nextGateResponse, "unexpected approvalGate invocation");
+        return nextGateResponse();
+      },
+    },
+    now: () => "2026-11-26T00:00:00.000Z",
+    createId: () => `gate${++seq}abcdef0123456789`,
+  });
+
+  // 1. Positive auto-promote path (non-allowlisted sender, high confidence approve_low_risk)
+  await service.configure("person_owner", {
+    runtimeInstanceId: "instance-one",
+    model: "model-one",
+    heartbeatIntervalSec: 60,
+    executionPolicy: "approval-gated",
+    defaultWorkId: "task_work_1",
+    defaultAgentId: "neon",
+    approvalGate: { mode: "auto-promote", providerId: "decider-main", minConfidence: 0.85 },
+  });
+  nextGateResponse = async () => ({
+    selected: "approve_low_risk",
+    distribution: { approve_low_risk: 0.93, require_human_approval: 0.05, insufficient_information: 0.02 },
+    providerId: "decider-main",
+    model: "pplx-decider",
+    evaluatedAt: "2026-11-26T00:00:01.000Z",
+  });
+  const autoPromoted = await service.recordProposal("person_owner", {
+    peerRequestId: "peer_gate_pos",
+    fromPersonId: "person_external",
+    summary: "Add unit tests for parser",
+    proposedTitle: "Add unit tests for parser",
+    proposedWorkId: null,
+    proposedAgentId: null,
+    proposedPrompt: "Add fast unit tests for parser edge cases.",
+    rationale: "Low-risk scoped test addition.",
+    wakeId: "wake_1",
+  });
+  assert.equal(autoPromoted.autoApproved, true);
+  assert.equal(autoPromoted.proposal.status, "promoted");
+  assert.equal(autoPromoted.proposal.approvalMode, "decider-auto");
+  assert.equal(autoPromoted.proposal.promotedTaskId, "task_gate_1");
+  assert.equal(autoPromoted.proposal.dispatchRuntimeSessionId, "runtime_gate_1");
+  assert.equal(autoPromoted.proposal.dispatchError, null);
+  assert.equal(autoPromoted.proposal.gateVerdict?.selected, "approve_low_risk");
+  assert.equal(autoPromoted.proposal.gateVerdict?.confidence, 0.93);
+  assert.equal(autoPromoted.proposal.gateVerdict?.fallbackReason, null);
+  assert.equal(gateCalls.length, 1);
+
+  // 2. Fail-closed: low confidence (< 0.85)
+  nextGateResponse = async () => ({
+    selected: "approve_low_risk",
+    distribution: { approve_low_risk: 0.72, require_human_approval: 0.2, insufficient_information: 0.08 },
+    providerId: "decider-main",
+    model: "pplx-decider",
+    evaluatedAt: "2026-11-26T00:00:02.000Z",
+  });
+  const lowConf = await service.recordProposal("person_owner", {
+    peerRequestId: "peer_gate_low_conf",
+    fromPersonId: "person_external",
+    summary: "Borderline change",
+    proposedTitle: "Borderline change",
+    proposedWorkId: "task_work_1",
+    proposedAgentId: "neon",
+    proposedPrompt: "Refactor core module",
+    rationale: "Borderline",
+    wakeId: "wake_2",
+  });
+  assert.equal(lowConf.autoApproved, false);
+  assert.equal(lowConf.proposal.status, "pending_approval");
+  assert.equal(lowConf.proposal.gateVerdict?.fallbackReason, "confidence_below_threshold");
+  assert.equal(promoted.length, 1);
+
+  // 3. Fail-closed: require_human_approval
+  nextGateResponse = async () => ({
+    selected: "require_human_approval",
+    distribution: { approve_low_risk: 0.05, require_human_approval: 0.91, insufficient_information: 0.04 },
+    providerId: "decider-main",
+    model: "pplx-decider",
+    evaluatedAt: "2026-11-26T00:00:03.000Z",
+  });
+  const humanBlocked = await service.recordProposal("person_owner", {
+    peerRequestId: "peer_gate_human",
+    fromPersonId: "person_external",
+    summary: "Drop legacy production tables",
+    proposedTitle: "Drop legacy production tables",
+    proposedWorkId: "task_work_1",
+    proposedAgentId: "neon",
+    proposedPrompt: "Drop tables",
+    rationale: "Risky",
+    wakeId: "wake_3",
+  });
+  assert.equal(humanBlocked.autoApproved, false);
+  assert.equal(humanBlocked.proposal.status, "pending_approval");
+  assert.equal(humanBlocked.proposal.gateVerdict?.fallbackReason, "selected_require_human_approval");
+
+  // 4. Fail-closed: abstain (insufficient_information)
+  nextGateResponse = async () => ({
+    selected: "insufficient_information",
+    distribution: { approve_low_risk: 0.1, require_human_approval: 0.15, insufficient_information: 0.75 },
+    providerId: "decider-main",
+    model: "pplx-decider",
+    evaluatedAt: "2026-11-26T00:00:04.000Z",
+  });
+  const abstained = await service.recordProposal("person_owner", {
+    peerRequestId: "peer_gate_abstain",
+    fromPersonId: "person_external",
+    summary: "Do the thing",
+    proposedTitle: "Do the thing",
+    proposedWorkId: "task_work_1",
+    proposedAgentId: "neon",
+    proposedPrompt: "Do it",
+    rationale: "Vague",
+    wakeId: "wake_4",
+  });
+  assert.equal(abstained.autoApproved, false);
+  assert.equal(abstained.proposal.status, "pending_approval");
+  assert.equal(abstained.proposal.gateVerdict?.fallbackReason, "abstained_insufficient_information");
+
+  // 5. Fail-closed: provider throws timeout/error
+  nextGateResponse = async () => {
+    throw Object.assign(new Error("The Decisions request timed out."), { code: "decision_timeout" });
+  };
+  const timedOut = await service.recordProposal("person_owner", {
+    peerRequestId: "peer_gate_timeout",
+    fromPersonId: "person_external",
+    summary: "Timeout case",
+    proposedTitle: "Timeout case",
+    proposedWorkId: "task_work_1",
+    proposedAgentId: "neon",
+    proposedPrompt: "Run check",
+    rationale: "Routine",
+    wakeId: "wake_5",
+  });
+  assert.equal(timedOut.autoApproved, false);
+  assert.equal(timedOut.proposal.status, "pending_approval");
+  assert.match(timedOut.proposal.gateVerdict?.fallbackReason ?? "", /decision_timeout/u);
+
+  // 6. Deterministic precheck: missing workId fails closed without invoking Decider
+  await service.configure("person_owner", {
+    runtimeInstanceId: "instance-one",
+    model: "model-one",
+    heartbeatIntervalSec: 60,
+    defaultWorkId: null,
+  });
+  const callsBeforeMissingWork = gateCalls.length;
+  nextGateResponse = null;
+  const missingWork = await service.recordProposal("person_owner", {
+    peerRequestId: "peer_gate_no_work",
+    fromPersonId: "person_external",
+    summary: "Missing work",
+    proposedTitle: "Missing work",
+    proposedWorkId: null,
+    proposedAgentId: "neon",
+    proposedPrompt: "Run without work",
+    rationale: "No work",
+    wakeId: "wake_6",
+  });
+  assert.equal(missingWork.autoApproved, false);
+  assert.equal(missingWork.proposal.status, "pending_approval");
+  assert.equal(missingWork.proposal.gateVerdict?.fallbackReason, "missing_work_id");
+  assert.equal(gateCalls.length, callsBeforeMissingWork);
+
+  // 7. secondary-guard: allowlisted sender intercepted vs passed; non-allowlisted skips Decider
+  await service.configure("person_owner", {
+    runtimeInstanceId: "instance-one",
+    model: "model-one",
+    heartbeatIntervalSec: 60,
+    defaultWorkId: "task_work_1",
+    autoApproveSenders: ["person_trusted"],
+    approvalGate: { mode: "secondary-guard", providerId: "decider-main", minConfidence: 0.85 },
+  });
+  const callsBeforeNonAllowlisted = gateCalls.length;
+  nextGateResponse = null;
+  const nonAllowlisted = await service.recordProposal("person_owner", {
+    peerRequestId: "peer_guard_non_allowlist",
+    fromPersonId: "person_other",
+    summary: "Non allowlist",
+    proposedTitle: "Non allowlist",
+    proposedWorkId: "task_work_1",
+    proposedAgentId: "neon",
+    proposedPrompt: "Skip gate",
+    rationale: "Untrusted sender",
+    wakeId: "wake_7",
+  });
+  assert.equal(nonAllowlisted.autoApproved, false);
+  assert.equal(nonAllowlisted.proposal.status, "pending_approval");
+  assert.equal(nonAllowlisted.proposal.gateVerdict, null);
+  assert.equal(gateCalls.length, callsBeforeNonAllowlisted);
+
+  nextGateResponse = async () => ({
+    selected: "require_human_approval",
+    distribution: { approve_low_risk: 0.1, require_human_approval: 0.85, insufficient_information: 0.05 },
+    providerId: "decider-main",
+    model: "pplx-decider",
+    evaluatedAt: "2026-11-26T00:00:05.000Z",
+  });
+  const guardBlocked = await service.recordProposal("person_owner", {
+    peerRequestId: "peer_guard_blocked",
+    fromPersonId: "person_trusted",
+    summary: "Publish credentials externally",
+    proposedTitle: "Publish credentials externally",
+    proposedWorkId: "task_work_1",
+    proposedAgentId: "neon",
+    proposedPrompt: "Upload secrets",
+    rationale: "Suspicious even from allowlisted sender",
+    wakeId: "wake_8",
+  });
+  assert.equal(guardBlocked.autoApproved, false);
+  assert.equal(guardBlocked.proposal.status, "pending_approval");
+  assert.equal(guardBlocked.proposal.gateVerdict?.mode, "secondary-guard");
+  assert.equal(guardBlocked.proposal.gateVerdict?.fallbackReason, "selected_require_human_approval");
+
+  nextGateResponse = async () => ({
+    selected: "approve_low_risk",
+    distribution: { approve_low_risk: 0.96, require_human_approval: 0.02, insufficient_information: 0.02 },
+    providerId: "decider-main",
+    model: "pplx-decider",
+    evaluatedAt: "2026-11-26T00:00:06.000Z",
+  });
+  const guardApproved = await service.recordProposal("person_owner", {
+    peerRequestId: "peer_guard_approved",
+    fromPersonId: "person_trusted",
+    summary: "Safe allowlisted task",
+    proposedTitle: "Safe allowlisted task",
+    proposedWorkId: "task_work_1",
+    proposedAgentId: "neon",
+    proposedPrompt: "Run safe check",
+    rationale: "Routine check",
+    wakeId: "wake_9",
+  });
+  assert.equal(guardApproved.autoApproved, true);
+  assert.equal(guardApproved.proposal.status, "promoted");
+  assert.equal(guardApproved.proposal.approvalMode, "decider-auto");
+  assert.equal(guardApproved.proposal.gateVerdict?.mode, "secondary-guard");
+
+  // 8. Regression: mode="off" restores exact Phase 2 allowlist-auto without calling Decider
+  await service.configure("person_owner", {
+    runtimeInstanceId: "instance-one",
+    model: "model-one",
+    heartbeatIntervalSec: 60,
+    approvalGate: { mode: "off" },
+  });
+  const callsBeforeOff = gateCalls.length;
+  nextGateResponse = null;
+  const phase2Allowlist = await service.recordProposal("person_owner", {
+    peerRequestId: "peer_gate_off_allowlist",
+    fromPersonId: "person_trusted",
+    summary: "Phase 2 allowlist task",
+    proposedTitle: "Phase 2 allowlist task",
+    proposedWorkId: "task_work_1",
+    proposedAgentId: "neon",
+    proposedPrompt: "Run phase 2 allowlist",
+    rationale: "Gate off",
+    wakeId: "wake_10",
+  });
+  assert.equal(phase2Allowlist.autoApproved, true);
+  assert.equal(phase2Allowlist.proposal.approvalMode, "allowlist-auto");
+  assert.equal(phase2Allowlist.proposal.gateVerdict, null);
+  assert.equal(gateCalls.length, callsBeforeOff);
+});

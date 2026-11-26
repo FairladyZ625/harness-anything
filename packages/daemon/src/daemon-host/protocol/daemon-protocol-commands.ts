@@ -40,6 +40,7 @@ import { declaredActionClass, optionalEnum, shape } from "./daemon-protocol-resu
 import {
   AGENDA_PIN_CRITERIA,
   daemonRepoModeWords,
+  residentCeoApprovalGateModeWords,
   residentCeoExecutionPolicyWords,
   residentCeoProposalStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
@@ -579,6 +580,36 @@ const residentCeoProtocolCommands = Object.freeze([
         false,
         { code: "invalid_field" },
         { field: "autoApproveSenders", pathKind: "non-path" },
+      ),
+      cliInput(
+        "--gate-mode",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          field: "gateMode",
+          pathKind: "non-path",
+          enum: residentCeoApprovalGateModeWords,
+        },
+      ),
+      cliInput(
+        "--gate-provider",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "gateProviderId", pathKind: "non-path" },
+      ),
+      cliInput(
+        "--gate-min-confidence",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          field: "gateMinConfidence",
+          pathKind: "non-path",
+          projection: "number",
+          regex: "^(?:0\\.(?:0*[1-9][0-9]*)|1(?:\\.0+)?)$",
+        },
       ),
     ],
   }),

@@ -1,17 +1,23 @@
 import {
   assertResidentCeoExecutionAllowed,
   assertResidentCeoPrincipal,
+  checkResidentCeoGatePreconditions,
   createResidentCeoProfile,
+  effectiveResidentCeoApprovalGate,
   evaluateResidentCeoAutoApproval,
+  evaluateResidentCeoGateDecision,
   findResidentCeoProposal,
+  recordResidentCeoProposalGateVerdict,
   recordResidentCeoProposalTerminalOutcome,
   ResidentCeoProfileError,
   residentCeoWakeDue,
   residentCeoWakeReceipt,
   transitionResidentCeoProposal,
   upsertResidentCeoProposal,
+  type ResidentCeoApprovalGateMode,
   type ResidentCeoApprovalMode,
   type ResidentCeoDelegationProposal,
+  type ResidentCeoGateObservation,
   type ResidentCeoProfile,
   type ResidentCeoProfileInput,
   type ResidentCeoPromotedTaskTerminalState,
@@ -71,10 +77,21 @@ export interface ResidentCeoDelegationExecutor {
   }) => Promise<void>;
 }
 
+export interface ResidentCeoApprovalGatePort {
+  readonly evaluate: (input: {
+    readonly profile: ResidentCeoProfile;
+    readonly proposal: ResidentCeoDelegationProposal;
+    readonly mode: Exclude<ResidentCeoApprovalGateMode, "off">;
+    readonly providerId: string | null;
+    readonly minConfidence: number;
+  }) => Promise<ResidentCeoGateObservation>;
+}
+
 export interface ResidentCeoServiceInput {
   readonly profiles: ResidentCeoProfileStore;
   readonly runtime: ResidentCeoRuntime;
   readonly delegation?: ResidentCeoDelegationExecutor;
+  readonly approvalGate?: ResidentCeoApprovalGatePort;
   readonly now: () => string;
   readonly createId: () => string;
 }
@@ -357,6 +374,9 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
         ...(configuration.autoApproveSenders === undefined && previous?.autoApproveSenders !== undefined
           ? { autoApproveSenders: previous.autoApproveSenders }
           : {}),
+        ...(configuration.approvalGate === undefined && previous?.approvalGate !== undefined
+          ? { approvalGate: previous.approvalGate }
+          : {}),
       };
       const created = createResidentCeoProfile(mergedConfig, input.now());
       const next: ResidentCeoProfile = previous
@@ -430,21 +450,107 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
         dispatchRuntimeSessionId: null,
         dispatchError: null,
         rejectionReason: null,
+        gateVerdict: null,
         terminalOutcome: null,
       };
       const saved = await commitProfileMutation(principalPersonId, repoId, (current) =>
         upsertResidentCeoProposal(current, proposal, createdAt),
       );
-      const auto = evaluateResidentCeoAutoApproval(saved, proposal);
-      if (auto.autoApprove && input.delegation) {
-        const approved = await approveProposal(
-          principalPersonId,
-          { proposalId, workId: auto.workId, approvalMode: "allowlist-auto" },
-          repoId,
-        );
-        return { ...approved, autoApproved: true };
+      const gate = effectiveResidentCeoApprovalGate(saved);
+      if (gate.mode === "off") {
+        const auto = evaluateResidentCeoAutoApproval(saved, proposal);
+        if (auto.autoApprove && input.delegation) {
+          const approved = await approveProposal(
+            principalPersonId,
+            { proposalId, workId: auto.workId, approvalMode: "allowlist-auto" },
+            repoId,
+          );
+          return { ...approved, autoApproved: true };
+        }
+        return { profile: saved, proposal, autoApproved: false };
       }
-      return { profile: saved, proposal, autoApproved: false };
+      if (gate.mode === "secondary-guard" && !(saved.autoApproveSenders ?? []).includes(proposal.fromPersonId)) {
+        return { profile: saved, proposal, autoApproved: false };
+      }
+      const precheck = checkResidentCeoGatePreconditions(saved, proposal);
+      let observation: ResidentCeoGateObservation;
+      if (!precheck.ok) {
+        observation = {
+          selected: null,
+          distribution: null,
+          providerId: gate.providerId,
+          model: null,
+          evaluatedAt: input.now(),
+          errorReason: null,
+        };
+      } else if (!input.delegation) {
+        observation = {
+          selected: null,
+          distribution: null,
+          providerId: gate.providerId,
+          model: null,
+          evaluatedAt: input.now(),
+          errorReason: "delegation_unavailable",
+        };
+      } else if (!input.approvalGate) {
+        observation = {
+          selected: null,
+          distribution: null,
+          providerId: gate.providerId,
+          model: null,
+          evaluatedAt: input.now(),
+          errorReason: "approval_gate_unavailable",
+        };
+      } else {
+        const [evaluated] = await Promise.allSettled([
+          input.approvalGate.evaluate({
+            profile: saved,
+            proposal,
+            mode: gate.mode,
+            providerId: gate.providerId,
+            minConfidence: gate.minConfidence,
+          }),
+        ]);
+        if (evaluated.status === "fulfilled") {
+          observation = evaluated.value;
+        } else {
+          const reason = evaluated.reason;
+          const code =
+            reason !== null && typeof reason === "object" && "code" in reason && typeof reason.code === "string"
+              ? reason.code
+              : null;
+          const message = reason instanceof Error ? reason.message : String(reason);
+          observation = {
+            selected: null,
+            distribution: null,
+            providerId: gate.providerId,
+            model: null,
+            evaluatedAt: input.now(),
+            errorReason: code ? `${code}: ${message}` : `gate_error: ${message}`,
+          };
+        }
+      }
+      const evaluation = evaluateResidentCeoGateDecision({
+        profile: saved,
+        proposal,
+        observation,
+      });
+      const withVerdict = await commitProfileMutation(principalPersonId, repoId, (current) =>
+        recordResidentCeoProposalGateVerdict(current, proposalId, evaluation.verdict),
+      );
+      if (!evaluation.allowAutoPromote) {
+        return {
+          profile: withVerdict,
+          proposal: findResidentCeoProposal(withVerdict, proposalId),
+          autoApproved: false,
+        };
+      }
+      const approved = await approveProposal(
+        principalPersonId,
+        { proposalId, workId: evaluation.workId, approvalMode: "decider-auto" },
+        repoId,
+      );
+      return { ...approved, autoApproved: true };
     },
     approveProposal,
     rejectProposal: async (
