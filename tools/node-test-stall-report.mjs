@@ -5,10 +5,23 @@
 // before the watchdog kills it, so one CI round answers "waiting on what" instead of one more guess.
 import { isMainThread, threadId } from "node:worker_threads";
 
-const delayMs = Number.parseInt(process.env.HARNESS_TEST_STALL_REPORT_MS ?? "", 10);
+const delayMs = selectStallReportDelayMs(
+  process.env.HARNESS_TEST_STALL_REPORT_MS,
+  process.env.HARNESS_TEST_STALL_REPORT_FILE_MS,
+  process.argv[1],
+);
 
 if (Number.isInteger(delayMs) && delayMs > 0) {
   const timer = setTimeout(() => {
+    // pid joins a worker thread's report to the process it is holding open, and
+    // the thread label says which side of that process is stuck. Without both,
+    // two reports from the same stalled process are indistinguishable from two
+    // unrelated processes that happened to stall at the same moment.
+    const who = `pid=${process.pid} thread=${threadLabel()}`;
+    if (process.platform === "win32") {
+      emitWindowsActiveResources(who, delayMs);
+      return;
+    }
     let report;
     try {
       report = process.report.getReport();
@@ -16,11 +29,6 @@ if (Number.isInteger(delayMs) && delayMs > 0) {
       console.error(`[stall-report] could not collect a diagnostic report: ${String(error)}`);
       return;
     }
-    // pid joins a worker thread's report to the process it is holding open, and
-    // the thread label says which side of that process is stuck. Without both,
-    // two reports from the same stalled process are indistinguishable from two
-    // unrelated processes that happened to stall at the same moment.
-    const who = `pid=${process.pid} thread=${threadLabel()}`;
     const handles = Array.isArray(report.libuv) ? report.libuv.filter(isWaitWorthy) : [];
     console.error(
       `[stall-report] ${process.argv[1] ?? "test child"} ${who} still running after ${delayMs}ms; ${handles.length} active handle(s)`,
@@ -42,6 +50,44 @@ if (Number.isInteger(delayMs) && delayMs > 0) {
   // The report is only interesting for a process that is stuck, and a stuck process has other
   // handles holding it open. Never let this timer be the reason a healthy process cannot exit.
   timer.unref?.();
+}
+
+function selectStallReportDelayMs(rawDefaultMs, rawFileOverrides, entryPath) {
+  const defaultDelayMs = Number.parseInt(rawDefaultMs ?? "", 10);
+  if (!rawFileOverrides || typeof entryPath !== "string" || entryPath.length === 0) return defaultDelayMs;
+  const normalizedEntry = entryPath.replaceAll("\\", "/");
+  let overrides;
+  try {
+    overrides = JSON.parse(rawFileOverrides);
+  } catch (error) {
+    console.error(`[stall-report] invalid HARNESS_TEST_STALL_REPORT_FILE_MS: ${String(error)}`);
+    return defaultDelayMs;
+  }
+  if (!overrides || typeof overrides !== "object") return defaultDelayMs;
+  for (const [relativeFile, overrideMs] of Object.entries(overrides)) {
+    const normalizedFile = relativeFile.replaceAll("\\", "/");
+    if (normalizedEntry === normalizedFile || normalizedEntry.endsWith(`/${normalizedFile}`)) {
+      return Number.isInteger(overrideMs) ? overrideMs : defaultDelayMs;
+    }
+  }
+  return defaultDelayMs;
+}
+
+// Node 24 on Windows can natively crash when process.report.getReport() walks live worker threads'
+// libuv loops concurrently. Summarize active JS resources instead so the child stays alive and
+// still reports what is holding its event loop open.
+function emitWindowsActiveResources(who, reportDelayMs) {
+  const resources = typeof process.getActiveResourcesInfo === "function" ? process.getActiveResourcesInfo() : [];
+  const counts = new Map();
+  for (const resource of resources) {
+    counts.set(resource, (counts.get(resource) ?? 0) + 1);
+  }
+  console.error(
+    `[stall-report] ${process.argv[1] ?? "test child"} ${who} still running after ${reportDelayMs}ms; ${resources.length} active resource(s) (win32 safe summary)`,
+  );
+  for (const [resource, count] of [...counts.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+    console.error(`[stall-report]   ${resource} count=${count}`);
+  }
 }
 
 function threadLabel() {

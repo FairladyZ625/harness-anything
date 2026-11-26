@@ -401,3 +401,55 @@ export function partitionIntegrationWeightOverruns(overruns, changedFilesRaw) {
 export function formatIntegrationBudgetMessage(overrun) {
   return `[integration-budget] ${overrun.file} took ${overrun.durationMs}ms against a declared weight of ${overrun.declaredMs}ms. Record its measured duration in tools/integration-test-weights.json (the shard budget sums those weights), or make it cheaper.`;
 }
+
+// Windows runners execute SQLite/Git/ConPTY integration files slower than Ubuntu; raising
+// marked per-file timeouts below this floor (unless HARNESS_TEST_FILE_TIMEOUT_MS was explicitly
+// set by the caller) keeps healthy 160-210s Windows integration files from hitting premature
+// stall reports or watchdogs.
+export const WINDOWS_TEST_FILE_TIMEOUT_FLOOR_MS = 300_000;
+
+/**
+ * Plan per-file watchdog deadlines and stall-report delays without letting one short-marked file
+ * shrink the stall-report threshold of unrelated files in the same shard.
+ */
+export function planTestFileTimeouts({
+  files,
+  testFileTimeouts,
+  defaultTestTimeoutMs,
+  explicitTestTimeoutEnv = false,
+  unboundedAllowed = false,
+  platform = process.platform,
+}) {
+  const applyWindowsFloor = platform === "win32" && !explicitTestTimeoutEnv;
+  const selectedFileTimeouts = new Map();
+  const finiteTestTimeouts = [];
+  const defaultStallMs = Math.max(1_000, Math.floor(defaultTestTimeoutMs * 0.9));
+  const stallReportFileMs = {};
+  for (const file of files) {
+    const marked = testFileTimeouts[file];
+    let fileTestTimeoutMs =
+      marked === undefined || (marked === "none" && !unboundedAllowed) ? defaultTestTimeoutMs : marked;
+    if (applyWindowsFloor && fileTestTimeoutMs !== "none" && fileTestTimeoutMs < WINDOWS_TEST_FILE_TIMEOUT_FLOOR_MS) {
+      fileTestTimeoutMs = WINDOWS_TEST_FILE_TIMEOUT_FLOOR_MS;
+    }
+    selectedFileTimeouts.set(file, fileTestTimeoutMs);
+    if (fileTestTimeoutMs === "none") {
+      stallReportFileMs[file] = 0;
+    } else {
+      finiteTestTimeouts.push(fileTestTimeoutMs);
+      const fileStallMs = Math.max(1_000, Math.floor(fileTestTimeoutMs * 0.9));
+      if (fileStallMs !== defaultStallMs) {
+        stallReportFileMs[file] = fileStallMs;
+      }
+    }
+  }
+  const fileTimeoutMs = finiteTestTimeouts.length > 0 ? Math.min(...finiteTestTimeouts) : defaultTestTimeoutMs;
+  const stallReportMs = finiteTestTimeouts.length === 0 ? undefined : defaultStallMs;
+  return {
+    selectedFileTimeouts,
+    finiteTimeouts: finiteTestTimeouts,
+    fileTimeoutMs,
+    stallReportMs,
+    stallReportFileMs,
+  };
+}

@@ -408,6 +408,9 @@ test("closing a running windows terminal does not kill it twice", async () => {
       },
       write: () => undefined,
       resize: () => undefined,
+      destroy: () => {
+        fakePty.kill();
+      },
       kill: () => {
         kills.push(kills.length);
         exit?.({ exitCode: 137 });
@@ -433,6 +436,58 @@ test("closing a running windows terminal does not kill it twice", async () => {
     await host.close();
     assert.deepEqual(kills, [0], "close must release the pty exactly once");
     assert.equal(await pending, null, "a direct PTY ends with its daemon");
+  } finally {
+    removeTempRepository(root);
+  }
+});
+
+test("terminating a windows direct PTY kills once and close waits for its async exit drain", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-terminal-terminate-drain-"));
+  try {
+    const kills: number[] = [];
+    let exit: ((value: { readonly exitCode: number }) => void) | undefined;
+    const fakePty = {
+      onData: () => ({ dispose: () => undefined }),
+      onExit: (listener: (value: { readonly exitCode: number }) => void) => {
+        exit = listener;
+        return { dispose: () => undefined };
+      },
+      write: () => undefined,
+      resize: () => undefined,
+      destroy: () => {
+        fakePty.kill();
+      },
+      kill: () => {
+        kills.push(kills.length);
+      },
+    };
+    const host = openTerminalHost({
+      repoId: "repo-e",
+      rootDir: root,
+      daemonGeneration: 12,
+      platform: "win32",
+      spawnPty: (() => fakePty) as never,
+    });
+    const spawned = host.spawn({
+      idempotencyKey: "terminate-drain",
+      backend: "direct-pty",
+      cwd: { scope: "repo-root" },
+      shellProfileId: "default",
+      name: "Terminate drain",
+    });
+    assert.equal(spawned.ok, true);
+    assert.equal(host.terminate({ sessionId: spawned.sessionId!, confirmed: true }).state, "exited");
+    assert.deepEqual(kills, [0], "terminate on win32 must not invoke destroy()->kill() a second time");
+    let closed = false;
+    const closing = host.close().then(() => {
+      closed = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(closed, false, "close must wait for a terminated win32 direct-pty exit drain");
+    exit?.({ exitCode: 0 });
+    await closing;
+    assert.equal(closed, true);
+    assert.deepEqual(kills, [0], "onExit and close after terminate must not kill again");
   } finally {
     removeTempRepository(root);
   }

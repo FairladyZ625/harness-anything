@@ -368,6 +368,7 @@ test(
       repoId: process.env.HARNESS_DAEMON_REPO_ID,
     };
     Object.assign(process.env, fixture.env);
+    let stop: (() => void) | undefined;
     try {
       const bridge = createLocalGuiServiceBridge(),
         scope = { repoId: fixture.repoId };
@@ -392,7 +393,7 @@ test(
       const echoSeen = new Promise<void>((resolve) => {
         resolveEcho = resolve;
       });
-      const stop = await bridge.stream(
+      stop = await bridge.stream(
         "repo.terminal.attach",
         { repo: scope, payload: { sessionId, afterSeq: 0 } },
         (value) => {
@@ -451,6 +452,7 @@ test(
         { schema: "terminal-detach-ack/v1", state: "detached" },
       );
       stop();
+      stop = undefined;
       const rejected = (await bridge.invoke(
         "repo.terminal.terminate",
         scopedRpcParams("repo.terminal.terminate", {
@@ -473,6 +475,7 @@ test(
         { outcome: "applied", state: "exited" },
       );
     } finally {
+      stop?.();
       await fixture.stop();
       restoreEnv("HARNESS_DAEMON_USER_ROOT", previous.userRoot);
       restoreEnv("HARNESS_DAEMON_ID", previous.daemonId);

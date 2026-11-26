@@ -25,6 +25,7 @@ import {
   parseRunnerArgs,
   partitionIntegrationWeightOverruns,
   partitionTestFiles,
+  planTestFileTimeouts,
   resolveTestConcurrency,
   runsCliEntry,
   selectTestFiles,
@@ -190,17 +191,17 @@ const defaultFileTimeoutMs = positiveIntegerOrDefault(
   process.env.HARNESS_TEST_FILE_TIMEOUT_MS,
   DEFAULT_TEST_FILE_TIMEOUT_MS,
 );
+const explicitTestTimeoutEnv = positiveIntegerOrDefault(process.env.HARNESS_TEST_FILE_TIMEOUT_MS, 0) > 0;
 // An unbounded marker only counts in a dispatched stress run; every GitHub CI job keeps the default
 // watchdog for it (repository owner ruling of 2026-09-11: the exemption never enters per-PR CI).
 const unboundedAllowed = !process.env.CI;
-const selectedFileTimeouts = new Map(
-  selection.files.map((file) => {
-    const marked = testFileTimeouts[file];
-    return [file, marked === undefined || (marked === "none" && !unboundedAllowed) ? defaultFileTimeoutMs : marked];
-  }),
-);
-const finiteTimeouts = [...selectedFileTimeouts.values()].filter((timeout) => timeout !== "none");
-const fileTimeoutMs = finiteTimeouts.length > 0 ? Math.min(...finiteTimeouts) : defaultFileTimeoutMs;
+const { selectedFileTimeouts, finiteTimeouts, fileTimeoutMs, stallReportMs, stallReportFileMs } = planTestFileTimeouts({
+  files: selection.files,
+  testFileTimeouts,
+  defaultTestTimeoutMs: defaultFileTimeoutMs,
+  explicitTestTimeoutEnv,
+  unboundedAllowed,
+});
 const activityRoot = mkdtempSync(join(tmpdir(), "ha-node-test-watchdog-"));
 const testTemporaryRoot = mkdtempSync(join(tmpdir(), "ha-node-test-"));
 const activityPath = join(activityRoot, "activity.jsonl");
@@ -217,9 +218,6 @@ const quarantinePattern =
 // watchdog can say which test never returned; only the child itself can say which handle it is
 // still holding, and a remote runner offers no second chance to ask.
 const stallReportUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-stall-report.mjs")).href;
-// Stall reports stay on for the bounded files of a run; only a run made solely of unbounded
-// stress files has nothing to report at 90% of a timeout.
-const stallReportMs = finiteTimeouts.length === 0 ? undefined : Math.max(1_000, Math.floor(fileTimeoutMs * 0.9));
 const daemonOwnerUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-daemon-owner.mjs")).href;
 const coveragePath = options.coverage === undefined ? undefined : resolve(options.coverage);
 if (coveragePath !== undefined) mkdirSync(dirname(coveragePath), { recursive: true });
@@ -230,6 +228,11 @@ const childEnvironment = testChildEnvironment({
   variableNames: WORKER_ENVIRONMENT_VARIABLES,
   forwardPartition: true,
 });
+if (Object.keys(stallReportFileMs).length > 0) {
+  childEnvironment.HARNESS_TEST_STALL_REPORT_FILE_MS = JSON.stringify(stallReportFileMs);
+} else {
+  delete childEnvironment.HARNESS_TEST_STALL_REPORT_FILE_MS;
+}
 const child = spawn(
   process.execPath,
   [

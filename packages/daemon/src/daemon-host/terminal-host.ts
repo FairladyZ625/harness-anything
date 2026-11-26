@@ -413,8 +413,8 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
         if (child) {
           child.kill();
           destroyPty(child);
-          if (platform === "win32" && session.backend === "direct-pty" && exited) drains.push(exited);
         }
+        if (platform === "win32" && session.backend === "direct-pty" && exited) drains.push(exited);
       }
       persistSessions();
       if (drains.length) await Promise.race([Promise.all(drains), drainDeadline()]);
@@ -423,6 +423,9 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
   };
 
   function destroyPty(child: pty.IPty): void {
+    // On Windows, node-pty's WindowsTerminal.destroy() delegates back to kill(), which would
+    // invoke conptyNative.kill() and fork conpty_console_list_agent multiple times after kill().
+    if (platform === "win32") return;
     (child as pty.IPty & { destroy?: () => void }).destroy?.();
   }
   function drainDeadline(): Promise<void> {
@@ -507,17 +510,18 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
   }
   function bindChild(session: Session, child: pty.IPty): void {
     let resolveExit!: () => void;
-    session.child = child;
-    session.childExited = new Promise<void>((resolve) => {
+    const exited = new Promise<void>((resolve) => {
       resolveExit = resolve;
     });
+    session.child = child;
+    session.childExited = exited;
     child.onData((utf8) => publishTerminalFrame(session, "output", utf8, null));
     child.onExit(({ exitCode }) => {
       resolveExit();
+      if (session.childExited === exited) session.childExited = null;
       destroyPty(child);
       if (session.child !== child) return;
       session.child = null;
-      session.childExited = null;
       const naturalExit = session.status === "running";
       const durableSessionLives =
         session.backend === "tmux" &&
@@ -580,7 +584,9 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
     }
     const child = session.child;
     session.child = null;
-    session.childExited = null;
+    // Keep childExited on Windows direct-pty until onExit resolves so close() drains the ConPTY
+    // teardown even when terminate() ran right before daemon shutdown.
+    if (platform !== "win32" || session.backend !== "direct-pty") session.childExited = null;
     if (child) {
       child.kill();
       destroyPty(child);
