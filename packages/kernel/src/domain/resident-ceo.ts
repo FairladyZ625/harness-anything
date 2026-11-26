@@ -88,6 +88,7 @@ export interface ResidentCeoDelegationProposal {
   readonly proposedTitle: string;
   readonly proposedWorkId: string | null;
   readonly proposedAgentId: string | null;
+  readonly proposedTargetNodeId?: string | null;
   readonly proposedPrompt: string | null;
   readonly rationale: string;
   readonly wakeId: string;
@@ -97,6 +98,7 @@ export interface ResidentCeoDelegationProposal {
   readonly decidedAt: string | null;
   readonly decidedByPersonId: string | null;
   readonly promotedTaskId: string | null;
+  readonly dispatchedTargetNodeId?: string | null;
   readonly dispatchRuntimeSessionId: string | null;
   readonly dispatchError: string | null;
   readonly rejectionReason: string | null;
@@ -155,6 +157,11 @@ export class ResidentCeoProfileError extends Error {
 }
 
 const ENTITY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
+const TARGET_NODE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+
+export function isValidResidentCeoTargetNodeId(value: string): boolean {
+  return TARGET_NODE_ID_PATTERN.test(value) && !value.includes("..");
+}
 
 function normalizeOptionalEntityId(value: string | null | undefined, label: string): string | null | undefined {
   if (value === undefined) return undefined;
@@ -272,7 +279,10 @@ export function checkResidentCeoGatePreconditions(
     ResidentCeoProfile,
     "executionPolicy" | "autoApproveSenders" | "defaultWorkId" | "defaultAgentId" | "approvalGate"
   >,
-  proposal: Pick<ResidentCeoDelegationProposal, "fromPersonId" | "proposedWorkId" | "proposedAgentId">,
+  proposal: Pick<
+    ResidentCeoDelegationProposal,
+    "fromPersonId" | "proposedWorkId" | "proposedAgentId" | "proposedTargetNodeId"
+  >,
 ): { readonly ok: true; readonly workId: string } | { readonly ok: false; readonly reason: string } {
   const gate = effectiveResidentCeoApprovalGate(profile);
   if (effectiveResidentCeoExecutionPolicy(profile) !== "approval-gated")
@@ -288,6 +298,13 @@ export function checkResidentCeoGatePreconditions(
   const rawAgentId = proposal.proposedAgentId ?? profile.defaultAgentId ?? null;
   if (rawAgentId !== null && rawAgentId.trim().length > 0 && !ENTITY_ID_PATTERN.test(rawAgentId.trim()))
     return { ok: false, reason: "invalid_agent_id" };
+  const rawTargetNodeId = proposal.proposedTargetNodeId ?? null;
+  if (
+    rawTargetNodeId !== null &&
+    rawTargetNodeId.trim().length > 0 &&
+    !isValidResidentCeoTargetNodeId(rawTargetNodeId.trim())
+  )
+    return { ok: false, reason: "invalid_target_node_id" };
   return { ok: true, workId };
 }
 
@@ -296,7 +313,10 @@ export function evaluateResidentCeoGateDecision(input: {
     ResidentCeoProfile,
     "executionPolicy" | "autoApproveSenders" | "defaultWorkId" | "defaultAgentId" | "approvalGate"
   >;
-  readonly proposal: Pick<ResidentCeoDelegationProposal, "fromPersonId" | "proposedWorkId" | "proposedAgentId">;
+  readonly proposal: Pick<
+    ResidentCeoDelegationProposal,
+    "fromPersonId" | "proposedWorkId" | "proposedAgentId" | "proposedTargetNodeId"
+  >;
   readonly observation: ResidentCeoGateObservation;
 }): ResidentCeoGateEvaluation {
   const gate = effectiveResidentCeoApprovalGate(input.profile);
@@ -351,6 +371,7 @@ export type ParsedResidentCeoDelegationDecision =
       readonly proposedTitle: string;
       readonly proposedWorkId: string | null;
       readonly proposedAgentId: string | null;
+      readonly proposedTargetNodeId: string | null;
       readonly proposedPrompt: string | null;
       readonly rationale: string;
     };
@@ -380,6 +401,11 @@ function optionalProposalId(value: unknown): string | null {
   return text !== null && ENTITY_ID_PATTERN.test(text) ? text : null;
 }
 
+function optionalProposalTargetNodeId(value: unknown): string | null {
+  const text = optionalProposalText(value);
+  return text !== null && isValidResidentCeoTargetNodeId(text) ? text : null;
+}
+
 export function parseResidentCeoDelegationDecision(
   responseText: string,
   fallback: {
@@ -401,6 +427,7 @@ export function parseResidentCeoDelegationDecision(
         proposedTitle: optionalProposalText(parsed.value.title) ?? fallback.summary,
         proposedWorkId: optionalProposalId(parsed.value.workId) ?? fallback.defaultWorkId,
         proposedAgentId: optionalProposalId(parsed.value.agentId) ?? fallback.defaultAgentId,
+        proposedTargetNodeId: optionalProposalTargetNodeId(parsed.value.targetNodeId),
         proposedPrompt: optionalProposalText(parsed.value.prompt) ?? fallback.requestedAction,
         rationale,
       };
@@ -411,6 +438,7 @@ export function parseResidentCeoDelegationDecision(
     proposedTitle: fallback.summary,
     proposedWorkId: fallback.defaultWorkId,
     proposedAgentId: fallback.defaultAgentId,
+    proposedTargetNodeId: null,
     proposedPrompt: fallback.requestedAction,
     rationale: trimmed || fallback.summary,
   };
@@ -556,6 +584,8 @@ export function transitionResidentCeoProposal(
         readonly proposedWorkId: string;
         readonly proposedTitle: string;
         readonly proposedAgentId: string | null;
+        readonly proposedTargetNodeId?: string | null;
+        readonly dispatchedTargetNodeId?: string | null;
         readonly dispatchRuntimeSessionId: string | null;
         readonly dispatchError: string | null;
       }
@@ -591,6 +621,12 @@ export function transitionResidentCeoProposal(
           proposedWorkId: transition.proposedWorkId,
           proposedTitle: transition.proposedTitle,
           proposedAgentId: transition.proposedAgentId,
+          ...(transition.proposedTargetNodeId === undefined
+            ? {}
+            : { proposedTargetNodeId: transition.proposedTargetNodeId }),
+          ...(transition.dispatchedTargetNodeId === undefined
+            ? {}
+            : { dispatchedTargetNodeId: transition.dispatchedTargetNodeId }),
           dispatchRuntimeSessionId: transition.dispatchRuntimeSessionId,
           dispatchError: transition.dispatchError,
         }

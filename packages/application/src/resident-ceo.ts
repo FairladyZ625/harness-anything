@@ -7,6 +7,7 @@ import {
   evaluateResidentCeoAutoApproval,
   evaluateResidentCeoGateDecision,
   findResidentCeoProposal,
+  isValidResidentCeoTargetNodeId,
   recordResidentCeoProposalGateVerdict,
   recordResidentCeoProposalTerminalOutcome,
   ResidentCeoProfileError,
@@ -55,6 +56,12 @@ export interface ResidentCeoDelegationExecutor {
     readonly plan?: string;
     readonly idempotencyKey: string;
   }) => Promise<{ readonly promotedTaskId: string }>;
+  readonly resolveLocalNodeId?: () => string | null;
+  readonly assignToNode?: (input: {
+    readonly taskId: string;
+    readonly targetNodeId: string;
+    readonly idempotencyKey: string;
+  }) => Promise<void>;
   readonly dispatchAgent?: (input: {
     readonly taskId: string;
     readonly agentId: string;
@@ -103,6 +110,7 @@ export interface ResidentCeoProposalDraft {
   readonly proposedTitle: string;
   readonly proposedWorkId: string | null;
   readonly proposedAgentId: string | null;
+  readonly proposedTargetNodeId?: string | null;
   readonly proposedPrompt: string | null;
   readonly rationale: string;
   readonly wakeId: string;
@@ -113,6 +121,7 @@ export interface ResidentCeoApproveProposalInput {
   readonly workId?: string;
   readonly title?: string;
   readonly agentId?: string;
+  readonly targetNodeId?: string;
   readonly runtimeInstanceId?: string;
   readonly model?: string;
   readonly prompt?: string;
@@ -131,6 +140,7 @@ export interface ResidentCeoPromotedTaskPlanInput {
   readonly approvalMode: ResidentCeoApprovalMode;
   readonly workId: string;
   readonly agentId: string | null;
+  readonly targetNodeId?: string | null;
   readonly title: string;
   readonly summary: string;
   readonly prompt: string;
@@ -170,7 +180,7 @@ export function buildResidentCeoPromotedTaskPlan(input: ResidentCeoPromotedTaskP
     "",
     `- Proposal: \`${input.proposalId}\` (wake \`${input.wakeId}\`, approval mode \`${input.approvalMode}\`, approved by \`${input.decidedByPersonId}\`).`,
     `- Source PeerRequest: \`${input.peerRequestId}\` from \`${input.fromPersonId}\`.`,
-    `- Target Work: \`${input.workId}\`; Assigned Executor: ${assignee}.`,
+    `- Target Work: \`${input.workId}\`; Assigned Executor: ${assignee}${input.targetNodeId ? `; Target Node: \`${input.targetNodeId}\`` : ""}.`,
     `- Rationale: ${rationale}`,
     "",
     "## Required Reading",
@@ -267,6 +277,21 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
     const title = (approveInput.title?.trim() || proposal.proposedTitle).trim();
     const agentId =
       (approveInput.agentId?.trim() || proposal.proposedAgentId || profile.defaultAgentId || "").trim() || null;
+    const targetNodeId = (() => {
+      if (approveInput.targetNodeId !== undefined) {
+        const trimmed = approveInput.targetNodeId.trim();
+        if (trimmed.length === 0 || !isValidResidentCeoTargetNodeId(trimmed))
+          throw codedError("invalid_field", `Invalid targetNodeId: ${approveInput.targetNodeId}.`);
+        return trimmed;
+      }
+      const proposed = proposal.proposedTargetNodeId ?? null;
+      if (proposed === null) return null;
+      const trimmed = proposed.trim();
+      if (trimmed.length === 0) return null;
+      if (!isValidResidentCeoTargetNodeId(trimmed))
+        throw codedError("invalid_field", `Invalid proposedTargetNodeId: ${proposed}.`);
+      return trimmed;
+    })();
     const prompt = (approveInput.prompt?.trim() || proposal.proposedPrompt || proposal.summary).trim();
     const approvalMode = approveInput.approvalMode ?? "manual";
     const plan = buildResidentCeoPromotedTaskPlan({
@@ -277,6 +302,7 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
       approvalMode,
       workId,
       agentId,
+      targetNodeId,
       title,
       summary: proposal.summary,
       prompt,
@@ -290,9 +316,26 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
       plan,
       idempotencyKey: `resident-ceo-promote-${proposal.proposalId}`,
     });
+    const localNodeId = delegation.resolveLocalNodeId?.() ?? null;
+    const isRemoteTargetNode = targetNodeId !== null && targetNodeId !== localNodeId;
     let dispatchRuntimeSessionId: string | null = null;
+    let dispatchedTargetNodeId: string | null = null;
     let dispatchError: string | null = null;
-    if (agentId !== null && delegation.dispatchAgent) {
+    if (isRemoteTargetNode) {
+      if (!delegation.assignToNode) {
+        dispatchError = `Remote target node ${targetNodeId} cannot be assigned because node assignment executor is unavailable.`;
+      } else {
+        const [assigned] = await Promise.allSettled([
+          delegation.assignToNode({
+            taskId: promotedTaskId,
+            targetNodeId,
+            idempotencyKey: `resident-ceo-assign-${proposal.proposalId}`,
+          }),
+        ]);
+        if (assigned.status === "fulfilled") dispatchedTargetNodeId = targetNodeId;
+        else dispatchError = assigned.reason instanceof Error ? assigned.reason.message : String(assigned.reason);
+      }
+    } else if (agentId !== null && delegation.dispatchAgent) {
       const [dispatched] = await Promise.allSettled([
         delegation.dispatchAgent({
           taskId: promotedTaskId,
@@ -317,6 +360,8 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
         proposedWorkId: workId,
         proposedTitle: title,
         proposedAgentId: agentId,
+        proposedTargetNodeId: targetNodeId,
+        dispatchedTargetNodeId,
         dispatchRuntimeSessionId,
         dispatchError,
       }),
@@ -438,6 +483,7 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
         proposedTitle: draft.proposedTitle,
         proposedWorkId: draft.proposedWorkId,
         proposedAgentId: draft.proposedAgentId,
+        proposedTargetNodeId: draft.proposedTargetNodeId ?? null,
         proposedPrompt: draft.proposedPrompt,
         rationale: draft.rationale,
         wakeId: draft.wakeId,
@@ -447,6 +493,7 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
         decidedAt: null,
         decidedByPersonId: null,
         promotedTaskId: null,
+        dispatchedTargetNodeId: null,
         dispatchRuntimeSessionId: null,
         dispatchError: null,
         rejectionReason: null,

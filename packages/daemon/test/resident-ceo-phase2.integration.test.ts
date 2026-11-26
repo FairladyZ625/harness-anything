@@ -11,13 +11,14 @@ import type { ResidentCeoDelegationProposal } from "@harness-anything/kernel/int
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { decideNodeAutoClaim } from "../src/daemon-host/node-auto-claim.ts";
 import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 import { startDaemon } from "../src/daemon-host/runtime.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { eventuallyValue, initIngressRepo, rpc } from "./fixtures/runtime-ingress.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
-import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
+import { policyTestDeviceToken, policyTestRealm, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { registerBootstrappedDaemonRepo, registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { evidence } from "./task-surface.fixtures.ts";
 
@@ -853,5 +854,258 @@ console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, o
       assert.match(combined, /execution_credential_rejected/u, `${key} must be rejected`);
       assert.match(combined, /allowlisted ledger queries/u, `${key} must explain the read-only allowlist`);
     }
+  },
+);
+
+test(
+  "Option A targetNodeId: local/empty dispatches locally; remote targetNodeId and --target-node override assign to node for node-auto-claim and skip local spawn",
+  { timeout: 120_000 },
+  async (t) => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-ceo-p2-target-node-"));
+    const rootDir = path.join(parent, "repo");
+    const userRoot = path.join(parent, "user");
+    const repoId = "ceo-p2-target-node";
+    const installation = {
+      installationId: "ceo-p2-codex-target-node",
+      kindId: "codex" as const,
+      executablePath: writeProposalCodexStub(parent, [
+        JSON.stringify({
+          action: "propose_task",
+          title: "Local target node execution",
+          workId: "task_ceo_p2_node_work",
+          agentId: "delegated-worker",
+          targetNodeId: "center",
+          prompt: "Run on local center node.",
+          rationale: "Matches local center nodeId.",
+        }),
+        JSON.stringify({
+          action: "propose_task",
+          title: "Remote edge offload",
+          workId: "task_ceo_p2_node_work",
+          agentId: "delegated-worker",
+          targetNodeId: "cea7e947",
+          prompt: "Offload task to remote node cea7e947.",
+          rationale: "Remote compute node requested by proposal.",
+        }),
+        JSON.stringify({
+          action: "propose_task",
+          title: "Approve override to dotted remote node",
+          workId: "task_ceo_p2_node_work",
+          agentId: "delegated-worker",
+          targetNodeId: "center",
+          prompt: "Owner overrides target node at approval time.",
+          rationale: "Proposal defaults to center before owner override.",
+        }),
+      ]),
+      version: "codex-cli 0.159.1",
+      observedAt: new Date().toISOString(),
+    };
+    initIngressRepo(rootDir, process.getuid?.() ?? 0);
+    registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+    signInPolicyTestUser(userRoot, "person_bob", [repoId], "admin");
+    const host = await openDaemonHost({
+      daemonId: repoId,
+      userRoot,
+      runtimeDiscover: () => [installation],
+    });
+    t.after(async () => {
+      await host.close();
+      removeTempRepository(parent);
+    });
+    await host.attachmentsSettled();
+    await registerFixtureRuntimeInstance(host, repoId, auth, {
+      instanceId: "codex-provider",
+      name: "Resident CEO Target Node fixture",
+      kindId: "codex",
+      installationId: installation.installationId,
+      providerId: "openai",
+      models: ["test-model"],
+      authMode: "subscription",
+      codex: {},
+    });
+
+    const bobAuth = {
+      ...auth,
+      oidcPrincipal: await host.sessionPrincipal(auth, "repo.residentCeo.status", { repo: { repoId }, payload: {} }),
+    };
+    await createWorkRoot(host, userRoot, repoId, "task_ceo_p2_node_work", "Resident CEO Target Node Work", bobAuth);
+    const installed = await host.run(
+      repoId,
+      {
+        kind: "agent-install",
+        declaration: {
+          schema: "agent-declaration/v1",
+          id: "delegated-worker",
+          name: "Delegated Worker",
+          instructions: "Execute approved delegated tasks.",
+          runtimes: [{ type: "codex" }],
+        },
+        expectedVersion: 0,
+        idempotencyKey: "install-delegated-worker-opt-a",
+      },
+      bobAuth,
+    );
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+
+    const ceo = (operation: string, payload: Record<string, unknown> = {}) =>
+      rpc(host, bobAuth, `repo.residentCeo.${operation}`, { repo: { repoId }, payload });
+    assert.equal(
+      (
+        await ceo("config", {
+          runtimeInstanceId: "codex-provider",
+          model: "test-model",
+          heartbeatIntervalSec: 300,
+          executionPolicy: "approval-gated",
+          defaultWorkId: "task_ceo_p2_node_work",
+          defaultAgentId: "delegated-worker",
+        })
+      ).ok,
+      true,
+    );
+
+    // Register the remote fleet nodes in Keycloak before approval so task-assign verifies active node targets.
+    policyTestRealm.keycloak.node("cea7e947", "person_bob");
+    policyTestRealm.keycloak.node("edge-mac.prod-1", "person_bob");
+    policyTestRealm.keycloak.node("other-edge-node", "person_bob");
+    const fleetAuthForNode = (nodeId: string) => {
+      const token = policyTestDeviceToken("person_bob", nodeId);
+      return {
+        transportKind: "fleet-tls" as const,
+        humanAccessToken: token,
+        nodePrincipal: { nodeId, personId: "person_bob" },
+      };
+    };
+    const sendDelegation = async (summary: string): Promise<ResidentCeoDelegationProposal> => {
+      assert.equal((await ceo("stop")).ok, true);
+      signInPolicyTestUser(userRoot, "person_alice", [repoId], "admin");
+      const aliceAuth = {
+        ...auth,
+        oidcPrincipal: await host.sessionPrincipal(auth, "repo.residentCeo.status", { repo: { repoId }, payload: {} }),
+      };
+      const delegated = await host.run(
+        repoId,
+        { kind: "peer-ask", requestKind: "delegate", toPersonId: "person_bob", summary },
+        aliceAuth,
+      );
+      assert.equal(delegated.outcome, "applied", JSON.stringify(delegated));
+      const { request } = evidence(delegated) as { request: PeerRequestV1 };
+
+      signInPolicyTestUser(userRoot, "person_bob", [repoId], "admin");
+      assert.equal((await ceo("start")).ok, true);
+      return eventuallyValue(async () => {
+        const listed = await ceo("proposals", { status: "pending_approval" });
+        const items = (listed.proposals ?? []) as ResidentCeoDelegationProposal[];
+        return items.find((entry) => entry.peerRequestId === request.requestId) ?? null;
+      }, `pending proposal for ${summary}`);
+    };
+
+    // (a) targetNodeId === local nodeId ("center") -> local task-start + spawnRuntime
+    const localProposal = await sendDelegation("Run on local center node");
+    assert.equal(localProposal.proposedTargetNodeId, "center");
+    const localApproved = await ceo("approve", { proposalId: localProposal.proposalId });
+    assert.equal(localApproved.ok, true, JSON.stringify(localApproved));
+    const localResult = localApproved.proposal as ResidentCeoDelegationProposal;
+    assert.equal(localResult.status, "promoted");
+    assert.equal(localResult.dispatchError, null, JSON.stringify(localResult));
+    assert.equal(localResult.dispatchedTargetNodeId, null);
+    assert.equal(typeof localResult.dispatchRuntimeSessionId, "string");
+    assert.ok((localResult.dispatchRuntimeSessionId ?? "").length > 0);
+    const localTask = evidence(
+      await host.run(repoId, { kind: "task-show", taskId: localResult.promotedTaskId }, bobAuth),
+    ) as { task: { readonly status: string } };
+    assert.equal(localTask.task.status, "active");
+
+    // (b) targetNodeId === "cea7e947" (remote) -> peer-promote + task-assign --node cea7e947, skip local spawn, visible in readNodeAutoClaimCandidates
+    const remoteProposal = await sendDelegation("Offload to cea7e947");
+    assert.equal(remoteProposal.proposedTargetNodeId, "cea7e947");
+    const remoteApproved = await ceo("approve", { proposalId: remoteProposal.proposalId });
+    assert.equal(remoteApproved.ok, true, JSON.stringify(remoteApproved));
+    const remoteResult = remoteApproved.proposal as ResidentCeoDelegationProposal;
+    assert.equal(remoteResult.status, "promoted");
+    assert.equal(remoteResult.dispatchError, null, JSON.stringify(remoteResult));
+    assert.equal(remoteResult.dispatchRuntimeSessionId, null, JSON.stringify(remoteResult));
+    assert.equal(remoteResult.dispatchedTargetNodeId, "cea7e947");
+    assert.ok(remoteResult.promotedTaskId?.startsWith("task_"));
+
+    const remoteTask = evidence(
+      await host.run(repoId, { kind: "task-show", taskId: remoteResult.promotedTaskId }, bobAuth),
+    ) as {
+      task: {
+        readonly status: string;
+        readonly assignment: { readonly assignee: { readonly kind: string; readonly nodeId?: string } } | null;
+      };
+    };
+    assert.equal(remoteTask.task.status, "planned", JSON.stringify(remoteTask));
+    assert.equal(remoteTask.task.assignment?.assignee.kind, "node");
+    assert.equal(remoteTask.task.assignment?.assignee.nodeId, "cea7e947");
+
+    const ceaCandidates = await host.readNodeAutoClaimCandidates(repoId, fleetAuthForNode("cea7e947"));
+    const matchedCandidate = ceaCandidates.candidates.find((entry) => entry.taskId === remoteResult.promotedTaskId);
+    assert.ok(matchedCandidate, JSON.stringify(ceaCandidates));
+    assert.ok(matchedCandidate.autoAssignment !== null, JSON.stringify(matchedCandidate));
+    const claimDecision = decideNodeAutoClaim({
+      policy: {
+        schema: "node-auto-claim/v1",
+        enabled: true,
+        allowedSources: { personIds: [], teamIds: [] },
+        allowedAgentIds: ["delegated-worker"],
+        maxConcurrent: 2,
+      },
+      assignment: matchedCandidate.autoAssignment,
+      ownerPersonId: "person_bob",
+      now: new Date().toISOString(),
+      agentId: "delegated-worker",
+      activeCount: 0,
+    });
+    assert.deepEqual(claimDecision, { accepted: true, reason: "accepted" });
+
+    // Unrelated node must not see cea7e947's assigned task in its auto-claim candidates.
+    const otherNodeCandidates = await host.readNodeAutoClaimCandidates(repoId, fleetAuthForNode("other-edge-node"));
+    assert.equal(
+      otherNodeCandidates.candidates.some((entry) => entry.taskId === remoteResult.promotedTaskId),
+      false,
+      JSON.stringify(otherNodeCandidates),
+    );
+
+    // (c) ceo approve --target-node <remoteNodeId> overrides proposal.proposedTargetNodeId ("center") and assigns remotely
+    const overrideProposal = await sendDelegation("Override center proposal to dotted remote node");
+    assert.equal(overrideProposal.proposedTargetNodeId, "center");
+    const overrideApproved = await ceo("approve", {
+      proposalId: overrideProposal.proposalId,
+      targetNodeId: "edge-mac.prod-1",
+    });
+    assert.equal(overrideApproved.ok, true, JSON.stringify(overrideApproved));
+    const overrideResult = overrideApproved.proposal as ResidentCeoDelegationProposal;
+    assert.equal(overrideResult.status, "promoted");
+    assert.equal(overrideResult.proposedTargetNodeId, "edge-mac.prod-1");
+    assert.equal(overrideResult.dispatchedTargetNodeId, "edge-mac.prod-1");
+    assert.equal(overrideResult.dispatchRuntimeSessionId, null);
+    assert.equal(overrideResult.dispatchError, null);
+
+    const overrideCandidates = await host.readNodeAutoClaimCandidates(repoId, fleetAuthForNode("edge-mac.prod-1"));
+    assert.ok(
+      overrideCandidates.candidates.some((entry) => entry.taskId === overrideResult.promotedTaskId),
+      JSON.stringify(overrideCandidates),
+    );
+
+    // Verify terminal outcome writeback still fires for remotely assigned task once cancelled/completed.
+    const cancelled = await host.run(
+      repoId,
+      {
+        kind: "task-transition",
+        taskId: remoteResult.promotedTaskId,
+        status: "cancelled",
+        reason: "Remote node completed verification",
+      },
+      bobAuth,
+    );
+    assert.equal(cancelled.outcome, "applied", JSON.stringify(cancelled));
+    const propagated = await eventuallyValue(async () => {
+      const listed = await ceo("proposals", { status: "promoted" });
+      const items = (listed.proposals ?? []) as ResidentCeoDelegationProposal[];
+      const match = items.find((entry) => entry.proposalId === remoteProposal.proposalId);
+      return match?.terminalOutcome ? match : null;
+    }, "remotely assigned promoted task propagates terminal outcome");
+    assert.equal(propagated.terminalOutcome?.taskStatus, "cancelled");
   },
 );

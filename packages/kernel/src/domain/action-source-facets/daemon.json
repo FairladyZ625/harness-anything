@@ -10,6 +10,14 @@
     ],
     "ceo-approve": [
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#makeResidentCeoDelegationExecutor.assignToNode.assigned:4e7754ae9425e4b1955f51d49c121a1b",
+        "route": "ceo-approve"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#makeResidentCeoDelegationExecutor.assignToNode.shown:70ca165c4795462b000d9cd0aee84709",
+        "route": "ceo-approve"
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#makeResidentCeoDelegationExecutor.dispatchAgent.shown:70ca165c4795462b000d9cd0aee84709",
         "route": "ceo-approve"
       },

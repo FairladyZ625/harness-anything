@@ -91,6 +91,8 @@ test("resident CEO Phase 2 CLI parses policy config, proposals, approve, and rej
     "Custom promoted title",
     "--agent",
     "neon",
+    "--target-node",
+    "cea7e947",
     "--instance",
     "instance_owner",
     "--model",
@@ -107,10 +109,15 @@ test("resident CEO Phase 2 CLI parses policy config, proposals, approve, and rej
     workId: "task_work_1",
     title: "Custom promoted title",
     agentId: "neon",
+    targetNodeId: "cea7e947",
     runtimeInstanceId: "instance_owner",
     model: "model-a",
     prompt: "Execute migration",
   });
+
+  // Explicitly ensure --to is NOT accepted on ceo approve (reserved for Squad targetAgentId in agent-run).
+  const rejectedLegacyTo = parseThinCommand(["ceo", "approve", "prop_abc123", "--to", "cea7e947"]);
+  assert.equal(rejectedLegacyTo.ok, false);
 
   const rejected = parseThinCommand(["ceo", "reject", "prop_abc123", "--reason", "Out of scope"]);
   assert.equal(rejected.ok, true);
