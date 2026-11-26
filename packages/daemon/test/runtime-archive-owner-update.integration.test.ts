@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fixture, taskId, executionId } from "./task-completion-review.fixture.ts";
@@ -9,7 +9,7 @@ import { fixture, taskId, executionId } from "./task-completion-review.fixture.t
 for (const ownerUpdate of [false, true]) {
   test(
     `runtime archive preserves ${ownerUpdate ? "owner-amended" : "original"} same-name task artifacts`,
-    { timeout: 30_000 },
+    { timeout: process.platform === "win32" ? 90_000 : 30_000 },
     async () => {
       const f = await fixture(false, true, true, false, false, { autoSubmit: false });
       try {
@@ -20,10 +20,10 @@ for (const ownerUpdate of [false, true]) {
           authored = (root: string, name: string) => path.join(root, "harness", logical(name)),
           git = (...args: string[]) => execFileSync("git", ["-C", f.root, ...args], { encoding: "utf8" }).trim(),
           checkout = git("worktree", "list", "--porcelain")
-            .split("\n")
+            .split(/\r?\n/u)
             .filter((line) => line.startsWith("worktree "))
-            .map((line) => line.slice(9))
-            .find((root) => path.resolve(root) !== path.resolve(f.root))!;
+            .map((line) => line.slice(9).trim())
+            .find((root) => realpathSync.native(root) !== realpathSync.native(f.root))!;
         assert.ok(checkout);
         for (const name of names) {
           mkdirSync(path.dirname(authored(f.root, name)), { recursive: true });

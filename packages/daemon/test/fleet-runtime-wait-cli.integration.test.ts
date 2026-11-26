@@ -4,9 +4,11 @@ import { createIdentitySession } from "../src/daemon-host/authorization-provider
 import { managedRbacSessionStore } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
@@ -18,18 +20,29 @@ import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rp
 import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
 import { readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
+import { recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 const replicaQuota = 64 * 1024 * 1024;
+function fixtureProbeExecutable(rootDir: string): string {
+  if (process.platform !== "win32") return "/usr/bin/true";
+  const binDir = path.join(rootDir, "fixture-bin");
+  mkdirSync(binDir, { recursive: true });
+  const stub = path.join(binDir, "codex-probe-ok.cmd");
+  writeFileSync(stub, "@exit /b 0\r\n", "utf8");
+  return stub;
+}
 for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnect", "planned", "offline"] as const)
   test(`edge CLI wait: ${scenario}`, { timeout: 60_000 }, async (t) => {
     const foreground = scenario !== "status" && scenario !== "reconnect" && scenario !== "offline";
     const expectedOutcome = scenario === "failed" ? "failed" : scenario === "cancelled" ? "cancelled" : "succeeded";
+    const probeRoot = mkdtempSync(path.join(tmpdir(), "ha-fleet-wait-probe-"));
+    t.after(() => removeTempRepository(probeRoot));
     const installation: RuntimeInstallationWitness = {
         installationId: "edge-codex-installation",
         kindId: "codex",
-        executablePath: "/usr/bin/true",
+        executablePath: fixtureProbeExecutable(probeRoot),
         version: "1.0.0",
         observedAt: "2026-08-23T00:00:00.000Z",
       },
@@ -189,7 +202,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
         userRoot: edgeUserRoot,
         oidc: createIdentitySession(edgeUserRoot, { fetch: edgeFetch }),
         runtimeDiscover: () => [installation],
-        runtimeLaunch: (prepared) => {
+        runtimeLaunch: (prepared, persistence) => {
           launchedIn.push(prepared.cwd);
           let output: ((chunk: string) => void) | null = null;
           return {
@@ -199,7 +212,10 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
             },
             onErrorOutput: () => undefined,
             onExit: (exit) => {
-              cancel = () => exit(0);
+              cancel = () => {
+                recordStoppedFixtureContainment(persistence, 90310);
+                exit(0);
+              };
               finish = () => {
                 // What a worker does in its cwd: change a repository file and commit it.
                 writeFileSync(path.join(prepared.cwd, "delivered.txt"), "delivered\n");
@@ -208,6 +224,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
                 output?.(
                   `${JSON.stringify({ type: "thread.started", thread_id: "edge-worker-session" })}\n${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "edge worker done" } })}\n${JSON.stringify({ type: "turn.completed" })}\n`,
                 );
+                recordStoppedFixtureContainment(persistence, 90310);
                 exit(scenario === "failed" ? 1 : 0);
               };
             },
@@ -461,7 +478,11 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
       { code: "authentication_failed" },
     );
     const worktree = path.join(edgeRoot, ".worktrees", taskId);
-    assert.deepEqual(launchedIn, [worktree], "the worker runs in the task's worktree, not the node's main checkout");
+    assert.deepEqual(
+      launchedIn.map((entry) => realpathSync.native(entry)),
+      [realpathSync.native(worktree)],
+      "the worker runs in the task's worktree, not the node's main checkout",
+    );
     const settled = async () =>
       (
         await fixture.host.read(

@@ -651,7 +651,7 @@ export function decisionReviewDispatchPrompt(input: {
  */
 function reviewArtifactRoot(cell: RepoCellOperationalContext): string {
   const layout = resolveHarnessLayout(cell.rootDir);
-  return path.join(workerRootPathToken, worktreeAuthoredRelative(layout));
+  return path.posix.join(workerRootPathToken, worktreeAuthoredRelative(layout).replaceAll("\\", "/"));
 }
 
 /** The review packet prompt every reviewer dispatch carries; each dispatch owns exactly one task. */
@@ -679,11 +679,11 @@ export function reviewDispatchPrompt(input: {
     report = `${packagePath}/artifacts/reports/${dispatchId}.md`,
     packet = `${packagePath}/artifacts/reports/${dispatchId}.json`,
     reportFile = input.artifactRoot
-      ? path.join(input.artifactRoot, report)
-      : path.join(input.artifactPrefix ?? "harness", report),
+      ? path.posix.join(input.artifactRoot.replaceAll("\\", "/"), report)
+      : path.posix.join((input.artifactPrefix ?? "harness").replaceAll("\\", "/"), report),
     packetFile = input.artifactRoot
-      ? path.join(input.artifactRoot, packet)
-      : path.join(input.artifactPrefix ?? "harness", packet),
+      ? path.posix.join(input.artifactRoot.replaceAll("\\", "/"), packet)
+      : path.posix.join((input.artifactPrefix ?? "harness").replaceAll("\\", "/"), packet),
     riskReasonsPrompt = riskAssessmentGuidancePrompt(execution.submission?.riskTierAssessment);
   return [
     `Independently review task ${taskId}, execution ${execution.executionId}, ` + `iteration ${execution.iteration}.`,

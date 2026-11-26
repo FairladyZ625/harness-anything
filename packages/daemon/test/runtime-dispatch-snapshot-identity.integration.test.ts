@@ -57,7 +57,7 @@ test("dispatch seals Agent/Skill snapshot digests, isolates post-launch tamperin
         "    });",
         "  }",
         "}",
-        "const skillMatch = prompt.match(/- sealed-skill: (.+\\/SKILL\\.md)/u);",
+        "const skillMatch = prompt.match(/- sealed-skill: (.+[/\\\\]SKILL\\.md)/u);",
         'const skillPath = skillMatch ? skillMatch[1].trim() : "";',
         'const skillBody = skillPath && fs.existsSync(skillPath) ? fs.readFileSync(skillPath, "utf8") : "MISSING";',
         'const helperPath = skillPath ? path.join(path.dirname(skillPath), "notes", "linked.txt") : "";',

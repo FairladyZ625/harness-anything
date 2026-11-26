@@ -592,11 +592,25 @@ test("a reviewer in its own checkout writes and registers through the canonical 
       gates: [],
       artifactRoot,
     }),
-    packet = path.join(artifactRoot, packagePath, "artifacts", "reports", "dispatch_artifactroot0001.json");
+    packet = path.posix.join(
+      artifactRoot.replaceAll("\\", "/"),
+      packagePath,
+      "artifacts",
+      "reports",
+      "dispatch_artifactroot0001.json",
+    );
   assert.ok(prompt.includes(packet), "the registration packet is absolute, not cwd-relative");
   assert.ok(prompt.includes(`--from-file ${packet}`), "registration names the canonical packet");
   assert.ok(
-    prompt.includes(path.join(artifactRoot, packagePath, "artifacts", "reports", "dispatch_artifactroot0001.md")),
+    prompt.includes(
+      path.posix.join(
+        artifactRoot.replaceAll("\\", "/"),
+        packagePath,
+        "artifacts",
+        "reports",
+        "dispatch_artifactroot0001.md",
+      ),
+    ),
     "the report path is absolute too",
   );
 });

@@ -128,6 +128,23 @@ export interface RuntimeSpawnerContext {
   readonly triggerSteerReceiptFlush?: () => void;
 }
 
+function withoutCaseInsensitivePathKeys(env: NodeJS.ProcessEnv): {
+  readonly baseEnv: NodeJS.ProcessEnv;
+  readonly existingPath: string | undefined;
+} {
+  const baseEnv: NodeJS.ProcessEnv = {};
+  let existingPath: string | undefined;
+  for (const [key, value] of Object.entries(env)) {
+    if (key.toUpperCase() === "PATH") {
+      if (key === "PATH" && value !== undefined) existingPath = value;
+      else if (existingPath === undefined && value !== undefined) existingPath = value;
+      continue;
+    }
+    baseEnv[key] = value;
+  }
+  return { baseEnv, existingPath };
+}
+
 /** The runtime environment is the sole delivery point for its short-lived execution secret. */
 export async function prepareBoundRuntimeLaunch(args: {
   readonly input: RuntimeSpawnerInput;
@@ -149,16 +166,17 @@ export async function prepareBoundRuntimeLaunch(args: {
       remote?.credential ??
       (args.execution && input.keycloakCenter
         ? await issueRuntimeExecutionCredential(await input.keycloakCenter(), { ...args.execution, expiresAt })
-        : undefined);
+        : undefined),
+    { baseEnv, existingPath } = withoutCaseInsensitivePathKeys(prepared.env);
   return {
     ...prepared,
     env: {
-      ...prepared.env,
+      ...baseEnv,
       HARNESS_CANONICAL_ROOT: input.rootDir,
       PATH: [
         args.cliBinDir ?? daemonCliBinDirectory(),
         path.join(input.rootDir, "tools", "git-hooks"),
-        prepared.env.PATH ?? process.env.PATH ?? "",
+        existingPath ?? process.env.PATH ?? process.env.Path ?? "",
       ]
         .filter(Boolean)
         .join(path.delimiter),
