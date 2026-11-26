@@ -30,9 +30,9 @@ export function cachePurgePreservedPaths(rootDir: string): readonly string[] {
   const layout = resolveHarnessLayout(rootDir);
   return Object.freeze([
     ...["store", "wal", "store/imports"].map(
-      (relative) => `${path.relative(layout.rootDir, layout.localRoot)}/${relative}`,
+      (relative) => `${path.relative(layout.rootDir, layout.localRoot).split(path.sep).join("/")}/${relative}`,
     ),
-    path.relative(layout.rootDir, layout.authoredRoot),
+    path.relative(layout.rootDir, layout.authoredRoot).split(path.sep).join("/"),
     ".worktrees",
     ".gitignore",
   ]);
@@ -63,7 +63,12 @@ export function purgeRepoCache(rootDir: string): readonly string[] {
       maxRetries: storageReadPolicy.defaultValue.cachePurgeRetry.maxRetries,
       retryDelay: storageReadPolicy.defaultValue.cachePurgeRetry.retryDelayMs,
     });
-    removed.push(`${path.relative(layout.rootDir, path.join(localRoot, ...relative.split("/")))}`);
+    removed.push(
+      path
+        .relative(layout.rootDir, path.join(localRoot, ...relative.split("/")))
+        .split(path.sep)
+        .join("/"),
+    );
   }
   return removed.sort();
 }
@@ -108,8 +113,8 @@ export function removeRepoHarnessRoots(rootDir: string): readonly string[] {
   const layout = resolveHarnessLayout(realpathSync.native(rootDir)),
     removed: string[] = [];
   for (const [target, receiptPath] of [
-    [layout.localRoot, path.relative(layout.rootDir, layout.localRoot)],
-    [layout.authoredRoot, path.relative(layout.rootDir, layout.authoredRoot)],
+    [layout.localRoot, path.relative(layout.rootDir, layout.localRoot).split(path.sep).join("/")],
+    [layout.authoredRoot, path.relative(layout.rootDir, layout.authoredRoot).split(path.sep).join("/")],
   ] as const) {
     if (!existsSync(target)) continue;
     /* @gate-identity non-state/environment-io.9bc5b49b9a770b83 */ rmSync(target, {

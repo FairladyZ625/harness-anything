@@ -18,6 +18,10 @@ import {
   sweepUntilProvenStopped,
   type ProcessGroupReconcilerDeps,
 } from "../src/daemon-host/runtime/process-group-reconciler.ts";
+import {
+  minimalWindowsPowerShellEnv,
+  observeWindowsProcessGroup,
+} from "../src/daemon-host/runtime/windows-process-group-port.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function scripted(
@@ -250,3 +254,45 @@ test("observeRecordedProcessGroup trusts Windows containment stop proof and othe
     removeTempRepository(rootDir);
   }
 });
+
+test("minimalWindowsPowerShellEnv preserves Windows runtime variables and strips oversized parent env entries", () => {
+  const env = minimalWindowsPowerShellEnv({
+    SystemRoot: "C:\\Windows",
+    windir: "C:\\Windows",
+    TEMP: "C:\\Temp",
+    tmp: "C:\\Temp",
+    PATHEXT: ".COM;.EXE;.BAT;.CMD",
+    ComSpec: "C:\\Windows\\System32\\cmd.exe",
+    Path: "C:\\Windows\\System32",
+    PSModulePath: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules",
+    HARNESS_TEST_TIER_MANIFEST: "x".repeat(80_000),
+    UNRELATED_LARGE_VAR: "y".repeat(20_000),
+  });
+  assert.deepEqual(env, {
+    SystemRoot: "C:\\Windows",
+    windir: "C:\\Windows",
+    TEMP: "C:\\Temp",
+    tmp: "C:\\Temp",
+    PATHEXT: ".COM;.EXE;.BAT;.CMD",
+    ComSpec: "C:\\Windows\\System32\\cmd.exe",
+    Path: "C:\\Windows\\System32",
+    PSModulePath: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules",
+  });
+});
+
+test(
+  "observeWindowsProcessGroup succeeds under a >70KB parent environment block",
+  { skip: process.platform !== "win32" ? "requires Windows PowerShell Add-Type" : false, timeout: 60_000 },
+  () => {
+    const previous = process.env.HARNESS_TEST_TIER_MANIFEST;
+    process.env.HARNESS_TEST_TIER_MANIFEST = "x".repeat(80_000);
+    try {
+      const observation = observeWindowsProcessGroup(undefined, false);
+      assert.equal(observation.activeProcesses, null);
+      assert.ok(Number.isSafeInteger(observation.uptimeMs) && observation.uptimeMs >= 0);
+    } finally {
+      if (previous === undefined) delete process.env.HARNESS_TEST_TIER_MANIFEST;
+      else process.env.HARNESS_TEST_TIER_MANIFEST = previous;
+    }
+  },
+);

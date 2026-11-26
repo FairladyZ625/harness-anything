@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { taskLifecycleWritePlan } from "@harness-anything/kernel/internal/domain/task-lifecycle-publication.ts";
+import { localRuntimeStateFileSystem } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync-types.ts";
@@ -17,7 +18,6 @@ import { withTempStoreAsync } from "./helpers.ts";
 const rebuildRequiredSchemaVersion = 37;
 
 test("a real SQLite event gap blocks schema rebuild and preserves the cache bytes", async (t) => {
-  const logged = t.mock.method(console, "error", () => undefined);
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const writer = makeTaskEventStore({ repoId: "cache-continuity", rootDir }),
@@ -56,6 +56,7 @@ test("a real SQLite event gap blocks schema rebuild and preserves the cache byte
     }
     readable = makeTaskEventStore({ repoId: "cache-continuity", rootDir, mutable: false });
     t.after(() => readable.drain());
+    const logged = t.mock.method(console, "error", () => undefined);
 
     const rejectsGap = (error: unknown): boolean => {
       assert.equal(error instanceof Error, true);
@@ -141,3 +142,36 @@ test("schema mismatch continuity validation reports monotonic progress before de
     currentProjection.close();
   });
 });
+
+test(
+  "discardDatabase retries transient Windows EPERM and EBUSY failures when removing task.sqlite",
+  { skip: process.platform !== "win32" ? "Windows EPERM/EBUSY retry semantics" : false },
+  async (t) => {
+    t.mock.method(console, "error", () => undefined);
+    await withTempStoreAsync(async (rootDir) => {
+      initRepo(rootDir);
+      const eventStore: EventStreamPort = {
+          readHead: () => null,
+          readBatch: () => ({ sourceRevision: 0, events: [], cursor: null, done: true, accessedItems: 0 }),
+          readContentBlob: () => null,
+        },
+        projection = makeTaskProjection({ rootDir, eventStore });
+      projection.catchUp();
+      const originalRemove = localRuntimeStateFileSystem.remove;
+      let attempts = 0;
+      t.mock.method(localRuntimeStateFileSystem, "remove", (target: string) => {
+        attempts += 1;
+        if (attempts === 1) throw Object.assign(new Error("transient EPERM"), { code: "EPERM" });
+        if (attempts === 2) throw Object.assign(new Error("transient EBUSY"), { code: "EBUSY" });
+        return originalRemove(target);
+      });
+      try {
+        const rebuilt = projection.rebuild();
+        assert.equal(rebuilt.watermark, 0);
+        assert.equal(attempts, 3);
+      } finally {
+        projection.close();
+      }
+    });
+  },
+);

@@ -39,7 +39,7 @@ export async function startManagedPostgresFixture(): Promise<ManagedPostgresFixt
     execFileSync(
       pgCtl,
       ["-D", dataDirectory, "-l", logFile, "-o", `-h 127.0.0.1 -p ${port}`, "-w", "-t", "30", "start"],
-      { encoding: "utf8" },
+      { stdio: "ignore", windowsHide: true },
     );
     started = true;
     adminPool = new Pool({ host: "127.0.0.1", port, user: "postgres", database: "postgres", max: 1 });
@@ -57,6 +57,7 @@ export async function startManagedPostgresFixture(): Promise<ManagedPostgresFixt
         try {
           execFileSync(pgCtl!, ["-D", dataDirectory, "-m", "fast", "-w", "-t", "10", "stop"], {
             encoding: "utf8",
+            windowsHide: true,
           });
         } catch (error) {
           cleanupErrors.push(error);
@@ -77,6 +78,7 @@ export async function startManagedPostgresFixture(): Promise<ManagedPostgresFixt
       if (started && pgCtl)
         execFileSync(pgCtl, ["-D", dataDirectory, "-m", "immediate", "-w", "-t", "10", "stop"], {
           encoding: "utf8",
+          windowsHide: true,
         });
     } catch (error) {
       cleanupErrors.push(error);

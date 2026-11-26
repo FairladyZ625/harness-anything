@@ -19,41 +19,45 @@ function entries(directory: string): readonly string[] {
   return existsSync(directory) ? readdirSync(directory).sort() : [];
 }
 
-test("attach and write a task under a renamed local root without creating .harness", async (t) => {
+test("attach and write a task under a renamed local root without creating .harness", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-local-root-attach-"));
-  t.after(() => removeTempRepository(rootDir));
-  initRepo(rootDir);
-  mkdirSync(path.join(rootDir, "harness"), { recursive: true });
-  writeFileSync(
-    path.join(rootDir, "harness", "harness.yaml"),
-    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness.nosync\n",
-  );
-  const layout = resolveHarnessLayout(rootDir);
-  assert.equal(layout.localRoot, path.join(rootDir, ".harness.nosync"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+    writeFileSync(
+      path.join(rootDir, "harness", "harness.yaml"),
+      "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness.nosync\n",
+    );
+    const layout = resolveHarnessLayout(rootDir);
+    assert.equal(layout.localRoot, path.join(rootDir, ".harness.nosync"));
 
-  const cell = await openRepoCell({
-    repoId: workspaceId("local-root"),
-    rootDir: canonicalRoot(rootDir),
-    ownerId: "local-root-test",
-  });
-  t.after(() => cell.close());
-  const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
-  const created = await cell.run(
-    {
-      kind: "task-create",
-      taskId: "task_local_root",
-      title: "Renamed local root",
-      presetId: "standard-task",
-      taskClass: "standard",
-    },
-    binding,
-  );
-  assert.equal(created.status, "accepted_durable", JSON.stringify(created));
-  await waitForFixturePublication(cell, String(created.opId), binding);
+    cell = await openRepoCell({
+      repoId: workspaceId("local-root"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "local-root-test",
+    });
+    const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+    const created = await cell.run(
+      {
+        kind: "task-create",
+        taskId: "task_local_root",
+        title: "Renamed local root",
+        presetId: "standard-task",
+        taskClass: "standard",
+      },
+      binding,
+    );
+    assert.equal(created.status, "accepted_durable", JSON.stringify(created));
+    await waitForFixturePublication(cell, String(created.opId), binding);
 
-  assert.deepEqual(entries(path.join(rootDir, ".harness")), []);
-  assert.equal(existsSync(path.join(rootDir, ".harness")), false);
-  assert.equal(existsSync(layout.taskProjectionPath), true);
-  assert.equal(existsSync(path.join(layout.localRoot, "store")), true);
-  assert.equal(existsSync(path.join(rootDir, ".harness", "cache", "task.sqlite")), false);
+    assert.deepEqual(entries(path.join(rootDir, ".harness")), []);
+    assert.equal(existsSync(path.join(rootDir, ".harness")), false);
+    assert.equal(existsSync(layout.taskProjectionPath), true);
+    assert.equal(existsSync(path.join(layout.localRoot, "store")), true);
+    assert.equal(existsSync(path.join(rootDir, ".harness", "cache", "task.sqlite")), false);
+  } finally {
+    await cell?.close();
+    removeTempRepository(rootDir);
+  }
 });
