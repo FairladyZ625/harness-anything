@@ -87,7 +87,12 @@ export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmission
   readonly settleWarming: (repoId: string) => void;
   readonly openings: Map<string, Promise<void>>;
   readonly performOpenRegistered: (repo: RegisteredRepoInput, progress?: AttachProgress) => Promise<void>;
-  readonly raceAttachBudget: (opening: Promise<void>, repoId: string, progress?: AttachProgress) => Promise<void>;
+  readonly raceAttachBudget: (
+    opening: Promise<void>,
+    repoId: string,
+    rootDir: string,
+    progress?: AttachProgress,
+  ) => Promise<void>;
   readonly attachTimeoutMs: number;
   readonly attachBudgetError: (repoId: string, timeoutMs: number) => Error;
   readonly openCell: NonNullable<DaemonHostOpenInput["openCell"]>;

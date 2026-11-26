@@ -33,7 +33,15 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { readDaemonRegistry } from "../packages/kernel/src/daemon/registry.ts";
+import {
+  INITIAL_SETTINGS_V1,
+  localSettings,
+  parseLocalSettings,
+  serializeLocalSettings,
+} from "../packages/kernel/src/domain/settings.ts";
+import { nodeMaterializationPolicyForMode } from "../packages/kernel/src/domain/task-wip-policy.ts";
 import { resolveHarnessLayout } from "../packages/kernel/src/layout/index.ts";
+import { writeFileDurably } from "../packages/storage/src/durable-file.ts";
 import { cmdShellInvocation } from "../packages/storage/src/store/cmd-command-line.ts";
 import { locateFleetEdgeConfig } from "../packages/daemon/src/daemon-host/client/fleet-edge-config.ts";
 import { materialize } from "./readonly-checkout.mjs";
@@ -701,6 +709,10 @@ export async function snapshotRepository(sourceRoot, workspace, options = {}) {
       steps.push({ item: name, method: "copy" });
     }
   }
+  // An isolated evidence copy registers as mode=local without a working tree; leaving
+  // nodeTaskMaterializationPolicy unset (or invalid) falls back to include_done and forces the
+  // orchestration worker to synchronously read and hash every historical document blob at open.
+  configureIsolatedMaterializationPolicy(workspaceLocalRoot, steps);
   return {
     generation,
     localRootRelative: layout.localRootRelative,
@@ -720,6 +732,24 @@ export async function snapshotRepository(sourceRoot, workspace, options = {}) {
       "cache/completion-conversion-verification.sqlite",
     ],
   };
+}
+
+function configureIsolatedMaterializationPolicy(workspaceLocalRoot, steps) {
+  const settingsPath = path.join(workspaceLocalRoot, "settings.local.json");
+  let base = localSettings(INITIAL_SETTINGS_V1);
+  if (existsSync(settingsPath)) {
+    const parsed = parseLocalSettings(JSON.parse(readFileSync(settingsPath, "utf8")));
+    if (parsed !== null) base = parsed;
+  }
+  const isolated = localSettings({
+    ...base,
+    nodeTaskMaterializationPolicy: nodeMaterializationPolicyForMode("remote-center"),
+  });
+  writeFileDurably(settingsPath, serializeLocalSettings(isolated), 0o600);
+  steps.push({
+    item: "settings.local.json",
+    method: "configured nodeTaskMaterializationPolicy=none for isolated evidence copy",
+  });
 }
 
 /** Cache databases are derived state, so they take the cheap block clone instead of a full

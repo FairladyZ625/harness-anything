@@ -20,6 +20,7 @@ import path from "node:path";
 import test from "node:test";
 import { waitForArrival, watchFileArrival } from "./fixtures/event-arrival.ts";
 import { writeDaemonRegistryRepo } from "../packages/kernel/src/daemon/registry.ts";
+import { parseLocalSettings } from "../packages/kernel/src/domain/settings.ts";
 import { seedSettingsEvent } from "../packages/daemon/test/repo-settings.fixture.ts";
 import {
   copyFilesIntoDirectory,
@@ -849,7 +850,14 @@ test("remote-edge workspace resolves fleet-basebackup/v3 replica store without l
         replicaRevision: 1,
       },
     );
-    assert.ok(existsSync(path.join(ws, ".harness", "settings.local.json")), "edge settings.local.json copied");
+    const copiedLocalSettingsPath = path.join(ws, ".harness", "settings.local.json");
+    assert.ok(existsSync(copiedLocalSettingsPath), "edge settings.local.json configured");
+    const parsedEdgeSettings = parseLocalSettings(JSON.parse(readFileSync(copiedLocalSettingsPath, "utf8")));
+    assert.equal(
+      parsedEdgeSettings?.nodeTaskMaterializationPolicy,
+      "none",
+      `isolated copy must disable synchronous worktree materialization, got ${readFileSync(copiedLocalSettingsPath, "utf8")}`,
+    );
 
     const out = path.join(parent, "out");
     const result = runCommand(["--source", edgeRoot, "--out", out, "--attach-timeout-ms", "120000"], {
@@ -862,6 +870,9 @@ test("remote-edge workspace resolves fleet-basebackup/v3 replica store without l
     assert.deepEqual(receipt.failures, []);
     assert.equal(receipt.copy.sourceRevision, 1);
     assert.equal(receipt.coldRebuild.watermark, 1);
+    assert.equal(receipt.attach.daemonStatusRepo?.materialization?.state, "ok", JSON.stringify(receipt.attach));
+    assert.equal(receipt.attach.daemonStatusRepo?.materialization?.pendingWalEvents, 0, JSON.stringify(receipt.attach));
+    assert.equal(receipt.cleanup.daemonStopped, true, JSON.stringify(receipt.cleanup));
     assert.equal(processAlive(receipt.build.pid), false, "no daemon left behind");
   } finally {
     rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
@@ -935,6 +946,52 @@ test("workspace link isolation detects external Windows worktree junctions and m
       realpathSync(path.join(worktree, "node_modules", "@harness-anything", "kernel")),
       realpathSync(path.join(canonical, "packages", "kernel")),
     );
+  } finally {
+    rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("snapshotRepository writes schema-valid nodeTaskMaterializationPolicy=none without mutating source", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-oldcopy-mat-policy-"));
+  try {
+    // Negative control: raw JSON without schema/locale fails parseLocalSettings and would silently
+    // fall back to local mode's default include_done policy.
+    assert.equal(parseLocalSettings({ nodeTaskMaterializationPolicy: "none" }), null);
+
+    // Case 1: source has no settings.local.json (Windows remote-edge shape).
+    const sourceNoLocalParent = path.join(parent, "src-no-local");
+    mkdirSync(sourceNoLocalParent, { recursive: true });
+    const sourceNoLocal = await createSourceFixture(sourceNoLocalParent);
+    const wsNoLocal = path.join(parent, "ws-no-local");
+    await snapshotRepository(sourceNoLocal, wsNoLocal, { platform: "win32" });
+    assert.equal(existsSync(path.join(sourceNoLocal, ".harness", "settings.local.json")), false);
+    assert.equal(existsSync(path.join(wsNoLocal, ".harness", "settings.local.json")), true);
+    const noLocalParsed = parseLocalSettings(
+      JSON.parse(readFileSync(path.join(wsNoLocal, ".harness", "settings.local.json"), "utf8")),
+    );
+    assert.equal(noLocalParsed?.schema, "settings-local/v1");
+    assert.equal(noLocalParsed?.nodeTaskMaterializationPolicy, "none");
+
+    // Case 2: source has valid settings-local/v1 with include_done + zh-CN locale.
+    const sourceWithLocaleParent = path.join(parent, "src-with-locale");
+    mkdirSync(sourceWithLocaleParent, { recursive: true });
+    const sourceWithLocale = await createSourceFixture(sourceWithLocaleParent);
+    writeFileSync(
+      path.join(sourceWithLocale, ".harness", "settings.local.json"),
+      JSON.stringify({
+        schema: "settings-local/v1",
+        locale: "zh-CN",
+        nodeTaskMaterializationPolicy: "include_done",
+      }),
+      "utf8",
+    );
+    const wsWithLocale = path.join(parent, "ws-with-locale");
+    await snapshotRepository(sourceWithLocale, wsWithLocale, { platform: "win32" });
+    const withLocaleParsed = parseLocalSettings(
+      JSON.parse(readFileSync(path.join(wsWithLocale, ".harness", "settings.local.json"), "utf8")),
+    );
+    assert.equal(withLocaleParsed?.locale, "zh-CN");
+    assert.equal(withLocaleParsed?.nodeTaskMaterializationPolicy, "none");
   } finally {
     rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
