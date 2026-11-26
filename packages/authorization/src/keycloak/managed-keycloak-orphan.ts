@@ -63,6 +63,7 @@ async function findListenerProcesses(input: {
   readonly platform: NodeJS.Platform;
 }): Promise<{ readonly byPort: ReadonlyMap<number, Set<number>>; readonly unresolvedPorts: ReadonlySet<number> }> {
   if (input.platform === "linux") return findLinuxListenerProcesses(input.ports);
+  if (input.platform === "win32") return findWindowsListenerProcesses(input.host, input.ports);
   const byPort = new Map<number, Set<number>>(),
     unresolvedPorts = new Set<number>();
   for (const port of input.ports) {
@@ -77,38 +78,67 @@ async function findListenerProcesses(input: {
             undefined,
             { timeoutMs: managedIdentityPolicy.defaultValue.timeoutMs },
           )
-        : input.platform === "win32"
-          ? await input.host.runProcessExitAsync(
-              "powershell.exe",
-              [
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                `@(Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | Sort-Object -Unique) | ConvertTo-Json -Compress`,
-              ],
-              undefined,
-              minimalWindowsPowerShellEnv(),
-              undefined,
-              undefined,
-              { timeoutMs: windowsInspectionTimeoutMs },
-            )
-          : null;
+        : null;
     if (!result)
       throw Object.assign(new Error(`Cannot inspect managed Keycloak listeners on ${input.platform}.`), {
         code: "rbac_process_inspection_failed",
       });
-    if (input.platform === "darwin" && result.exitCode !== 0 && result.exitCode !== 1)
+    if (result.exitCode !== 0 && result.exitCode !== 1)
       throw Object.assign(new Error(`Could not inspect listeners on Keycloak port ${port}.`), {
         code: "rbac_process_inspection_failed",
       });
-    if (input.platform === "win32" && result.exitCode !== 0)
-      throw Object.assign(new Error(`Could not inspect listeners on Keycloak port ${port}.`), {
-        code: "rbac_process_inspection_failed",
-      });
-    const owners = input.platform === "darwin" ? parsePidLines(result.stdout) : parsePidJson(result.stdout);
-    byPort.set(port, owners);
+    byPort.set(port, parsePidLines(result.stdout));
   }
   return { byPort, unresolvedPorts };
+}
+
+/**
+ * Inspect listening TCP sockets on Windows via native `netstat.exe -ano` rather than PowerShell's
+ * `Get-NetTCPConnection` (which loads the NetTCPIP/CIM module and routinely exceeds 15s under CI load).
+ * Listening TCP rows carry foreign address `0.0.0.0:0` or `[::]:0` on every Windows locale.
+ */
+async function findWindowsListenerProcesses(
+  host: ManagedRbacHost,
+  ports: readonly number[],
+): Promise<{ readonly byPort: ReadonlyMap<number, Set<number>>; readonly unresolvedPorts: ReadonlySet<number> }> {
+  const result = await host.runProcessExitAsync(
+    "netstat.exe",
+    ["-ano"],
+    undefined,
+    minimalWindowsPowerShellEnv(),
+    undefined,
+    undefined,
+    { timeoutMs: windowsInspectionTimeoutMs },
+  );
+  if (result.exitCode !== 0) {
+    const failure = new Error(`Could not inspect listeners on Keycloak ports ${ports.join(", ")}.`) as Error & {
+      code: string;
+    };
+    failure.code = "rbac_process_inspection_failed";
+    throw failure;
+  }
+  return { byPort: parseWindowsNetstatListeners(result.stdout, ports), unresolvedPorts: new Set<number>() };
+}
+
+export function parseWindowsNetstatListeners(
+  output: string,
+  ports: readonly number[],
+): ReadonlyMap<number, Set<number>> {
+  const byPort = new Map(ports.map((port) => [port, new Set<number>()]));
+  for (const line of output.split(/\r?\n/u)) {
+    const fields = line.trim().split(/\s+/u);
+    if (fields.length < 5 || fields[0] !== "TCP") continue;
+    const local = fields[1]!,
+      foreign = fields[2]!,
+      pid = Number(fields.at(-1));
+    if (foreign !== "0.0.0.0:0" && foreign !== "[::]:0") continue;
+    const separator = local.lastIndexOf(":");
+    if (separator < 0) continue;
+    const port = Number(local.slice(separator + 1));
+    if (!Number.isSafeInteger(port) || !Number.isSafeInteger(pid) || pid <= 0) continue;
+    byPort.get(port)?.add(pid);
+  }
+  return byPort;
 }
 
 function findLinuxListenerProcesses(ports: readonly number[]): {
@@ -328,13 +358,6 @@ function parsePidLines(output: string): Set<number> {
       .map(Number)
       .filter((pid) => Number.isSafeInteger(pid) && pid > 0),
   );
-}
-
-function parsePidJson(output: string): Set<number> {
-  if (!output.trim()) return new Set();
-  const parsed = JSON.parse(output) as number | readonly number[] | null,
-    values = parsed === null ? [] : Array.isArray(parsed) ? parsed : [parsed];
-  return new Set(values.filter((pid): pid is number => Number.isSafeInteger(pid) && pid > 0));
 }
 
 function pathInside(root: string, candidate: string): boolean {

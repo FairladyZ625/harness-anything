@@ -88,7 +88,10 @@ test("both isolation states receive the operator token and the github.com gh hel
     }
     // An enforced instance still isolates model configuration; the credential is not a file there.
     const isolated = await store.prepareLaunch("codex-enforced", { cwd: "/workspace/repo", prompt: "Publish" });
-    assert.equal(isolated.env.HOME, path.join(userRoot, "runtime-instances", "codex-enforced", "home"));
+    assert.equal(
+      isolated.env.HOME ?? isolated.env.USERPROFILE,
+      path.join(userRoot, "runtime-instances", "codex-enforced", "home"),
+    );
     assert.equal(
       readFileSync(path.join(isolated.env.CODEX_HOME!, "config.toml"), "utf8").includes("gho_launchTokenValue"),
       false,
@@ -108,7 +111,10 @@ test("a missing operator login still launches and reports the notice without the
     assert.equal(launch.env.GIT_CONFIG_COUNT, undefined);
     assert.equal(launch.githubCredentialNotice, githubCredentialUnavailableNotice);
     assert.match(launch.githubCredentialNotice!, /cannot push, open a pull request, or read CI logs/u);
-    assert.equal(launch.env.HOME, path.join(userRoot, "runtime-instances", "codex-no-login", "home"));
+    assert.equal(
+      launch.env.HOME ?? launch.env.USERPROFILE,
+      path.join(userRoot, "runtime-instances", "codex-no-login", "home"),
+    );
   } finally {
     removeTempRepository(userRoot);
   }
@@ -170,6 +176,26 @@ test("an inherited token wins, and both absences are ordinary answers rather tha
     null,
   );
   assert.equal(spawned, 1, "the absent-gh path spawns nothing");
+  // A timed-out or signal-killed `gh auth token` probe degrades to unavailable (null) instead of
+  // aborting launch, while a real exec permission fault (EACCES) still surfaces.
+  assert.equal(
+    await resolveOperatorGithubToken({ PATH: bin }, "linux", async () => {
+      throw Object.assign(new Error("Command timed out"), { killed: true, signal: "SIGTERM" });
+    }),
+    null,
+  );
+  assert.equal(
+    await resolveOperatorGithubToken({ PATH: bin }, "linux", async () => {
+      throw Object.assign(new Error("ETIMEDOUT"), { code: "ETIMEDOUT" });
+    }),
+    null,
+  );
+  await assert.rejects(
+    resolveOperatorGithubToken({ PATH: bin }, "linux", async () => {
+      throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+    }),
+    { code: "EACCES" },
+  );
   // A count whose entries are incomplete makes git reject the environment, so it contributes 0.
   const patched: NodeJS.ProcessEnv = {
     GIT_CONFIG_COUNT: "3",

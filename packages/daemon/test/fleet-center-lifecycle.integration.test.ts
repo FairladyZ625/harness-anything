@@ -91,6 +91,7 @@ async function fixture(t: TestContext) {
       recordLifecycle: (entry) => records.push(entry),
     });
     hosts.push(host);
+    if (!openCell) await host.attachmentsSettled();
     return host;
   };
   return {
@@ -177,8 +178,9 @@ test(
     const f = await fixture(t),
       host = await f.open("external-address"),
       port = await unusedPort(),
-      externalUrl = `https://localhost:${port}`,
-      started = await host.fleet.startCenter({ ...f.request, port, bind: "0.0.0.0", externalUrl }, auth);
+      externalUrl = `https://localhost:${port}`;
+    await host.attachmentsSettled();
+    const started = await host.fleet.startCenter({ ...f.request, port, bind: "0.0.0.0", externalUrl }, auth);
     assert.equal(started.ok, true);
     assert.equal(started.bind, "0.0.0.0");
     assert.equal(readFleetCenterConfig(f.userRoot, "external-address")?.externalUrl, externalUrl);
@@ -210,8 +212,9 @@ test(
       first = await f.open("enabled"),
       started = await first.fleet.startCenter(f.request, auth);
     await first.close();
-    await f.open("never-enabled");
+    const unenabled = await f.open("never-enabled");
     await assert.rejects(handshake(Number(started.port), f.certPath), { code: "ECONNREFUSED" });
+    await unenabled.close();
     const file = fleetCenterConfigPath(f.userRoot, "enabled"),
       saved = readFileSync(file, "utf8");
     for (const body of [
@@ -691,6 +694,7 @@ async function managedRbacLifecycleFixture(t: TestContext) {
         recordLifecycle: (entry) => records.push(entry),
       });
     hosts.push(host);
+    await host.attachmentsSettled();
     return { host, managedRbac };
   };
   return {

@@ -13,6 +13,7 @@ import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtim
 import { appendRuntimeWorkerRecord } from "../src/daemon-host/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { parseDaemonActionResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
+import { recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -109,17 +110,19 @@ async function recoveryScenario(budgetCase: boolean | string): Promise<void> {
         cwd: request.cwd,
         prompt: request.prompt,
       }),
-      runtimeLaunch: (request) => {
+      runtimeLaunch: (request, persistence) => {
         const child = spawn(process.execPath, ["-e", "process.exit(0)"], {
           detached: true,
           stdio: ["pipe", "ignore", "ignore"],
         });
         if (!child.pid) throw new Error("fixture worker child did not expose a pid");
+        const pid = child.pid;
+        child.once("exit", () => recordStoppedFixtureContainment(persistence, pid));
         child.unref();
         const launch: Launch = { child, prompt: request.prompt, output: null, exit: null };
         launches.push(launch);
         return {
-          pid: child.pid,
+          pid,
           onOutput: (listener) => {
             launch.output = listener;
           },
@@ -127,8 +130,14 @@ async function recoveryScenario(budgetCase: boolean | string): Promise<void> {
           onExit: (listener) => {
             launch.exit = listener;
           },
-          terminate: () => stopFixtureGroup(child),
-          terminateTree: async () => stopFixtureGroup(child),
+          terminate: () => {
+            stopFixtureGroup(child);
+            recordStoppedFixtureContainment(persistence, pid);
+          },
+          terminateTree: async () => {
+            stopFixtureGroup(child);
+            recordStoppedFixtureContainment(persistence, pid);
+          },
         };
       },
     });
@@ -492,7 +501,8 @@ async function recoveryScenario(budgetCase: boolean | string): Promise<void> {
 function stopFixtureGroup(child: ReturnType<typeof spawn>): void {
   if (!child.pid) return;
   try {
-    process.kill(-child.pid, "SIGKILL");
+    if (process.platform === "win32") process.kill(child.pid, "SIGKILL");
+    else process.kill(-child.pid, "SIGKILL");
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error;
   }

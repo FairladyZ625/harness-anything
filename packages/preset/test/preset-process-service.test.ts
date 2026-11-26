@@ -116,13 +116,20 @@ test("admission rejects missing entrypoint, bad input, missing capability, and i
 test("bounded child protocol classifies every failure without a silent phase", async () => {
   // Node/libuv implements Windows SIGTERM with TerminateProcess(handle, 1), so a
   // self-termination has no JS signal handler and arrives as exit code 1/null signal.
+  // Windows named pipes also lack POSIX SHUT_WR half-close, so `process.stdout.end()`
+  // while the child stays alive does not deliver EOF before exit and is bounded by timeout.
   const cases = [
     ["never-output", "setInterval(() => {}, 1_000);", "timeout"],
     ["nonzero", "process.exit(7);", "child_exit"],
     ["signal", 'process.kill(process.pid, "SIGTERM");', process.platform === "win32" ? "child_exit" : "child_signal"],
+    ["missing", "process.exit(0);", "missing_result"],
     ["malformed", 'console.log("{");', "malformed_result"],
     ["oversize", 'process.stdout.write("x".repeat(200));', "result_oversize"],
-    ["disconnect", "process.stdout.end(); setInterval(() => {}, 1_000);", "child_disconnect"],
+    [
+      "disconnect",
+      "process.stdout.end(); setInterval(() => {}, 1_000);",
+      process.platform === "win32" ? "timeout" : "child_disconnect",
+    ],
   ] as const;
   for (const [name, script, code] of cases) {
     const fixture = scriptedPackage(script),

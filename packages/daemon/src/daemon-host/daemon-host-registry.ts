@@ -177,11 +177,15 @@ export async function performOpenRegistered(
     storage: resolvedStorage,
     hostCodedError: context.hostCodedError ?? hostCodedError,
   });
+  const resolvedRoot = canonicalRoot(repo.canonicalRoot);
   let opened: RepoCell | undefined, publishedState: ReturnType<RepoCell["status"]>["state"] | undefined;
+  const closeOpenedCell = async (cell: RepoCell | undefined): Promise<void> => {
+    if (cell && typeof cell.close === "function") await cell.close();
+  };
   try {
     opened = await context.openCell({
       repoId: workspaceId(repo.repoId),
-      rootDir: canonicalRoot(repo.canonicalRoot),
+      rootDir: resolvedRoot,
       mode: repo.mode,
       ownerId: context.input.daemonId,
       storage: resolvedStorage,
@@ -247,9 +251,10 @@ export async function performOpenRegistered(
       ...(context.input.runtimeLaunch ? { runtimeLaunch: context.input.runtimeLaunch } : {}),
     });
     const wanted = context.closing ? null : stillRegistered(context, repo.repoId);
-    if (wanted?.mode !== repo.mode || wanted.canonicalRoot !== repo.canonicalRoot) {
-      await opened.close();
+    if (wanted?.mode !== repo.mode || wanted.canonicalRoot !== resolvedRoot) {
+      const discarded = opened;
       opened = undefined;
+      await closeOpenedCell(discarded);
       context.input.recordLifecycle?.({
         event: "repo_attach_discarded",
         ...lifecycle,
@@ -281,8 +286,8 @@ export async function performOpenRegistered(
   } catch (error) {
     // The publication re-read and the discard close are new throw sites downstream of a live
     // Cell, so an open that never reaches `cells` still gets torn down instead of leaking its
-    // writer worker and workspace lock.
-    if (opened) await opened.close();
+    // writer worker and workspace lock. Guard close so a cleanup failure never masks `error`.
+    if (opened) await Promise.allSettled([closeOpenedCell(opened)]);
     context.input.recordLifecycle?.({
       event: "repo_attach_failed",
       ...lifecycle,

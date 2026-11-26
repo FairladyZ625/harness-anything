@@ -14,6 +14,7 @@ import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
+import { recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { definition, initIngressRepo, installation, rpc } from "./fixtures/runtime-ingress.ts";
@@ -99,13 +100,14 @@ test(
       daemonId: "same-session-fault-daemon",
       userRoot,
       runtimeDiscover: () => [...codexInstallations, claudeInstallation],
-      runtimeLaunch: (request) => {
+      runtimeLaunch: (request, persistence) => {
         launches.push({
           instanceId: request.definition.instanceId,
           args: [...request.args],
           prompt: request.prompt,
           launchedAt: Date.now(),
         });
+        const pid = 4400 + launches.length;
         const outputListeners: ((chunk: string) => void)[] = [],
           exitListeners: ((code: number | null, signal: NodeJS.Signals | null) => void)[] = [];
         let exited = false;
@@ -119,6 +121,7 @@ test(
             (code) => {
               if (exited) return;
               exited = true;
+              recordStoppedFixtureContainment(persistence, pid);
               setImmediate(() => {
                 for (const listener of exitListeners) listener(code, null);
               });
@@ -126,7 +129,7 @@ test(
           );
         });
         return {
-          pid: 4400 + launches.length,
+          pid,
           onOutput: (listener) => {
             outputListeners.push(listener);
           },
@@ -170,7 +173,7 @@ test(
             installationId: `installation-${instanceId}`,
             providerId: definition.providerId,
             models: [`model-${instanceId}`],
-            permissionMode: "workspace-write",
+            permissionMode: process.platform === "win32" ? "bypass" : "workspace-write",
             isolationState: "enforced",
             codex: { reasoningEffort: definition.reasoningEffort, fast: definition.fast },
             authMode: "subscription",
@@ -187,7 +190,7 @@ test(
           installationId: claudeInstallation.installationId,
           providerId: "anthropic",
           models: ["claude-sonnet-4-6"],
-          permissionMode: "workspace-write",
+          permissionMode: process.platform === "win32" ? "bypass" : "workspace-write",
           isolationState: "enforced",
           authMode: "subscription",
         },

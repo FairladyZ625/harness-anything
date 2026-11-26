@@ -417,10 +417,15 @@ function windowsOrphanHost(input: {
           stderr: "",
         };
       }
+      if (command === "netstat.exe") {
+        const rows = [...input.listeners].flatMap((pid) => [
+          `  TCP    127.0.0.1:62413    0.0.0.0:0    LISTENING    ${pid}`,
+          `  TCP    127.0.0.1:62415    0.0.0.0:0    LISTENING    ${pid}`,
+        ]);
+        return { exitCode: 0, stdout: rows.join("\r\n"), stderr: "" };
+      }
       if (command !== "powershell.exe") return { exitCode: 0, stdout: "", stderr: "" };
       const script = args.at(-1) ?? "";
-      if (script.includes("Get-NetTCPConnection"))
-        return { exitCode: 0, stdout: JSON.stringify([...input.listeners]), stderr: "" };
       if (script.includes("Get-Process -Id"))
         return { exitCode: input.failTreeTermination ? 0 : 1, stdout: "", stderr: "" };
       if (script.includes("Get-CimInstance"))
