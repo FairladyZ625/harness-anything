@@ -28,6 +28,7 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { TASK_WIP_LIMIT_ENV } from "../src/daemon-host/task-wip-settings.ts";
 
 import { grantTestPolicyGroups, revokeTestPolicyActions } from "./keycloak-policy.fixtures.ts";
+import { recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const baseUrl = "https://api.example.test/",
@@ -154,6 +155,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           occurredAt: "2026-08-30T05:42:44.000Z",
           pid: 123,
         });
+        recordStoppedFixtureContainment(persistence, 123);
         return {
           pid: 123,
           onOutput: () => undefined,
@@ -590,15 +592,19 @@ test("runtime claim rejects a retired Agent through the spawn entry", async () =
       cwd: request.cwd,
       prompt: request.prompt,
     }),
-    runtimeLaunch: () => ({
-      pid: exitedChildPid(),
-      onOutput: () => undefined,
-      onErrorOutput: () => undefined,
-      onExit: (listener) => {
-        onExit = listener;
-      },
-      terminate: () => undefined,
-    }),
+    runtimeLaunch: (_prepared, persistence) => {
+      const pid = exitedChildPid();
+      recordStoppedFixtureContainment(persistence, pid);
+      return {
+        pid,
+        onOutput: () => undefined,
+        onErrorOutput: () => undefined,
+        onExit: (listener) => {
+          onExit = listener;
+        },
+        terminate: () => undefined,
+      };
+    },
   });
   try {
     const installed = await cell.run(
@@ -927,13 +933,17 @@ test("dispatch reclaims an orphaned task lease after stop proof without a manual
         cwd: request.cwd,
         prompt: request.prompt,
       }),
-      runtimeLaunch: () => ({
-        pid: exitedChildPid(),
-        onOutput: () => undefined,
-        onErrorOutput: () => undefined,
-        onExit: () => undefined,
-        terminate: () => undefined,
-      }),
+      runtimeLaunch: (_prepared, persistence) => {
+        const pid = exitedChildPid();
+        recordStoppedFixtureContainment(persistence, pid);
+        return {
+          pid,
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+          onExit: () => undefined,
+          terminate: () => undefined,
+        };
+      },
     });
     try {
       const taskId = "task-runtime-orphan-lease",

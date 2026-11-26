@@ -41,6 +41,7 @@ const retryableControlCodes = new Set([
   "fleet_transport_closed",
   "fleet_timeout",
   "fleet_busy",
+  "replica_lag_timeout",
   "busy",
   "daemon_closed",
   "client_disconnected",

@@ -948,12 +948,14 @@ async function requestRemoteEdgeSteer(
   };
 }
 
-export function closeRuntimes(context: RuntimeSpawnerContext): void {
+export async function closeRuntimes(context: RuntimeSpawnerContext): Promise<void> {
   const active = [...context.processes.values()];
   context.processes.clear();
+  const disposals: Promise<void>[] = [];
   for (const entry of active) {
-    disposeActiveRuntimeObservations(entry);
+    disposals.push(disposeActiveRuntimeObservations(entry));
     entry.process.release?.();
     entry.releaseAuthorization?.();
   }
+  await Promise.allSettled(disposals);
 }

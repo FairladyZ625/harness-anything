@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { makeTaskEventStore } from "@harness-anything/storage";
 import {
@@ -64,17 +65,32 @@ export function packetJson(
   return { value: { ...defaults, ...packet }, defaultedFields };
 }
 
+function canonicalPathIfPresent(target: string): string {
+  const pending: string[] = [];
+  let current = target;
+  while (!existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    pending.unshift(path.basename(current));
+    current = parent;
+  }
+  return existsSync(current) ? path.join(realpathSync.native(current), ...pending) : target;
+}
+
 export function workspaceText(rootDir: string, requestedValue: unknown, field: string): string {
   const requested = requiredCellText(requestedValue, field),
-    layout = resolveHarnessLayout(rootDir),
-    absolute = path.resolve(rootDir, requested),
-    relativeToTasks = path.relative(layout.tasksRoot, absolute);
+    canonicalRoot = canonicalPathIfPresent(rootDir),
+    layout = resolveHarnessLayout(canonicalRoot),
+    tasksRoot = canonicalPathIfPresent(layout.tasksRoot),
+    authoredRoot = canonicalPathIfPresent(layout.authoredRoot),
+    absolute = canonicalPathIfPresent(path.resolve(canonicalRoot, requested)),
+    relativeToTasks = path.relative(tasksRoot, absolute);
   if (
     relativeToTasks === "" ||
     (!path.isAbsolute(relativeToTasks) && relativeToTasks !== ".." && !relativeToTasks.startsWith(`..${path.sep}`))
   )
     return new TextDecoder("utf-8", { fatal: true }).decode(
-      readAuthoredDocumentBytes(layout.authoredRoot, path.relative(layout.authoredRoot, absolute)),
+      readAuthoredDocumentBytes(authoredRoot, path.relative(authoredRoot, absolute)),
     );
   return readWorkspaceText(rootDir, requested, field);
 }

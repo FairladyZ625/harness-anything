@@ -424,7 +424,7 @@ async function addPinnedReviewWorktree(rootDir: string, cwd: string, commit: str
 function reviewGit(rootDir: string, ...args: string[]): Promise<string> {
   return runProcessTextAsync(
     "git",
-    ["-C", rootDir, ...args],
+    ["-C", rootDir, "-c", "core.longpaths=true", ...args],
     undefined,
     { ...process.env, GIT_TERMINAL_PROMPT: "0" },
     undefined,

@@ -81,6 +81,7 @@ test(
     const sessionId = String(spawned.runtimeSessionId);
     const dispatchId = String(spawned.dispatchId);
     await waitForProviderBound(f.host, sessionId, localAuth);
+    t.diagnostic("F15: session1 provider bound");
 
     const steer = await f.host.steerRuntime(
       repoId,
@@ -232,6 +233,8 @@ test(
     assert.equal(taskSpawn.outcome, "applied", JSON.stringify(taskSpawn));
     const taskSessionId = String(taskSpawn.runtimeSessionId);
     await waitForProviderBound(f.host, taskSessionId, localAuth);
+    await waitForProviderBound(edgeA.host, taskSessionId, localAuth);
+    t.diagnostic("F14: taskSession1 provider bound");
 
     // Disconnect Center TLS briefly while persisting TWO steers and a cancel on Center so Edge A
     // receives them together on reconnect:
@@ -270,11 +273,13 @@ test(
 
     await f.host.cancelRuntime(repoId, { runtimeSessionId: taskSessionId }, localAuth);
     const reopenedCenter1 = await f.openCenter(f.host, f14CenterPort);
+    t.diagnostic("F14: center1 reopened, awaiting taskSession1 exit");
     await f.host.awaitRuntimeSessions(
       repoId,
       { runtimeSessionIds: [taskSessionId] },
       { ...localAuth, connectionSignal: AbortSignal.timeout(30_000) },
     );
+    t.diagnostic("F14: taskSession1 exited, waiting for taskSteerOpId rejected receipt");
 
     // F5: Cancel-superseded steer MUST durably record a `rejected` (`runtime_cancelled`) receipt on Center!
     await waitForDurableCondition(async () => {
@@ -323,6 +328,8 @@ test(
     const taskSessionId2 = String(taskSpawn2.runtimeSessionId);
     const taskDispatchId2 = String(taskSpawn2.dispatchId);
     await waitForProviderBound(f.host, taskSessionId2, localAuth);
+    await waitForProviderBound(edgeA.host, taskSessionId2, localAuth);
+    t.diagnostic("F5: taskSession2 provider bound");
     // Disconnect Center, record steer on Center, close Edge A so Edge A cannot emit an early receipt,
     // settle taskSessionId2 as cancelled/exited on Center via owner ruling, reopen Center, and then send
     // the authorized late receipt AFTER exit — proving Center durably persists it on runtime_session_provider_bound!

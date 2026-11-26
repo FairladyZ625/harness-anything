@@ -154,7 +154,7 @@ export async function fleetEdgeHostFixture(
     credential: options.credential ?? `secret-${options.nodeId ?? "node-one"}`,
     viewRoot,
     quotaBytes: 64 * 1024 * 1024,
-    waitTimeoutMs: 2000,
+    waitTimeoutMs: process.platform === "win32" ? 15_000 : 2000,
   };
   if (options.writeEdgeConfig !== false) writeFleetEdgeConfig(edgeUser, config.repoId, config);
   await options.beforeOpen?.(edgeRoot, edgeUser);

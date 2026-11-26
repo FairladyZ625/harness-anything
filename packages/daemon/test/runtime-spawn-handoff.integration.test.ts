@@ -14,6 +14,7 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { definition, installation, initIngressRepo, rpc, git } from "./fixtures/runtime-ingress.ts";
+import { recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("a settled dispatch re-enters its unsubmitted execution as a same-principal handoff", async (t) => {
@@ -47,8 +48,9 @@ test("a settled dispatch re-enters its unsubmitted execution as a same-principal
     daemonId: "runtime-spawn-handoff",
     userRoot,
     runtimeDiscover: () => [ingressInstallation],
-    runtimeLaunch: () => {
+    runtimeLaunch: (_prepared, persistence) => {
       launchCount += 1;
+      recordStoppedFixtureContainment(persistence, 4310);
       return {
         pid: 4310,
         onOutput: (listener) => {

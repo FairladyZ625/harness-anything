@@ -389,7 +389,7 @@ export async function scheduleSettlementDetail(
 const gitReadiness = makeGitReadinessSource();
 
 function git(cwd: string, ...args: string[]): Promise<string> {
-  return runProcessTextAsync("git", ["-C", cwd, ...args]).then((output) => output.trim());
+  return runProcessTextAsync("git", ["-C", cwd, "-c", "core.longpaths=true", ...args]).then((output) => output.trim());
 }
 
 /** `git` with revisions on stdin, for a list that does not fit one argv. */

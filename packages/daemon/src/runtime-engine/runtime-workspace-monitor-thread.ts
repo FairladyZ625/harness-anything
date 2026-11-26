@@ -70,8 +70,20 @@ export function openRuntimeWorkspaceMonitor(
       if (closePromise) return closePromise;
       closing = true;
       closePromise = (async () => {
-        if (!exited) worker.postMessage("close");
-        await exit;
+        if (!exited) {
+          worker.postMessage("close");
+          let graceTimer: NodeJS.Timeout | null = null;
+          const grace = new Promise<"timeout">((resolve) => {
+            graceTimer = setTimeout(() => resolve("timeout"), 2_000);
+            graceTimer.unref();
+          });
+          const outcome = await Promise.race([exit.then(() => "exited" as const), grace]);
+          if (graceTimer) clearTimeout(graceTimer);
+          if (outcome === "timeout" && !exited) {
+            await worker.terminate();
+            await exit;
+          }
+        }
         const observedAt = Number(Atomics.load(lastActivity, 0));
         return Atomics.load(lastActivity, 1) === 0n && observedAt > lastRecordedAt && observedAt > 0
           ? observedAt

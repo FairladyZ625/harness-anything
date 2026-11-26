@@ -1279,11 +1279,12 @@ export function createRepoCellApi(
     // issues.
     while (builtinRuns.size > 0) await Promise.allSettled([...builtinRuns.values()]);
     context.state = "closed";
-    context.runtimeSpawner.close();
+    await context.runtimeSpawner.close();
     context.runtimeStream.close();
     await context.presetProcess.close();
     if (context.drainBackgroundWork) await context.drainBackgroundWork();
     else await context.tail;
+    await context.runtimeSpawner.close();
     try {
       await context.store.drain();
     } finally {

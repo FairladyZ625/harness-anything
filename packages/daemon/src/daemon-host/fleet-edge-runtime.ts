@@ -1584,8 +1584,9 @@ export function openFleetEdgeRuntime(input: {
       closed = true;
       receiptPump.close();
       workQueue.close();
-      spawner.close();
+      await spawner.close();
       await Promise.allSettled([adoptInFlight, workQueue.drain()]);
+      await spawner.close();
     },
   };
 

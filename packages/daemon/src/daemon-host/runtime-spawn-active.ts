@@ -10,9 +10,10 @@ import type {
   RuntimeProcessObservation,
 } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
-import { appendRuntimeWorkerRecord, type DispatchStallEvidence } from "./dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, readDispatchStreamHeader, type DispatchStallEvidence } from "./dispatch-stream.ts";
 import {
   markSteerReceiptAcked,
+  readAllPendingSteerReceipts,
   readPendingSteerReceipts,
   recordPendingSteerReceipt,
   steerReceiptOpId,
@@ -177,9 +178,12 @@ function releaseActiveRuntimeObservations(active: ActiveRuntime, flushOnExit: bo
   return handles.monitor?.close() ?? Promise.resolve(null);
 }
 
-export function disposeActiveRuntimeObservations(active: ActiveRuntime): void {
-  void releaseActiveRuntimeObservations(active, false).catch((error: unknown) =>
-    console.error("[runtime-observation] watcher termination failed", error),
+export function disposeActiveRuntimeObservations(active: ActiveRuntime): Promise<void> {
+  return releaseActiveRuntimeObservations(active, false).then(
+    () => undefined,
+    (error: unknown) => {
+      console.error("[runtime-observation] watcher termination failed", error);
+    },
   );
 }
 
@@ -362,6 +366,12 @@ export function attachActiveRuntime(
   active: ActiveRuntime,
   resumeObservation?: ResumeProcessObservation,
 ): void {
+  if (context.closed?.()) {
+    context.processes.delete(active.runtimeSessionId);
+    active.process.release?.();
+    active.releaseAuthorization?.();
+    return;
+  }
   const runtimeSessionId = active.runtimeSessionId,
     exitState: {
       closed?: Promise<number | null>;
@@ -533,5 +543,26 @@ export async function flushPendingSteerReceipts(
       }
       throw error;
     }
+  }
+}
+
+export async function flushAllPendingSteerReceipts(
+  context: RuntimeSpawnerContext,
+  activeBinding: (runtimeSessionId: string) => RuntimeBinding | undefined,
+  defaultBinding?: RuntimeBinding,
+): Promise<void> {
+  const entries = readAllPendingSteerReceipts(context.input.rootDir);
+  if (entries.length === 0) return;
+  const dispatches = new Map<string, string>();
+  for (const entry of entries) {
+    if (!dispatches.has(entry.dispatchId)) dispatches.set(entry.dispatchId, entry.runtimeSessionId);
+  }
+  for (const [dispatchId, runtimeSessionId] of dispatches) {
+    const binding =
+      activeBinding(runtimeSessionId) ??
+      readDispatchStreamHeader(context.input.rootDir, dispatchId)?.binding ??
+      defaultBinding;
+    if (!binding) continue;
+    await flushPendingSteerReceipts(context, dispatchId, runtimeSessionId, binding);
   }
 }

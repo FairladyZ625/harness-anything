@@ -343,3 +343,52 @@ test("a blocked writer retains only one workspace admission and the latest times
   assert.deepEqual(observed, [9_999]);
   assert.equal(ordinaryWriteRan, true);
 });
+
+test("attachActiveRuntime skips workspace monitor creation when the spawner is already closed", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-workspace-closed-attach-"));
+  let workersSpawned = 0,
+    released = 0,
+    authReleased = 0;
+  const OriginalWorker = workerThreads.Worker;
+  t.mock.method(
+    workerThreads,
+    "Worker",
+    class extends OriginalWorker {
+      constructor(filename: string | URL, options?: WorkerOptions) {
+        workersSpawned += 1;
+        super(filename, options);
+      }
+    },
+  );
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    removeTempRepository(root);
+  });
+  const base = tasklessSettlementRuntime(root, null),
+    runtime = active({
+      ...base,
+      process: {
+        ...base.process,
+        release: () => {
+          released += 1;
+        },
+      },
+      releaseAuthorization: () => {
+        authReleased += 1;
+      },
+    }),
+    processes = new Map([[runtime.runtimeSessionId, runtime]]),
+    context = {
+      closed: () => true,
+      input: { rootDir: root, now: () => new Date().toISOString(), schedule: () => undefined },
+      processes,
+      exiting: new Set(),
+    } as unknown as RuntimeSpawnerContext;
+  attachActiveRuntime(context, runtime);
+  assert.equal(workersSpawned, 0);
+  assert.equal(processes.size, 0);
+  assert.equal(released, 1);
+  assert.equal(authReleased, 1);
+});
