@@ -394,6 +394,7 @@ test("ha init still mints Settings as the owner's agent, because repo-bootstrap 
     assert.equal(refused.code, "settings_write_requires_principal", JSON.stringify(refused));
   } finally {
     await cell?.close();
+    authority.close();
     removeTempRepository(rootDir);
   }
 });

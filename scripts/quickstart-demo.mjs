@@ -24,11 +24,12 @@ mkdirSync(workspace, { recursive: true });
 ensureGitWorkspace(workspace);
 
 let step = "start",
-  daemonStarted = false;
+  daemonStarted = false,
+  demoSucceeded = false;
 try {
   step = "daemon start";
-  runCli(["daemon", "start", "--service"]);
   daemonStarted = true;
+  runCli(["daemon", "start", "--service"]);
 
   step = "Keycloak sign-in";
   const session = runCli(["bootstrap", "--operation", "session"]);
@@ -99,7 +100,7 @@ try {
       2,
     ),
   );
-  if (options.cleanup) rmSync(workspace, { recursive: true, force: true });
+  demoSucceeded = true;
 } catch (error) {
   console.error(
     JSON.stringify(
@@ -118,10 +119,13 @@ try {
 } finally {
   if (daemonStarted) {
     try {
-      runCli(["daemon", "stop"]);
+      runCli(["daemon", "stop", "--daemon-id", process.env.HARNESS_DAEMON_ID || "default"]);
     } catch {
       /* best-effort local daemon cleanup */
     }
+  }
+  if (options.cleanup && demoSucceeded) {
+    rmSync(workspace, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }
 

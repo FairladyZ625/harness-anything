@@ -1,4 +1,5 @@
-import { rmSync } from "node:fs";
+import { existsSync, realpathSync, rmSync } from "node:fs";
+import path from "node:path";
 import {
   closeSqliteEventStoresUnder,
   closeTaskProjectionsUnder,
@@ -10,11 +11,19 @@ const WINDOWS_RM_RETRY_DELAY_MS = 150;
 const RETRYABLE_WINDOWS_RM_CODES = new Set(["EPERM", "EBUSY", "ENOTEMPTY"]);
 const sleepBuffer = new Int32Array(new SharedArrayBuffer(4));
 
+function closeHandlesUnder(rootDir: string): void {
+  const candidates = new Set<string>([rootDir, path.resolve(rootDir)]);
+  if (existsSync(rootDir)) candidates.add(realpathSync.native(rootDir));
+  for (const candidate of candidates) {
+    closeWriterEpochFenceDescriptorsUnder(candidate);
+    closeTaskProjectionsUnder(candidate);
+    closeSqliteEventStoresUnder(candidate);
+  }
+}
+
 /** After the fixture has stopped its writers, close in-process SQLite owners before deleting its root. */
 export function removeTempRepository(rootDir: string): void {
-  closeWriterEpochFenceDescriptorsUnder(rootDir);
-  closeTaskProjectionsUnder(rootDir);
-  closeSqliteEventStoresUnder(rootDir);
+  closeHandlesUnder(rootDir);
   if (process.platform !== "win32") {
     rmSync(rootDir, { recursive: true, force: true });
     return;
@@ -29,9 +38,7 @@ export function removeTempRepository(rootDir: string): void {
           ? String((error as { readonly code?: unknown }).code)
           : "";
       if (!RETRYABLE_WINDOWS_RM_CODES.has(code) || attempt === WINDOWS_RM_MAX_ATTEMPTS) throw error;
-      closeWriterEpochFenceDescriptorsUnder(rootDir);
-      closeTaskProjectionsUnder(rootDir);
-      closeSqliteEventStoresUnder(rootDir);
+      closeHandlesUnder(rootDir);
       Atomics.wait(sleepBuffer, 0, 0, WINDOWS_RM_RETRY_DELAY_MS);
     }
   }

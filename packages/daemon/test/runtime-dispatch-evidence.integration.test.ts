@@ -18,7 +18,7 @@ import { removeTempRepository } from "../../../tools/fixtures/remove-temp-reposi
 
 test(
   "an abnormal dispatch keeps its evidence readable after the dispatches cache is purged",
-  { timeout: 30_000 },
+  { timeout: process.platform === "win32" ? 90_000 : 30_000 },
   async (context) => {
     const settlementErrors: string[] = [];
     context.mock.method(console, "error", (...args: unknown[]) => {
@@ -79,6 +79,7 @@ test(
         },
       }),
     });
+    let cellClosed = false;
     try {
       const binding = withPolicyGroup(
           { actor: { principal: { personId: "person-evidence" }, executor: null }, source: "local" as const },
@@ -183,6 +184,10 @@ test(
         [],
         "settlement errors must fail this test instead of surviving as async noise",
       );
+      // Close the cell before purging `.harness/cache` (same order as production repo-purge)
+      // so Windows releases open SQLite handles under `.harness/cache` before rmSync runs.
+      await cell.close();
+      cellClosed = true;
       // The cache purge deletes the whole runtime/dispatches root, including the archived stream
       // that settlement just compacted. The evidence copy lives in the task package and survives.
       const removed = purgeRepoCache(root);
@@ -192,7 +197,7 @@ test(
       assert.equal(readFileSync(rolloutPath, "utf8"), rolloutBody);
       assert.equal(readFileSync(tracePath, "utf8"), traceBody);
     } finally {
-      await cell.close();
+      if (!cellClosed) await cell.close();
       removeTempRepository(root);
     }
   },

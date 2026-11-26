@@ -50,10 +50,10 @@ const TEST_FILE = /\.(?:test|spec|vitest)\.[cm]?tsx?$/u;
 
 function packageSources() {
   const sources = new Map();
-  for (const rel of listWorktreeFiles(repoRoot, ["packages"]).filter(
-    (entry) => SOURCE_FILE.test(entry) && !NON_PRODUCTION.test(entry) && !TEST_FILE.test(entry),
-  )) {
-    sources.set(rel, readFileSync(path.join(repoRoot, rel), "utf8"));
+  for (const rawRel of listWorktreeFiles(repoRoot, ["packages"])) {
+    const rel = rawRel.replaceAll("\\", "/");
+    if (!SOURCE_FILE.test(rel) || NON_PRODUCTION.test(rel) || TEST_FILE.test(rel)) continue;
+    sources.set(rel, readFileSync(path.join(repoRoot, rel), "utf8").replaceAll("\r\n", "\n"));
   }
   return sources;
 }

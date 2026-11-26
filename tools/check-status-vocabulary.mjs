@@ -758,13 +758,16 @@ async function loadModules(files) {
 
 function readSources(root, scopes) {
   const sources = new Map();
-  for (const rel of listWorktreeFiles(root, scopes).filter(
-    (entry) =>
-      /\.(?:ts|tsx|mts)$/u.test(entry) &&
-      !/(?:^|\/)(?:test|tests|fixtures)\//u.test(entry) &&
-      !/\.(?:test|spec|vitest)\.[cm]?tsx?$/u.test(entry),
-  )) {
-    sources.set(rel, readFileSync(path.join(root, rel), "utf8"));
+  for (const rawRel of listWorktreeFiles(root, scopes)) {
+    const rel = rawRel.replaceAll("\\", "/");
+    if (
+      !/\.(?:ts|tsx|mts)$/u.test(rel) ||
+      /(?:^|\/)(?:test|tests|fixtures)\//u.test(rel) ||
+      /\.(?:test|spec|vitest)\.[cm]?tsx?$/u.test(rel)
+    ) {
+      continue;
+    }
+    sources.set(rel, readFileSync(path.join(root, rel), "utf8").replaceAll("\r\n", "\n"));
   }
   return sources;
 }

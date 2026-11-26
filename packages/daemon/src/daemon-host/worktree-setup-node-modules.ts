@@ -14,6 +14,18 @@ import { mirrorNodeModules } from "./worktree-node-modules-mirror.ts";
  * where an ancestor does carry one, reified that unrelated tree instead (2026-10-27). Sharing a store the checkout
  * does not own is the only thing that directory is good for; a worktree with no store to share installs its own.
  */
+function resolveWindowsNpmCmd(): string {
+  const pathValue = process.env.PATH ?? process.env.Path ?? "";
+  for (const directory of pathValue.split(path.delimiter)) {
+    const trimmed = directory.trim();
+    if (!trimmed) continue;
+    const candidate = path.join(trimmed, "npm.cmd");
+    if (existsSync(candidate)) return candidate;
+  }
+  const besideNode = path.join(path.dirname(process.execPath), "npm.cmd");
+  return existsSync(besideNode) ? besideNode : "npm.cmd";
+}
+
 export const nodeModulesSetupAdapter = {
   async prepare(input: { readonly rootDir: string; readonly cwd: string }): Promise<void> {
     if (existsSync(path.join(input.cwd, "node_modules"))) return;
@@ -39,7 +51,7 @@ export const nodeModulesSetupAdapter = {
           "npm-shrinkwrap.json to install from; share a store from the main checkout or commit a lockfile.",
       );
     }
-    const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+    const npm = process.platform === "win32" ? resolveWindowsNpmCmd() : "npm";
     await runProcessTextAsync(npm, ["ci"], input.cwd);
   },
   /** The mirror is this adapter's own product; a node_modules the repository tracks is not. */

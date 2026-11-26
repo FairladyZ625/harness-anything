@@ -290,7 +290,14 @@ test("the node-modules setup resolves workspace packages in the worktree and sha
       resolve = createRequire(path.join(workspace.cwd, "index.js")).resolve;
     assert.equal(resolve("@fixture/pkg"), path.join(realpathSync(workspace.cwd), "packages", "pkg", "index.js"));
     assert.equal(resolve("sentinel-pkg"), path.join(realpathSync(store), "sentinel-pkg", "index.js"));
-    assert.equal(realpathSync(path.join(workspace.cwd, "node_modules", ".bin", "pkg")), resolve("@fixture/pkg"));
+    if (process.platform === "win32") {
+      assert.equal(
+        readFileSync(path.join(workspace.cwd, "node_modules", ".bin", "pkg"), "utf8").replaceAll("\r\n", "\n"),
+        readFileSync(resolve("@fixture/pkg"), "utf8").replaceAll("\r\n", "\n"),
+      );
+    } else {
+      assert.equal(realpathSync(path.join(workspace.cwd, "node_modules", ".bin", "pkg")), resolve("@fixture/pkg"));
+    }
     // The mirrored store is the adapter's own doing: it neither marks the worktree dirty nor blocks removal.
     assert.equal((await settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime)).detail, null);
     assert.equal(existsSync(workspace.cwd), false);
@@ -343,7 +350,7 @@ test("a failing setup step fails the occurrence workspace and names the step and
         ...noWorktreeSetup(),
         setup: ["run: exit 3"],
       })),
-      /setup step 1 \(run: exit 3\) failed: exit code 3\. Log: .*harness-setup\/step-1\.log\./u,
+      /setup step 1 \(run: exit 3\) failed: exit code 3\. Log: .*harness-setup[/\\]step-1\.log\./u,
     );
   } finally {
     removeTempRepository(fixture.base);

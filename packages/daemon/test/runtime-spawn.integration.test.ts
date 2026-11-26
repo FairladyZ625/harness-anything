@@ -1001,7 +1001,7 @@ test("Agent skill is really read by the provider from the absolute path in its f
     uid = process.getuid?.() ?? 0;
   const executablePath = writeProviderExecutable(
       path.join(parent, "codex-skill-provider.mjs"),
-      `import fs from "node:fs";\nif (process.argv[2] === "login") process.exit(0);\nlet prompt = ""; for await (const chunk of process.stdin) prompt += chunk; const match = prompt.match(/provider-witness: (.+\\/SKILL\\.md)/u), skill = match ? fs.readFileSync(match[1], "utf8") : "", witness = skill.includes("SKILL_PROVIDER_WITNESS"), frames = [{ type: "thread.started", thread_id: "provider-session" }, { type: "item.completed", item: { id: "provider-witness", type: "agent_message", text: "provider-witness:" + witness, skill_witness: witness, prompt_witness: match?.[0] ?? null, final_prompt: prompt } }, { type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "provider-result.txt", kind: "add" }], status: "completed" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; process.stdout.write(frames.map((frame) => JSON.stringify(frame)).join("\\n") + "\\n");\n`,
+      `import fs from "node:fs";\nif (process.argv[2] === "login") process.exit(0);\nlet prompt = ""; for await (const chunk of process.stdin) prompt += chunk; const match = prompt.match(/provider-witness: (.+[/\\\\]SKILL\\.md)/u), skill = match ? fs.readFileSync(match[1], "utf8") : "", witness = skill.includes("SKILL_PROVIDER_WITNESS"), frames = [{ type: "thread.started", thread_id: "provider-session" }, { type: "item.completed", item: { id: "provider-witness", type: "agent_message", text: "provider-witness:" + witness, skill_witness: witness, prompt_witness: match?.[0] ?? null, final_prompt: prompt } }, { type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "provider-result.txt", kind: "add" }], status: "completed" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; process.stdout.write(frames.map((frame) => JSON.stringify(frame)).join("\\n") + "\\n");\n`,
     ),
     installation = {
       installationId: "installation-codex-skill",
@@ -1098,7 +1098,7 @@ test("Agent skill is really read by the provider from the absolute path in its f
     assert.equal(item?.skill_witness, true, stream);
     assert.match(
       String(item?.prompt_witness),
-      /^provider-witness: .*\/\.harness\/runtime\/sealed-skills\/[^/]+\/provider-witness\/SKILL\.md$/u,
+      /^provider-witness: .*[/\\]\.harness[/\\]runtime[/\\]sealed-skills[/\\][^/\\]+[/\\]provider-witness[/\\]SKILL\.md$/u,
     );
     assert.match(stream, /"text":"provider-witness:true"/u);
     assert.doesNotMatch(stream, /SKILL_PROVIDER_WITNESS/u);

@@ -168,33 +168,40 @@ test("attach cancels a rejected Squad child through the task lifecycle writer", 
     ownerId: "startup-reconciliation",
     keycloakSession: async () => cellBinding.keycloakAuthorization.session,
   });
-  t.after(() => reopened.close());
-  assert.equal(
-    (await reopened.run({ kind: "task-create", taskId: "task-after-reconcile", title: "Queue sentinel" }, cellBinding))
-      .outcome,
-    "applied",
-    "a write queued after attach waits behind startup reconciliation",
-  );
-  const shown = JSON.parse(
-    String((await reopened.run({ kind: "task-show", taskId: orphanTaskId }, cellBinding)).evidence),
-  ) as { readonly task: { readonly status: string } };
-  assert.equal(shown.task.status, "cancelled");
-  const reader = makeTaskEventReader({ repoId, rootDir });
   try {
-    assert.ok(
-      reader
-        .read()
-        .events.some(
-          (event) =>
-            event.type === "runtime_squad_run_observed" &&
-            event.payload.squadRunId === squadRunId &&
-            event.payload.runRevision === 2 &&
-            event.payload.phase === "failed",
-        ),
-      "startup reconciliation must publish the terminal Squad state through an accepted owner dispatch",
+    assert.equal(
+      (
+        await reopened.run(
+          { kind: "task-create", taskId: "task-after-reconcile", title: "Queue sentinel" },
+          cellBinding,
+        )
+      ).outcome,
+      "applied",
+      "a write queued after attach waits behind startup reconciliation",
     );
+    const shown = JSON.parse(
+      String((await reopened.run({ kind: "task-show", taskId: orphanTaskId }, cellBinding)).evidence),
+    ) as { readonly task: { readonly status: string } };
+    assert.equal(shown.task.status, "cancelled");
+    const reader = makeTaskEventReader({ repoId, rootDir });
+    try {
+      assert.ok(
+        reader
+          .read()
+          .events.some(
+            (event) =>
+              event.type === "runtime_squad_run_observed" &&
+              event.payload.squadRunId === squadRunId &&
+              event.payload.runRevision === 2 &&
+              event.payload.phase === "failed",
+          ),
+        "startup reconciliation must publish the terminal Squad state through an accepted owner dispatch",
+      );
+    } finally {
+      await reader.drain();
+    }
   } finally {
-    await reader.drain();
+    await reopened.close();
   }
 });
 // The binding is derived from the task and the output shape of the preset snapshot it was compiled from.
@@ -389,7 +396,7 @@ test("setup steps run once in order inside the worktree with the Harness variabl
       task = boundTask("active"),
       started = await lifecycle(fixture.root, () => task, { kind: "task-start", taskId }, { setup }),
       cwd = path.join(fixture.root, binding.path);
-    assert.deepEqual(readFileSync(path.join(fixture.base, "steps.txt"), "utf8").trim().split("\n"), [
+    assert.deepEqual(readFileSync(path.join(fixture.base, "steps.txt"), "utf8").trim().split(/\r?\n/u), [
       `first ${taskId} ${cwd} ${fixture.root}`,
       `second ${taskId} ${cwd} ${fixture.root}`,
     ]);
@@ -399,7 +406,7 @@ test("setup steps run once in order inside the worktree with the Harness variabl
     );
     // A second start (or a dispatch) finds every step done and runs none again.
     await lifecycle(fixture.root, () => task, { kind: "task-start", taskId }, { setup });
-    assert.equal(readFileSync(path.join(fixture.base, "steps.txt"), "utf8").trim().split("\n").length, 2);
+    assert.equal(readFileSync(path.join(fixture.base, "steps.txt"), "utf8").trim().split(/\r?\n/u).length, 2);
   } finally {
     removeTempRepository(fixture.base);
   }
@@ -408,8 +415,8 @@ test("setup steps run once in order inside the worktree with the Harness variabl
 test("a failing setup step refuses the start, keeps the worktree, and a retry reruns only what failed", async (t) => {
   const fixture = repositoryFixture(t);
   try {
-    const counter = path.join(fixture.base, "count.txt"),
-      gate = path.join(fixture.base, "gate"),
+    const counter = path.join(fixture.base, "count.txt").replaceAll("\\", "/"),
+      gate = path.join(fixture.base, "gate").replaceAll("\\", "/"),
       setup = [`run: echo x >> ${counter}`, `run: echo checking; test -e ${gate}`],
       task = boundTask("planned");
     let writes = 0;
@@ -422,10 +429,13 @@ test("a failing setup step refuses the start, keeps the worktree, and a retry re
       (error: Error & { code?: string }) => {
         assert.equal(error.code, "worktree_setup_failed");
         assert.match(error.message, /setup step 2 \(run: echo checking; test -e .*gate\) failed: exit code 1/u);
-        assert.match(error.message, /Log: .*harness-setup\/step-2\.log\./u);
+        assert.match(error.message, /Log: .*harness-setup[/\\]step-2\.log\./u);
         assert.match(error.message, new RegExp(`run ha task start ${taskId} again`, "u"));
         const log = /Log: (\S+)\. /u.exec(error.message)![1]!;
-        assert.equal(readFileSync(log, "utf8"), "$ run: echo checking; test -e " + gate + "\nchecking\n");
+        assert.equal(
+          readFileSync(log, "utf8").replaceAll("\r\n", "\n"),
+          "$ run: echo checking; test -e " + gate + "\nchecking\n",
+        );
         return true;
       },
     );
@@ -435,7 +445,11 @@ test("a failing setup step refuses the start, keeps the worktree, and a retry re
     const started = await lifecycle(fixture.root, () => task, { kind: "task-start", taskId }, { setup, write });
     assert.equal(writes, 1);
     assert.match(String((started as { summary?: unknown }).summary), /Setup ran: run: echo checking/u);
-    assert.equal(readFileSync(counter, "utf8"), "x\n", "the step that succeeded does not run again");
+    assert.equal(
+      readFileSync(counter, "utf8").replaceAll("\r\n", "\n"),
+      "x\n",
+      "the step that succeeded does not run again",
+    );
   } finally {
     removeTempRepository(fixture.base);
   }
@@ -470,9 +484,12 @@ test("a run step still going at the timeout fails like any other step and names 
     assert.equal(result.detail, "timed out after 0.3s");
     assert.match(
       worktreeSetupFailure(checkout!.cwd, result, `run ha task start ${taskId} again`),
-      /setup step 1 \(run: echo installing; sleep 30\) failed: timed out after 0\.3s\. Log: .*harness-setup\/step-1\.log\./u,
+      /setup step 1 \(run: echo installing; sleep 30\) failed: timed out after 0\.3s\. Log: .*harness-setup[/\\]step-1\.log\./u,
     );
-    assert.match(readFileSync(result.log, "utf8"), /^\$ run: echo installing; sleep 30\ninstalling\n/u);
+    assert.match(
+      readFileSync(result.log, "utf8").replaceAll("\r\n", "\n"),
+      /^\$ run: echo installing; sleep 30\ninstalling\n/u,
+    );
   } finally {
     removeTempRepository(fixture.base);
   }
@@ -486,7 +503,10 @@ test("the Settings step timeout reaches the checkout: a raised section value out
       setup: ["run: echo outlived > slow-step.out; sleep 1"],
       setupStepTimeoutMs: 20 * 60 * 1000,
     });
-    assert.equal(readFileSync(path.join(checkout!.cwd, "slow-step.out"), "utf8"), "outlived\n");
+    assert.equal(
+      readFileSync(path.join(checkout!.cwd, "slow-step.out"), "utf8").replaceAll("\r\n", "\n"),
+      "outlived\n",
+    );
     // The same section with a 300ms timeout stops that step instead: the value, not the wiring, decides.
     const stopped = await checkoutTaskWorktree(fixture.root, taskId, binding, {
       setup: ["run: sleep 5"],

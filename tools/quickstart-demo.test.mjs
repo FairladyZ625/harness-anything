@@ -1,12 +1,13 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
 import { spawnKeycloak, signInAt } from "../packages/daemon/test/keycloak.fixtures.ts";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
+import { removeTempRepository } from "./fixtures/remove-temp-repository.ts";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const demoScript = path.join(repoRoot, "scripts/quickstart-demo.mjs");
@@ -65,7 +66,7 @@ function withTempRoot(fn) {
     signInAt(path.join(rootDir, ".daemon-user"), "quickstart-owner");
     fn(rootDir);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 }
 
@@ -89,6 +90,6 @@ test("quickstart without a Keycloak session gives bootstrap guidance before init
     assert.equal(failure.step, "Keycloak sign-in");
     assert.match(failure.error, /ha bootstrap.*ha bootstrap --operation login/u);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

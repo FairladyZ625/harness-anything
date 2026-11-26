@@ -1,4 +1,13 @@
-import { copyFileSync, mkdirSync, readdirSync, readlinkSync, statSync, symlinkSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readlinkSync,
+  realpathSync,
+  statSync,
+  symlinkSync,
+} from "node:fs";
 import path from "node:path";
 
 /**
@@ -22,6 +31,7 @@ export function mirrorNodeModules(rootDir: string, checkoutDir: string): void {
 }
 
 function mirrorStore(rootDir: string, checkoutDir: string, relative: string): void {
+  const canonicalRootDir = existsSync(rootDir) ? realpathSync.native(rootDir) : path.resolve(rootDir);
   /* @gate-identity non-state/environment-io.9538dcd0559cba9f */ mkdirSync(path.join(checkoutDir, relative));
   for (const entry of readdirSync(path.join(rootDir, relative), { withFileTypes: true })) {
     const name = path.join(relative, entry.name),
@@ -31,23 +41,34 @@ function mirrorStore(rootDir: string, checkoutDir: string, relative: string): vo
       continue;
     }
     const link = entry.isSymbolicLink() ? readlinkSync(source) : null,
+      resolvedTarget = link === null ? null : path.resolve(path.dirname(source), link),
+      canonicalTarget =
+        resolvedTarget !== null && existsSync(resolvedTarget) ? realpathSync.native(resolvedTarget) : resolvedTarget,
+      relativeToRoot = canonicalTarget === null ? null : path.relative(canonicalRootDir, canonicalTarget),
       inRepository =
-        link !== null &&
-        !path.isAbsolute(link) &&
-        !path.relative(rootDir, path.resolve(path.dirname(source), link)).startsWith(".."),
+        relativeToRoot !== null &&
+        relativeToRoot !== "" &&
+        !relativeToRoot.startsWith("..") &&
+        !path.isAbsolute(relativeToRoot),
       type = statSync(source, { throwIfNoEntry: false })?.isDirectory() ? "junction" : "file";
     if (type === "file" && process.platform === "win32") {
       // Ordinary Windows users cannot create file symlinks. The package store is immutable
       // for the checkout lifetime, so a byte copy is the usable equivalent for .bin entries.
       /* @gate-identity non-state/environment-io.03922c1e35489b17 */ copyFileSync(
-        inRepository ? path.resolve(path.dirname(source), link!) : source,
+        inRepository ? resolvedTarget! : source,
         path.join(checkoutDir, name),
       );
-    } else
+    } else {
+      const target = inRepository
+        ? path.isAbsolute(link!) || (process.platform === "win32" && type === "junction")
+          ? path.join(checkoutDir, relativeToRoot!)
+          : link!
+        : source;
       /* @gate-identity non-state/environment-io.25160125d6541765 */ symlinkSync(
-        inRepository ? link! : source,
+        target,
         path.join(checkoutDir, name),
         type,
       );
+    }
   }
 }
