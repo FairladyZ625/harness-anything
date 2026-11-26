@@ -572,7 +572,7 @@ export function launchNative(
     ...(input.authMode !== undefined ? { authMode: input.authMode } : {}),
     ...(input.effort !== undefined ? { effort: input.effort } : {}),
   };
-  child.stdin?.write(
+  child.stdin?.end(
     `${JSON.stringify({
       ...persistence,
       executablePath: command.executablePath,

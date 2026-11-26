@@ -4437,13 +4437,6 @@
         "order": 792
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-process.ts#launchNative:a0b0f071891fac0fad06b1d15d6ba9fe",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/stream.d.ts#stream.Stream.Writable.write",
-        "order": 794
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-process.ts#launchNative:cd5e990b3b9eae3a884ce53f2f01078f",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -4815,6 +4808,13 @@
         "order": 834
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost:55fff088cae2615127bcad7282350642",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost.append",
+        "order": 10002
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost:6116ec94d3e72e2d34399a80ee506185",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -4827,6 +4827,13 @@
         "role": "technical-port",
         "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn",
         "order": 833
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost:916624a04fe99e8690900454c2c0f168",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost.append",
+        "order": 10003
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost:955298051ef6bb6e3585b560ad159877",

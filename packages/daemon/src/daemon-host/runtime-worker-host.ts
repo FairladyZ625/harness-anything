@@ -151,9 +151,18 @@ export function runtimeWorkerProviderEnvironment(
 }
 
 export async function runRuntimeWorkerHost(): Promise<void> {
-  const lines = createInterface({ input: process.stdin }),
-    iterator = lines[Symbol.asyncIterator](),
-    first = await iterator.next();
+  const lines = createInterface({ input: process.stdin });
+  let first: IteratorResult<string>;
+  try {
+    first = await lines[Symbol.asyncIterator]().next();
+  } finally {
+    // The daemon sends only a single manifest line; subsequent control arrives via the dispatch
+    // stream file. Closing the readline interface and unref'ing stdin here ensures any setup error
+    // before provider spawn lets the process exit immediately instead of hanging as a zombie.
+    lines.close();
+    process.stdin.pause();
+    if ("unref" in process.stdin && typeof process.stdin.unref === "function") process.stdin.unref();
+  }
   if (first.done) throw new Error("runtime worker manifest is missing");
   const manifest = parseManifest(first.value);
   // The dispatch header names what this run owes: only a direct task-bound dispatch has a settle
@@ -201,18 +210,7 @@ export async function runRuntimeWorkerHost(): Promise<void> {
         ...steerMetaFields(meta),
       });
   });
-  const relay = manifest.callbackRelay
-    ? createRuntimeCallbackRelay({
-        dispatchId: manifest.dispatchId,
-        route: {
-          userRoot: manifest.env.HARNESS_DAEMON_USER_ROOT ?? "",
-          daemonId: manifest.env.HARNESS_DAEMON_ID ?? "",
-          endpoint: manifest.callbackRelay.endpoint,
-        },
-        relayPath: manifest.callbackRelay.path,
-        executionCredential: manifest.env.HARNESS_EXECUTION_CREDENTIAL,
-      })
-    : null;
+  let relay: ReturnType<typeof createRuntimeCallbackRelay> | null = null;
   let child: ReturnType<typeof spawn> | undefined,
     providerSessionId = manifest.providerSessionId ?? null,
     queuedPrompt: string | null = null,
@@ -250,6 +248,18 @@ export async function runRuntimeWorkerHost(): Promise<void> {
     if (!settled && child) terminateRuntimeProcess(child);
   });
   try {
+    relay = manifest.callbackRelay
+      ? createRuntimeCallbackRelay({
+          dispatchId: manifest.dispatchId,
+          route: {
+            userRoot: manifest.env.HARNESS_DAEMON_USER_ROOT ?? "",
+            daemonId: manifest.env.HARNESS_DAEMON_ID ?? "",
+            endpoint: manifest.callbackRelay.endpoint,
+          },
+          relayPath: manifest.callbackRelay.path,
+          executionCredential: manifest.env.HARNESS_EXECUTION_CREDENTIAL,
+        })
+      : null;
     const containmentId = await establishRuntimeProcessGroup();
     if (containmentId) append({ kind: "process_containment", pid: process.pid, containmentId });
     await relay?.start();
@@ -421,7 +431,6 @@ export async function runRuntimeWorkerHost(): Promise<void> {
         if (settled) return;
         settled = true;
         clearTimeout(interruptTimer);
-        lines.close();
         if (!acp) consumeOutput("", true);
         append({ kind: "process_exit", exitCode, signal });
       };
@@ -562,6 +571,15 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       finish(child.pid === undefined ? null : exitCode, signal);
       break;
     }
+  } catch (error) {
+    if (!settled) {
+      settled = true;
+      clearTimeout(interruptTimer);
+      const message = error instanceof Error ? error.message : String(error);
+      append({ kind: "provider_stderr", chunk: scrubProviderValue(message) as string });
+      append({ kind: "process_exit", exitCode: 1, signal: null });
+    }
+    throw error;
   } finally {
     steerTail.stop();
     appender.close();

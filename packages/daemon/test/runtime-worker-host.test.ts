@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import {
@@ -1281,3 +1282,84 @@ test("turn continuations are bounded per dispatch, one settle attempt each", { t
     read.cleanup();
   }
 });
+
+test(
+  "runtime worker host exits and records process_exit on pre-spawn failure even when parent keeps stdin open",
+  { timeout: 15_000 },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-worker-prespawn-fail-")),
+      rootDir = path.join(parent, "repo"),
+      dispatchId = "dispatch_123456789012345681909999",
+      runtimeSessionId = "runtime_123456789012345681909999";
+    mkdirSync(rootDir);
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId,
+      instanceId: "codex-prespawn-fail",
+      startedAt: new Date().toISOString(),
+      dispatchOpId: "dispatch-op-prespawn-fail",
+      kindId: "codex",
+      permissionMode: "workspace-write",
+      binding: operatorBinding,
+      cwd: rootDir,
+      prompt: "fail before provider spawn",
+      model: "test-model",
+      reasoningEffort: null,
+      fast: false,
+    });
+    const entry = fileURLToPath(new URL("../src/daemon-host/bin.ts", import.meta.url)),
+      child = spawn(process.execPath, [entry, "--runtime-worker-host"], {
+        stdio: ["pipe", "ignore", "ignore"],
+        windowsHide: true,
+      });
+    try {
+      // Write manifest without calling child.stdin.end() to lock that worker-host closes its own
+      // stdin reader right after manifest ingestion and never hangs as a zombie on setup failure.
+      child.stdin!.write(
+        `${JSON.stringify({
+          rootDir,
+          dispatchId,
+          executablePath: process.execPath,
+          args: ["-e", "process.exit(0)"],
+          cwd: rootDir,
+          env: process.env,
+          prompt: "fail before provider spawn",
+          kindId: "codex",
+          windowsVerbatimArguments: false,
+          callbackRelay: {
+            endpoint: path.join(parent, "invalid-endpoint.sock"),
+            path: path.join(parent, "invalid-relay.sock"),
+          },
+        })}\n`,
+      );
+      const outcome = await new Promise<{ readonly code: number | null; readonly timedOut: boolean }>((resolve) => {
+        const timer = setTimeout(() => {
+          child.kill("SIGKILL");
+          resolve({ code: null, timedOut: true });
+        }, 5_000);
+        child.once("exit", (code) => {
+          clearTimeout(timer);
+          resolve({ code, timedOut: false });
+        });
+      });
+      assert.equal(outcome.timedOut, false, "worker host hung as a zombie instead of exiting after setup failure");
+      assert.equal(outcome.code, 1);
+      const records = readDispatchStream(rootDir, dispatchId)?.records ?? [];
+      assert.ok(
+        records.some(
+          (record) => record.kind === "provider_stderr" && /relay path is invalid/iu.test(String(record.chunk)),
+        ),
+        `expected pre-spawn diagnostic in provider_stderr: ${JSON.stringify(records)}`,
+      );
+      assert.ok(
+        records.some((record) => record.kind === "process_exit" && record.exitCode === 1),
+        `expected terminal process_exit(1) record: ${JSON.stringify(records)}`,
+      );
+    } finally {
+      child.stdin?.end();
+      removeTempRepository(parent);
+    }
+  },
+);
