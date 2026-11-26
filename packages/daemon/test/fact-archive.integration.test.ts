@@ -34,6 +34,7 @@ test("fact archive retires the managed document, leaves the projection row, and 
     factRef = `fact/${factId}`,
     factPath = `facts/${factId}.md`;
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  let projection: ReturnType<typeof makeTaskProjection> | undefined;
   try {
     initRepo(rootDir);
     const canonical = canonicalRoot(rootDir);
@@ -42,8 +43,8 @@ test("fact archive retires the managed document, leaves the projection row, and 
       rootDir: canonical,
       ownerId: "fact-archive-test",
     });
-    const reader = makeTaskEventReader({ repoId: workspaceId("fact-archive"), rootDir }),
-      projection = makeTaskProjection({ rootDir, eventStore: reader });
+    const reader = makeTaskEventReader({ repoId: workspaceId("fact-archive"), rootDir });
+    projection = makeTaskProjection({ rootDir, eventStore: reader });
 
     const task = await cell.run({ kind: "task-create", taskId: "task_arch", title: "Archive host" }, binding);
     assert.equal(task.outcome, "applied", JSON.stringify(task));
@@ -199,7 +200,9 @@ test("fact archive retires the managed document, leaves the projection row, and 
     assert.equal(existsSync(path.join(canonical, "harness", factPath)), false);
 
     // Projection rebuild replays the retirement; the document stays absent.
-    projection.rebuild?.();
+    projection.close();
+    const rebuilt = await cell.run({ kind: "projection-rebuild" }, withPolicyGroup(binding, "admin"));
+    assert.equal(rebuilt.outcome, "applied", JSON.stringify(rebuilt));
     assert.equal(projection.readDocument(factPath).document, null, "rebuild must keep the retired document absent");
     assert.equal(projection.readFact(factId).fact?.archived, true, "rebuild must keep the archived flag");
 
@@ -307,6 +310,7 @@ test("fact archive retires the managed document, leaves the projection row, and 
     assert.equal(report.results.length, batchIds.length);
     for (const batchId of batchIds) assert.equal(projection.readFact(batchId).fact?.archived, true);
   } finally {
+    projection?.close();
     await cell?.close();
     removeTempRepository(rootDir);
   }

@@ -1,7 +1,8 @@
 // harness-test-tier: fast
 import type { IdentitySessionPort } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -308,6 +309,42 @@ test("local repository selection retains its configured OIDC identity", (t) => {
   });
   writeFileSync(configFile, JSON.stringify({ ...config, url: "https://different-center.example" }));
   assert.equal(selection.read(active.localRoot), undefined, "changing the configured center invalidates its selection");
+});
+
+test("selection bindings match across canonicalized paths, Windows 8.3 short paths, and case differences", (t) => {
+  const active = fixture(t),
+    selection = oidcCenterSelections(active.userRoot),
+    configFile = path.join(active.userRoot, "rbac", "config.json"),
+    config = { url: "https://local-center.example", realm: "harness", clientId: "harness-gui" },
+    longRoot = path.join(path.dirname(active.localRoot), "long-repository-target-name"),
+    stored = {
+      issuer: active.localIssuer,
+      authority: { url: config.url, realm: config.realm, clientId: config.clientId },
+    };
+  mkdirSync(longRoot, { recursive: true });
+  writeFileSync(configFile, JSON.stringify(config));
+  const nonNormalized = path.join(longRoot, ".", "..", path.basename(longRoot));
+  selection.write(nonNormalized, stored);
+  assert.equal(selection.key(nonNormalized), selection.key(longRoot));
+  assert.deepEqual(selection.read(longRoot), stored);
+  if (process.platform === "win32") {
+    const canonicalLong = realpathSync.native(longRoot),
+      upper = canonicalLong.toUpperCase(),
+      lower = canonicalLong.toLowerCase();
+    assert.equal(selection.key(upper), selection.key(lower));
+    assert.deepEqual(selection.read(upper), stored);
+    assert.deepEqual(selection.read(lower), stored);
+    const shortPath = execFileSync(
+      process.env.ComSpec ?? "cmd.exe",
+      ["/d", "/c", `for %I in ("${canonicalLong}") do @echo %~sI`],
+      { encoding: "utf8", windowsHide: true, windowsVerbatimArguments: true },
+    ).trim();
+    assert.ok(shortPath.length > 0);
+    assert.equal(selection.key(shortPath), selection.key(canonicalLong));
+    selection.write(shortPath, stored);
+    assert.deepEqual(selection.read(canonicalLong), stored);
+    assert.deepEqual(selection.read(shortPath), stored);
+  }
 });
 
 test("an old single-session file is deleted and does not block the first center login", async (t) => {

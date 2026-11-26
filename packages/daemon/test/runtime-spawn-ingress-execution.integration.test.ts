@@ -15,6 +15,7 @@ import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { createRealizedTaskPlanFixture, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { definition, installation, initIngressRepo, rpc, spawnCli } from "./fixtures/runtime-ingress.ts";
@@ -83,11 +84,12 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
     daemonId: "runtime-spawn-ingress",
     userRoot,
     runtimeDiscover: () => [ingressInstallation, claudeInstallation],
-    runtimeLaunch: (request) => {
+    runtimeLaunch: (request, persistence) => {
       launchCount += 1;
       launchedPrompt = request.prompt;
       launchedCwd = request.cwd;
       launchedPermissionMode = request.permissionMode;
+      recordStoppedFixtureContainment(persistence, 4310);
       return {
         pid: 4310,
         onOutput: (listener) => {
@@ -965,7 +967,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         assert.equal(launchCount, launchesBeforeAttach + 1, "the read-only attach must launch its runtime");
         assert.equal(
           launchedCwd,
-          realpathSync(root),
+          realpathSync.native(root),
           "a read-only attach reads the frozen round from the repository root",
         );
         assert.equal(launchedPermissionMode, "read-only", "the declaration's read-only mode must reach the launch");

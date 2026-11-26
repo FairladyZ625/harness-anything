@@ -579,7 +579,11 @@ test("all purge backs up and drills before deleting, then restores and rebinds w
       ),
       /must not be inside/u,
     );
-    symlinkSync(path.join(rootDir, ".harness"), path.join(rootDir, "linked-harness"));
+    symlinkSync(
+      path.join(rootDir, ".harness"),
+      path.join(rootDir, "linked-harness"),
+      process.platform === "win32" ? "junction" : undefined,
+    );
     await assert.rejects(
       host.admin(
         {

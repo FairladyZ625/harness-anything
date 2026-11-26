@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { readRegularFileIfPresent } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import { readFleetEdgeConfigForRoot, type FleetEdgeConfig } from "./client/fleet-edge-config.ts";
@@ -31,12 +31,28 @@ function isHttpUrl(url: string): boolean {
   return protocol === "http:" || protocol === "https:";
 }
 
+function canonicalSelectionTarget(target: string | undefined): string | null {
+  if (target === undefined) return null;
+  const resolved = path.resolve(target),
+    pending: string[] = [];
+  let current = resolved;
+  while (!existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    pending.unshift(path.basename(current));
+    current = parent;
+  }
+  const canonical = existsSync(current) ? path.join(realpathSync.native(current), ...pending) : resolved;
+  return process.platform === "win32" ? canonical.toLowerCase() : canonical;
+}
+
 /** Discovery identifies a binding once; persisted selection lets a restarted daemon use sessions while its center is offline. */
 export function oidcCenterSelections(userRoot: string) {
   const directory = path.join(userRoot, "rbac", "oidc-centers");
-  const binding = (target?: string, identityOverride?: Readonly<Record<string, unknown>>): string => {
-    const configFile = path.join(userRoot, "rbac", "config.json"),
-      edge = !identityOverride && target ? readFleetEdgeConfigForRoot(userRoot, target) : null,
+  const binding = (rawTarget?: string, identityOverride?: Readonly<Record<string, unknown>>): string => {
+    const target = canonicalSelectionTarget(rawTarget),
+      configFile = path.join(userRoot, "rbac", "config.json"),
+      edge = !identityOverride && rawTarget ? readFleetEdgeConfigForRoot(userRoot, rawTarget) : null,
       localConfig =
         !identityOverride && !edge && existsSync(configFile) ? JSON.parse(readFileSync(configFile, "utf8")) : null,
       config =
