@@ -7,13 +7,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { ManagedRbacHost } from "../../src/keycloak/managed-host.ts";
-import { stopManagedKeycloakOrphan } from "../../src/keycloak/managed-keycloak-orphan.ts";
+import { parseWindowsNetstatListeners, stopManagedKeycloakOrphan } from "../../src/keycloak/managed-keycloak-orphan.ts";
 import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 function windowsOrphanHost(input: {
   readonly java: string;
   readonly commandLine: string;
   readonly listeners: Set<number>;
+  readonly ports?: readonly number[];
   readonly taskkillCalls: string[][];
 }): ManagedRbacHost {
   return {
@@ -25,10 +26,15 @@ function windowsOrphanHost(input: {
         input.listeners.clear();
         return { exitCode: 0, stdout: "", stderr: "" };
       }
+      if (command === "netstat.exe") {
+        const ports = input.ports ?? [62413, 62415];
+        const rows = [...input.listeners].flatMap((pid) =>
+          ports.map((port) => `  TCP    127.0.0.1:${port}    0.0.0.0:0    LISTENING    ${pid}`),
+        );
+        return { exitCode: 0, stdout: rows.join("\r\n"), stderr: "" };
+      }
       if (command !== "powershell.exe") return { exitCode: 0, stdout: "", stderr: "" };
       const script = args.at(-1) ?? "";
-      if (script.includes("Get-NetTCPConnection"))
-        return { exitCode: 0, stdout: JSON.stringify([...input.listeners]), stderr: "" };
       if (script.includes("Get-Process -Id")) return { exitCode: 1, stdout: "", stderr: "" };
       if (script.includes("Get-CimInstance"))
         return {
@@ -107,7 +113,7 @@ test("Windows orphan reclamation resolves kc.bat /bin/.. home properties while r
   }
 });
 
-test("Windows port inspection filters by LocalPort/State Listen without failing on unoccupied ports", async (t) => {
+test("Windows port inspection uses netstat.exe -ano without PowerShell CIM and ignores unoccupied ports", async (t) => {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-kc-win-port-"))),
     java = path.join(root, "runtime", "java", "bin", "java.exe"),
     keycloakHome = path.join(root, "runtime", "keycloak"),
@@ -126,9 +132,8 @@ test("Windows port inspection filters by LocalPort/State Listen without failing 
     runProcessText: () => "",
     runProcessTextAsync: async () => "",
     runProcessExitAsync: async (command, args, _cwd, env) => {
-      const script = args.at(-1) ?? "";
-      observedCommands.push(script);
-      if (process.platform === "win32" && command === "powershell.exe") {
+      observedCommands.push(`${command} ${args.join(" ")}`);
+      if (process.platform === "win32" && command === "netstat.exe") {
         const result = spawnSync(command, [...args], { encoding: "utf8", env, timeout: 15_000 });
         return { exitCode: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
       }
@@ -143,12 +148,29 @@ test("Windows port inspection filters by LocalPort/State Listen without failing 
     root,
     java,
     keycloakHome,
-    ports: [freePort],
+    ports: [freePort, freePort + 1],
     platform: "win32",
   });
-  assert.equal(observedCommands.length, 1);
-  assert.match(
-    observedCommands[0]!,
-    new RegExp(`Get-NetTCPConnection -LocalPort ${freePort} -State Listen -ErrorAction SilentlyContinue`, "u"),
+  assert.deepEqual(observedCommands, ["netstat.exe -ano"]);
+});
+
+test("parseWindowsNetstatListeners extracts IPv4/IPv6 listening PIDs across Windows locales", () => {
+  const sample = [
+    "Active Connections",
+    "",
+    "  Proto  Local Address          Foreign Address        State           PID",
+    "  TCP    0.0.0.0:8080           0.0.0.0:0              LISTENING       1234",
+    "  TCP    127.0.0.1:9000         0.0.0.0:0              侦听            5678",
+    "  TCP    [::1]:8080             [::]:0                 ABHÖREN         9012",
+    "  TCP    127.0.0.1:8080         127.0.0.1:54321        ESTABLISHED     4444",
+    "  UDP    0.0.0.0:8080           *:*                                    7777",
+    "",
+  ].join("\r\n");
+  const parsed = parseWindowsNetstatListeners(sample, [8080, 9000, 9999]);
+  assert.deepEqual(
+    [...parsed.get(8080)!].sort((a, b) => a - b),
+    [1234, 9012],
   );
+  assert.deepEqual([...parsed.get(9000)!], [5678]);
+  assert.deepEqual([...parsed.get(9999)!], []);
 });

@@ -10,6 +10,7 @@ import { submissionDigest } from "@harness-anything/kernel";
 import { openFleetEdgeRuntime } from "../src/daemon-host/fleet-edge-runtime.ts";
 import { dualSyncFixture } from "./fleet-dual-sync.fixture.ts";
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 import { scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
 
 for (const persistedIdentity of ["valid", "expired", "foreign-person"] as const)
@@ -138,6 +139,7 @@ for (const persistedIdentity of ["valid", "expired", "foreign-person"] as const)
     runtime.close();
     // The independent worker exits while its daemon is down. Reopening creates a fresh
     // executionCredentials map; only the dispatch stream can carry this review to the center.
+    recordStoppedFixtureContainment({ rootDir: config.workspaceRoot, dispatchId }, 2_147_483_647);
     appendRuntimeWorkerRecord(config.workspaceRoot, dispatchId, {
       kind: "process_exit",
       exitCode: 0,

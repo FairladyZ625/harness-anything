@@ -431,19 +431,23 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
       if (Buffer.byteLength(frame) > maxResultBytes)
         stop("result_oversize", `Child result exceeds ${maxResultBytes} bytes.`);
     });
-    child.stdout?.once("close", () => {
+    const onStdoutDisconnect = () => {
+      if (disconnected) return;
       disconnected = true;
       // libuv can report the stdout EOF before the child's exit event, so let a pending exit
       // classification win before treating the closed channel as a disconnect. This timer is a
       // delivery grace window, not a correctness deadline: nothing is judged by how long it takes.
-      setTimeout(() => {
+      const grace = setTimeout(() => {
         if (!exited && frame === undefined)
           stop(
             "child_disconnect",
             `Child disconnected before returning a result.${diagnostic ? ` ${diagnostic.trim()}` : ""}`,
           );
       }, 25);
-    });
+      grace.unref();
+    };
+    child.stdout?.once("end", onStdoutDisconnect);
+    child.stdout?.once("close", onStdoutDisconnect);
     child.once("error", (error) => stop("spawn_failed", error.message));
     child.once("exit", (code, signal) => {
       exited = true;

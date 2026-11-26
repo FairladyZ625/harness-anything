@@ -58,16 +58,32 @@ export async function resolveOperatorGithubToken(
   if (inherited) return inherited;
   const executable = executableOnPath(operatorEnvironment.PATH ?? "", "gh", platform);
   if (executable === null) return null;
-  const result = await exitCommand(
-    executable,
-    ["auth", "token", "--hostname", githubHost],
-    undefined,
-    operatorEnvironment,
-    undefined,
-    undefined,
-    { timeoutMs: tokenProbeTimeoutMs },
-  );
-  return result.exitCode === 0 ? usableToken(result.stdout) : null;
+  const [outcome] = await Promise.allSettled([
+    exitCommand(
+      executable,
+      ["auth", "token", "--hostname", githubHost],
+      undefined,
+      operatorEnvironment,
+      undefined,
+      undefined,
+      { timeoutMs: tokenProbeTimeoutMs },
+    ),
+  ]);
+  if (outcome.status === "rejected") {
+    // A timed-out or signal-killed `gh auth token` probe leaves the operator's GitHub token
+    // unavailable rather than aborting runtime launch; the caller emits the unavailability notice.
+    const failure =
+      typeof outcome.reason === "object" && outcome.reason !== null
+        ? (outcome.reason as { readonly code?: unknown; readonly killed?: unknown; readonly signal?: unknown })
+        : null;
+    if (
+      failure &&
+      (failure.killed === true || failure.signal != null || failure.code === "ETIMEDOUT" || failure.code === "ENOENT")
+    )
+      return null;
+    throw outcome.reason;
+  }
+  return outcome.value.exitCode === 0 ? usableToken(outcome.value.stdout) : null;
 }
 
 // The operator PATH decides which gh the daemon would run, so the same PATH decides whether the

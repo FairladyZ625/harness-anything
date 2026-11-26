@@ -13,6 +13,7 @@ import { type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
@@ -61,7 +62,7 @@ test("task-bound spawn exit keeps its released execution visible after a v12 cac
       daemonId,
       userRoot,
       runtimeDiscover: () => [installation],
-      runtimeLaunch: () => ({
+      runtimeLaunch: (_request, persistence) => ({
         pid: 9538,
         onOutput: (listener) => {
           queueMicrotask(() =>
@@ -78,7 +79,10 @@ test("task-bound spawn exit keeps its released execution visible after a v12 cac
         },
         onErrorOutput: () => undefined,
         onExit: (listener) => {
-          queueMicrotask(() => listener(0));
+          queueMicrotask(() => {
+            recordStoppedFixtureContainment(persistence, 9538);
+            listener(0);
+          });
         },
         terminate: () => undefined,
       }),

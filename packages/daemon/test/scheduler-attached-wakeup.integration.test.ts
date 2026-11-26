@@ -14,7 +14,7 @@ import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-set
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("A: registry attached recovery wakes a skipped due builtin without refreshing duplicate status", async (t) => {
-  const parent = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-attached-wakeup-"))),
+  const parent = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ha-attached-wakeup-"))),
     rootDir = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     now = "2026-08-27T10:01:00.000Z",
@@ -47,6 +47,7 @@ test("A: registry attached recovery wakes a skipped due builtin without refreshi
       inFlight = 0,
       cursor = schedule.status.automaticEvaluatedThrough;
     const cell = {
+      close: async () => {},
       scheduleOccurrenceSettlementOwner: async () => "runtime-attempt" as const,
       status: () => ({
         repoId,
@@ -360,3 +361,50 @@ for (const rejectMissed of [false, true])
       removeTempRepository(parent);
     }
   });
+
+test("performOpenRegistered closes discarded cells safely and preserves the original error if close throws", async () => {
+  const parent = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ha-open-safe-close-"))),
+    rootDir = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user");
+  rosterRepo(rootDir, "safe-close");
+  const registered = registerDaemonRepo({
+    canonicalRoot: rootDir,
+    repoId: "safe-close",
+    userRoot,
+    createConvenienceLinks: false,
+  }).repo;
+  try {
+    let closeCalls = 0;
+    const context = {
+      input: { daemonId: "safe-close-test", userRoot },
+      cells: new Map<string, RepoCell>(),
+      warming: new Map(),
+      unavailable: new Map(),
+      closing: true,
+      scheduleScheduler: { refresh: async () => undefined },
+      writerEpochFence: () => undefined,
+      runtimePorts: {},
+      settleWarming: () => undefined,
+      openCell: async () =>
+        ({
+          status: () => ({ repoId: registered.repoId, rootDir, mode: "local", state: "attached" }),
+          close: async () => {
+            closeCalls += 1;
+            throw new Error("discard close failed");
+          },
+        }) as unknown as RepoCell,
+    } as unknown as DaemonHostRegistryContext;
+    await assert.rejects(
+      performOpenRegistered(context, {
+        repoId: registered.repoId,
+        canonicalRoot: rootDir,
+        authoredBranch: registered.authoredBranch!,
+        mode: "local",
+      }),
+      /discard close failed/u,
+    );
+    assert.equal(closeCalls, 1, "discard close failure must not trigger a second close in catch");
+  } finally {
+    removeTempRepository(parent);
+  }
+});

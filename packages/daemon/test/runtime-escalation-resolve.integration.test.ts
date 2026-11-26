@@ -12,7 +12,7 @@ import { appendRuntimeWorkerRecord } from "../src/daemon-host/dispatch-stream.ts
 import { authenticateRuntimeExecutionCredential } from "../src/daemon-host/runtime-execution-credential.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { runtimeDispatchIdentity } from "../src/daemon-host/task-dispatch-recovery.ts";
-import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
+import { fixtureRuntimeProcess, recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 import { definition, installation, initIngressRepo } from "./fixtures/runtime-ingress.ts";
 import { policyTestCenter, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
@@ -88,7 +88,7 @@ for (const interrupted of [false, true])
         cwd: request.cwd,
         prompt: request.prompt,
       }),
-      runtimeLaunch: (prepared) => {
+      runtimeLaunch: (prepared, persistence) => {
         credential = prepared.env.HARNESS_EXECUTION_CREDENTIAL;
         continuedPrompt = prepared.prompt;
         return {
@@ -103,6 +103,7 @@ for (const interrupted of [false, true])
             cleanupStarted();
             await cleanupAllowed;
             await worker.terminateTree();
+            recordStoppedFixtureContainment(persistence, worker.pid);
           },
         };
       },
@@ -428,7 +429,7 @@ test("escalation resolve on an already-unblocked active task keeps task active a
       cwd: request.cwd,
       prompt: request.prompt,
     }),
-    runtimeLaunch: (prepared) => {
+    runtimeLaunch: (prepared, persistence) => {
       credential = prepared.env.HARNESS_EXECUTION_CREDENTIAL;
       return {
         pid: worker.pid,
@@ -437,7 +438,10 @@ test("escalation resolve on an already-unblocked active task keeps task active a
         onErrorOutput: () => undefined,
         onExit: () => undefined,
         terminate: () => undefined,
-        terminateTree: async () => worker.terminateTree(),
+        terminateTree: async () => {
+          await worker.terminateTree();
+          recordStoppedFixtureContainment(persistence, worker.pid);
+        },
       };
     },
   });
@@ -567,7 +571,7 @@ test("escalation resolve on a manually unblocked unleased active task preserves 
       cwd: request.cwd,
       prompt: request.prompt,
     }),
-    runtimeLaunch: (prepared) => {
+    runtimeLaunch: (prepared, persistence) => {
       credential = prepared.env.HARNESS_EXECUTION_CREDENTIAL;
       return {
         pid: worker.pid,
@@ -576,7 +580,10 @@ test("escalation resolve on a manually unblocked unleased active task preserves 
         onErrorOutput: () => undefined,
         onExit: () => undefined,
         terminate: () => undefined,
-        terminateTree: async () => worker.terminateTree(),
+        terminateTree: async () => {
+          await worker.terminateTree();
+          recordStoppedFixtureContainment(persistence, worker.pid);
+        },
       };
     },
   });
