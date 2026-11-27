@@ -2812,6 +2812,7 @@
         "explain": "Judge whether an action is one of the historical task cleanup commands (task-release, task-archive, task-transition cancelled, or task-complete --resolved-by).",
         "consumers": [
           "packages/daemon/src/daemon-host/fleet-edge-task.ts",
+          "packages/daemon/src/daemon-host/repo-cell-task-command-docs.ts",
           "packages/kernel/src/domain/task-bound-runtime-authority.ts"
         ],
         "sources": [

@@ -716,6 +716,7 @@ test(
 
     // Complete own historical task via --resolved-by <commitSha> with carried docChanges.
     execFileSync("git", ["-C", f.repo, "update-ref", "refs/remotes/origin/main", "HEAD"]);
+    execFileSync("git", ["-C", f.repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
     const headSha = execFileSync("git", ["-C", f.repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
     const recordedFact = await f.command("node-one", {
       kind: "fact-record",

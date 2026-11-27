@@ -5,6 +5,7 @@ import { readCloseoutSubmission, submissionAnchorDriftWarnings, submissionStoppe
 import {
   canEdgeSelfCleanHistoricalTask,
   compileTaskLifecycleWrite,
+  isHistoricalTaskCleanupAction,
   taskCompletionNext,
   getExecutableEntityAction,
   isTaskEvent,
@@ -131,6 +132,7 @@ export async function runTaskCommandWithDocs(
   if (
     unleasedTaskCommandId === undefined &&
     binding.executionPrincipal === undefined &&
+    isHistoricalTaskCleanupAction(taskAction) &&
     canEdgeSelfCleanHistoricalTask({
       action: taskAction,
       task: cell.projection.read(taskId).snapshot.task,

@@ -1,7 +1,14 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canonicalResourceAncestors, policyActionForTarget } from "../src/daemon-host/repo-cell-authorization.ts";
+import {
+  canonicalResourceAncestors,
+  evaluateRepoCellAction,
+  policyActionForTarget,
+} from "../src/daemon-host/repo-cell-authorization.ts";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
+import { fakeKeycloak } from "./keycloak.fixtures.ts";
+import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
 
 function projection(
   tasks: Record<string, { taskId: string; taskClass: "work" | "standard"; parentTaskId: string | null }>,
@@ -94,5 +101,91 @@ test("the four artifact CRUD ingress kinds resolve to each runtime kind's own sc
       resolve,
     ),
     "entity-import",
+  );
+});
+
+test("evaluateRepoCellAction skips readTask for task-create without targetOverride while retaining ancestor resolution for existing tasks", async () => {
+  const realm = fakeKeycloak(),
+    userToken = realm.account("person-scope"),
+    kcConfig = { url: "http://127.0.0.1:8080", realm: "harness", resourceServerClientId: "harness-center" };
+  realm.permit("person-scope", "repo-scope", ["task-create", "task-release"]);
+  const provider = Object.defineProperty(new KeycloakPolicyAdapter(kcConfig, realm.fetch), "withFetchPort", {
+    value: undefined,
+    configurable: true,
+  });
+  const binding: RepoCellBinding = {
+    actor: { principal: { personId: "person-scope" }, executor: null },
+    source: "local",
+    keycloakAuthorization: {
+      session: {
+        provider,
+        personId: "person-scope",
+        accessToken: userToken,
+        url: kcConfig.url,
+        realm: kcConfig.realm,
+        clientId: kcConfig.resourceServerClientId,
+      },
+      center: async () => ({
+        provider,
+        accessToken: "center-token",
+        url: kcConfig.url,
+        realm: kcConfig.realm,
+        clientId: kcConfig.resourceServerClientId,
+      }),
+    },
+  };
+  const readCalls: string[] = [];
+  const readTask = (taskId: string) => {
+    readCalls.push(taskId);
+    return projection({
+      task_work_1: { taskId: "task_work_1", taskClass: "work", parentTaskId: null },
+      task_child_1: { taskId: "task_child_1", taskClass: "standard", parentTaskId: "task_work_1" },
+    })(taskId);
+  };
+
+  const created = await evaluateRepoCellAction({
+    action: { kind: "task-create", taskId: "task_not_yet_created_1", title: "New" },
+    binding,
+    actionId: "op-create",
+    repoId: "repo-scope",
+    revision: 1,
+    now: "2026-11-27T00:00:00.000Z",
+    readTask,
+  });
+  assert.equal(created.outcome, "allowed");
+  assert.deepEqual(readCalls, [], "task-create must not read a not-yet-created task from projection");
+
+  const released = await evaluateRepoCellAction({
+    action: { kind: "task-release", taskId: "task_child_1", reason: "Cleanup" },
+    binding,
+    actionId: "op-release",
+    repoId: "repo-scope",
+    revision: 1,
+    now: "2026-11-27T00:00:00.000Z",
+    readTask,
+  });
+  assert.equal(released.outcome, "allowed");
+  assert.deepEqual(
+    readCalls,
+    ["task_child_1", "task_work_1"],
+    "existing task writes must still resolve Work ancestors",
+  );
+
+  readCalls.length = 0;
+  const overridden = await evaluateRepoCellAction({
+    action: { kind: "task-create", taskId: "task_not_yet_created_1", title: "New" },
+    binding,
+    actionId: "op-create-override",
+    repoId: "repo-scope",
+    revision: 1,
+    now: "2026-11-27T00:00:00.000Z",
+    targetOverride: "task/task_child_1",
+    readTask,
+  });
+  assert.equal(overridden.outcome, "allowed");
+  assert.deepEqual(
+    readCalls,
+    ["task_child_1", "task_work_1"],
+    "explicit targetOverride must retain ancestor resolution",
   );
 });

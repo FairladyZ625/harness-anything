@@ -99,7 +99,9 @@ export async function evaluateRepoCellAction(input: {
       action: policyAction,
       resource,
       evaluatedAtCut: `canonical:${input.revision}`,
-      readTask: input.readTask,
+      // `task-create` names a task that does not exist in the projection yet; looking up its
+      // entityRef in `canonicalResourceAncestors` would always miss while burning SQL rows.
+      readTask: input.targetOverride === undefined && input.action.kind === "task-create" ? undefined : input.readTask,
       fetchPort: input.fetchPort,
     }),
     token = input.binding.delegatedExecutionToken;
