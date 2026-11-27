@@ -715,9 +715,10 @@ test(
     assert.equal(archivedOwn.outcome, "applied", JSON.stringify(archivedOwn));
 
     // Complete own historical task via --resolved-by <commitSha> with carried docChanges.
-    execFileSync("git", ["-C", f.repo, "update-ref", "refs/remotes/origin/main", "HEAD"]);
-    execFileSync("git", ["-C", f.repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+    await f.host.settleMaterialization("lease-repo", "before pinning origin/main");
     const headSha = execFileSync("git", ["-C", f.repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    execFileSync("git", ["-C", f.repo, "update-ref", "refs/remotes/origin/main", headSha]);
+    execFileSync("git", ["-C", f.repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
     const recordedFact = await f.command("node-one", {
       kind: "fact-record",
       statement: `Merged on main at ${headSha}`,
