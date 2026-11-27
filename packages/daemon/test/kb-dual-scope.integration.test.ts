@@ -384,7 +384,17 @@ test("KB dual-scope positive & negative evidence: local isolation, shared CAS + 
 
     // --- Edge-mode local-private intercept never forwards to Center ---
     const edgeRoot = path.join(fixture.parent, "edge-repo");
-    mkdirSync(edgeRoot, { recursive: true });
+    mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
+    git(edgeRoot, "init", "--quiet");
+    git(edgeRoot, "config", "user.name", "KB Test");
+    git(edgeRoot, "config", "user.email", "kb-test@example.invalid");
+    git(edgeRoot, "commit", "--allow-empty", "--quiet", "-m", "base");
+    writeFileSync(
+      path.join(edgeRoot, "harness/harness.yaml"),
+      "schema: harness-anything/v1\nname: kb-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    );
+    git(edgeRoot, "add", "harness");
+    git(edgeRoot, "commit", "--quiet", "-m", "harness");
     registerDaemonRepo({
       canonicalRoot: edgeRoot,
       repoId: "kb-edge",
@@ -409,7 +419,8 @@ test("KB dual-scope positive & negative evidence: local isolation, shared CAS + 
     });
     assert.ok(edgeLocalPut !== null);
     assert.equal(edgeLocalPut!.outcome, "applied");
-    assert.equal(edgeLocalPut!.proof?.canonicalVisible, false);
+    assert.equal(edgeLocalPut!.status, "settled_no_write");
+    assert.equal(edgeLocalPut!.proof, undefined);
 
     // Pure shared put on remote-edge returns null so standard via-center-forward runs.
     const edgeSharedPassthrough = await runEdgeLocalKbAction({
