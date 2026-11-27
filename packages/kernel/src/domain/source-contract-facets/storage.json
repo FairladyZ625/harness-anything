@@ -202,7 +202,7 @@
         "explain": "Projection rebuild source-stream witness detects missing accepted revisions up to the published cut; the monotone expectedRevision and reader done/cursor signal bound traversal.",
         "sources": [
           {
-            "candidateId": "judgment:packages/storage:packages/storage/src/projection/rebuildable-task-projection-database.ts#assertEventStreamContinuity:06d14e1f6d43a03f4b893f2e30bfc22d",
+            "candidateId": "judgment:packages/storage:packages/storage/src/projection/rebuildable-task-projection-database.ts#assertEventStreamContinuity:b56eea635adb0e492d31922981319dcb",
             "route": "packages/storage/src/projection/rebuildable-task-projection-database.ts#assertEventStreamContinuity"
           }
         ],

@@ -48,6 +48,7 @@ export interface SqliteCanonicalEventStore extends CanonicalEventStore {
   readonly append: (bundle: CanonicalWriteBundle, preparation?: SqliteAppendPreparation) => CanonicalEventAppendReceipt;
   readonly readCommandOutcome: (opId: string) => SqliteCommandOutcome | null;
   readonly readDocumentRetirementRevision: SqliteEventStore["readDocumentRetirementRevision"];
+  readonly verifyRevisionContinuity: SqliteEventStore["verifyRevisionContinuity"];
   /** Drops replication-log rows below the sequence; the writer's retention call, never a reader's. */
   readonly pruneReplicationLog: (beforeSequence: number) => void;
   readonly gitOutboxState?: SqliteEventStore["gitOutboxState"];
@@ -323,6 +324,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       return event && isTaskEvent(event) ? event : null;
     },
     readBatch: (cursor, maxItems) => sqliteEventBatch(sqlite, cursor, maxItems, readContent),
+    verifyRevisionContinuity: sqlite.verifyRevisionContinuity,
     readEventWindow: sqlite.readEventWindow,
     readContentBlob: readContent,
     readContentBlobRange: (sha256, offset, maxBytes) => sqlite.readContentObjectRange(sha256, offset, maxBytes),

@@ -559,6 +559,15 @@ function assertEventStreamContinuity(
     );
   };
   if (headRevision < coverageRevision) fail(headRevision + 1, coverageRevision);
+  if (coverageRevision <= 0) return;
+  if (eventStore.verifyRevisionContinuity) {
+    const check = eventStore.verifyRevisionContinuity(coverageRevision);
+    if (check.continuous) {
+      onProgress?.({ applied: coverageRevision, total: coverageRevision });
+      return;
+    }
+    fail(check.missingRange.from, check.missingRange.to);
+  }
   let expectedRevision = 1,
     cursor: string | null = null;
   while (expectedRevision <= coverageRevision) {
@@ -598,6 +607,7 @@ const CORE_DEFERRED_INDEXES: readonly string[] = [
   // never when listing or updating a repository that contains a large inline historical body.
   "CREATE INDEX IF NOT EXISTS document_metadata ON document (path, workspace_revision, json_extract(value_json, '$.blobSha256'), json_extract(value_json, '$.size'), json_extract(value_json, '$.mediaType'), json_extract(value_json, '$.policyId'))",
   "CREATE INDEX IF NOT EXISTS document_history_metadata ON document_history (path, workspace_revision, json_extract(value_json, '$.blobSha256'), json_extract(value_json, '$.size'), json_extract(value_json, '$.mediaType'), json_extract(value_json, '$.policyId'))",
+  "CREATE INDEX IF NOT EXISTS task_progress_task_revision ON task_progress(task_id, workspace_revision)",
   "CREATE INDEX IF NOT EXISTS entity_projection_task ON entity_projection(entity_kind, task_id, workspace_revision, entity_id)",
   `CREATE INDEX IF NOT EXISTS entity_projection_execution_commit ON entity_projection(${EXECUTION_SUBMISSION_COMMIT_SQL}, task_id, entity_kind) WHERE entity_kind = 'execution'`,
   "CREATE INDEX IF NOT EXISTS lease_cas_execution ON lease_cas(execution_id)",
@@ -657,7 +667,6 @@ ${deferred ? REPOSITORY_READ_BASE_TABLES_SQL : REPOSITORY_READ_TABLES_SQL}
       execution_id TEXT NOT NULL,
       event_json TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS task_progress_task_revision ON task_progress(task_id, workspace_revision);
     /* @gate-identity state-store/task.projection.entity_projection */ CREATE TABLE IF NOT EXISTS entity_projection (
       entity_kind TEXT NOT NULL,
       entity_id TEXT NOT NULL,
@@ -689,6 +698,24 @@ ${deferred ? "" : `${CORE_DEFERRED_INDEXES.join(";\n")};`}
   `;
 }
 
+const REBUILD_PRAGMAS_SQL =
+  `PRAGMA busy_timeout = ${projectionBusyTimeoutMs}; PRAGMA foreign_keys = ON; ` +
+  "PRAGMA journal_mode = MEMORY; PRAGMA synchronous = OFF; PRAGMA cache_size = -524288; " +
+  "PRAGMA mmap_size = 2147483648; PRAGMA locking_mode = EXCLUSIVE; PRAGMA temp_store = MEMORY";
+
+const RESTORE_ONLINE_PRAGMAS_SQL =
+  "PRAGMA mmap_size = 0; PRAGMA temp_store = DEFAULT; PRAGMA cache_size = -2000; " +
+  "PRAGMA synchronous = FULL; PRAGMA locking_mode = NORMAL; PRAGMA journal_mode = WAL";
+
+function restoreOnlinePragmas(db: DatabaseSync): void {
+  /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+  db.exec(RESTORE_ONLINE_PRAGMAS_SQL);
+  // SQLite releases an EXCLUSIVE lock only after locking_mode = NORMAL is followed by a completed
+  // read/write statement; run a lightweight read so concurrent query-only connections never see SQLITE_BUSY.
+  /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+  db.prepare("SELECT 1 FROM sqlite_master LIMIT 1").get();
+}
+
 /**
  * Run a full cold rebuild on one dedicated connection: bulk PRAGMAs and deferred read-path
  * secondary indexes/triggers during replay, then one sorted flush, single-pass freshness & cycle
@@ -706,10 +733,7 @@ export function withRebuildDatabase<A>(
   let adopted = false;
   try {
     /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
-    db.exec(
-      `PRAGMA busy_timeout = ${projectionBusyTimeoutMs}; PRAGMA foreign_keys = ON; ` +
-        "PRAGMA journal_mode = MEMORY; PRAGMA synchronous = OFF; PRAGMA cache_size = -65536; PRAGMA temp_store = MEMORY",
-    );
+    db.exec(REBUILD_PRAGMAS_SQL);
     createRebuildBaseTables(db);
     const bulkContext = beginBulkRebuild(db);
     replay(db);
@@ -784,10 +808,7 @@ function finalizeRebuildDatabase(
   // interrupted rebuild (including SIGKILL) is rejected as schema 0 on next open.
   runSql(db, "UPDATE projection_meta SET schema_version = ? WHERE singleton = 1", taskProjectionSchemaVersion);
   reportStep();
-  /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
-  db.exec(
-    "PRAGMA temp_store = DEFAULT; PRAGMA cache_size = -2000; PRAGMA synchronous = FULL; PRAGMA journal_mode = WAL",
-  );
+  restoreOnlinePragmas(db);
 }
 
 function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgress): void {

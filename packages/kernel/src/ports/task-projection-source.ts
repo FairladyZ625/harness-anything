@@ -1,5 +1,9 @@
 import type { PersistedCanonicalEventV1 } from "../domain/doc-sync.contract.ts";
 
+export type EventStreamContinuityCheck =
+  | { readonly continuous: true }
+  | { readonly continuous: false; readonly missingRange: { readonly from: number; readonly to: number } };
+
 // Source-stream and shared projection operation shapes.
 export interface EventStreamPort {
   // The digest identifies the ledger a cache was scanned from; only catching-up owners supply it.
@@ -19,6 +23,8 @@ export interface EventStreamPort {
     readonly prefetchContent?: EventContentPrefetch;
   };
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
+  /** Optional O(1)/index-backed continuity check for revisions 1..throughRevision. */
+  readonly verifyRevisionContinuity?: (throughRevision: number) => EventStreamContinuityCheck;
 }
 export type EventContentPrefetch = (
   events: readonly PersistedCanonicalEventV1[],
