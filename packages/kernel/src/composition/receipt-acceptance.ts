@@ -119,7 +119,14 @@ export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
     },
     worktree: facet(follower.worktree, worktreeCoversAcceptance),
     replica: empty.replica,
-    outcome: receipt.outcome === "no_changes" ? "no_changes" : visible ? "applied" : "pending",
+    outcome:
+      receipt.outcome === "no_changes"
+        ? "no_changes"
+        : receipt.outcome === "queued"
+          ? "queued"
+          : visible
+            ? "applied"
+            : "pending",
     revision: outcome.lastRevision,
     evidence: receipt.evidence ?? `sqlite-command:${outcome.opId}`,
     visibility: "center",

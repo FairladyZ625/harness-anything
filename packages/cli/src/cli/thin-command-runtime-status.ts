@@ -45,7 +45,14 @@ export function parseRuntimeStatus(
     taskId = taskIds[0],
     // --limit pages through full history including exited sessions; the default overview lists
     // only what has not exited yet.
-    limit = flags.one.get("--limit");
+    limit = flags.one.get("--limit"),
+    cursor = flags.one.get("--cursor");
+  if (cursor && runtimeSessionId)
+    return rejected(
+      "invalid_field",
+      "Use --cursor only when listing runtime sessions, not for a single session.",
+      json,
+    );
   return accepted(
     rootDir,
     repoId,
@@ -54,6 +61,7 @@ export function parseRuntimeStatus(
       kind: route.id,
       ...(runtimeSessionId ? { runtimeSessionId } : taskId ? { taskId } : {}),
       ...(limit ? { limit: Number(limit) } : {}),
+      ...(cursor ? { cursor } : {}),
       ...(noStream ? { noStream: true } : {}),
     },
     runtimeSessionId ? "repo.agentRuntime.sessions.read" : route.method,

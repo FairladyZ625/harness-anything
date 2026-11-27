@@ -141,7 +141,8 @@ test("policy metadata from both production providers omits technical actions and
     // task_b75af18a8ce517d88ee1cb2bd9 (dec_166C5D2EAB57F8BCA3F15107E2/CH2): ha channel deliver/send (187 -> 189).
     // task_211789c20aee8c48a40535b9ac (dec_166C5D2EAB57F8BCA3F15107E2/CH1,CH4): resident CEO config/start/stop/chat (189 -> 193).
     // task_119c1adc483dac7f320354417a (dec_mrbm7oli): resident CEO Phase 2 approve/reject (193 -> 195).
-    assert.equal(actions.length, 195);
+    // task_72457562bfa00acb8aa018d482 (dec_A7A88E2079CA1DE548234A6CC3): Commander PR 1 runtime-report (195 -> 196).
+    assert.equal(actions.length, 196);
     assert.ok(actions.includes("dossier-synthesize"));
     for (const scope of technicalScopes) assert.equal(actions.includes(scope), false, scope);
     for (const scope of business.scopes) assert.equal(actions.includes(scope), true, scope);

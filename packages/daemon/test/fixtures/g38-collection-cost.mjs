@@ -941,4 +941,170 @@ export const COLLECTION_PROBES = Object.freeze({
       return { size, counts: result.counts["task-create"] };
     },
   },
+  // F-B8F72105: runtime-report must remain O(1) as prior reports accumulate on the same task
+  // (no full-file progress.md read/re-render/hash/rewrite and no history scan).
+  "runtime-report:report-history": {
+    action: "runtime-report",
+    dimension: "report-history",
+    growth: "constant",
+    async run(rootDir, size) {
+      const [
+        { runRuntimeReportCommand },
+        { compileInboxEnqueuedEvent },
+        { canonicalEventWritePlan },
+        fixtures,
+        { withTempStore },
+      ] = await Promise.all([
+        load(rootDir, "packages/application/src/commands/runtime-report-action.ts"),
+        load(rootDir, "packages/kernel/src/domain/agent-runtime-event.ts"),
+        load(rootDir, "packages/kernel/src/ports/canonical-event-store.ts"),
+        load(rootDir, "packages/storage/test/store/relation-graph-projection.fixtures.ts"),
+        load(rootDir, "packages/storage/test/store/helpers.ts"),
+      ]);
+      return withTempStore((storeRoot) => {
+        const fixture = fixtures.projectionFixture(storeRoot);
+        const actor = { principal: { personId: "person-g38" }, executor: null };
+        const binding = { actor, source: "local" };
+        let revision = 0;
+        const append = (event, plan) => {
+          fixture.appendEvent(event);
+          fixture.projection.apply(event, plan);
+        };
+        const workTask = fixtures.taskCreated(++revision, "task_report_work");
+        workTask.payload.task.taskClass = "work";
+        workTask.payload.task.createdBy = actor;
+        append(workTask);
+        const childTask = fixtures.taskCreated(++revision, "task_report_child");
+        childTask.payload.task.createdBy = actor;
+        childTask.payload.task.metadata = {
+          ...(childTask.payload.task.metadata ?? {}),
+          parentTaskId: "task_report_work",
+        };
+        append(childTask);
+        const started = {
+          schema: "task-event/v1",
+          eventId: `event-${++revision}`,
+          workspaceRevision: revision,
+          opId: `op-start-${revision}`,
+          taskId: "task_report_child",
+          type: "task_started",
+          actor,
+          source: "local",
+          occurredAt: "2026-11-27T00:00:00.000Z",
+          payload: {
+            execution: {
+              schema: "execution/v1",
+              executionId: "exe_report_g38",
+              iteration: 1,
+              state: "active",
+              startedAt: "2026-11-27T00:00:00.000Z",
+              startedBy: actor,
+            },
+            lease: {
+              taskId: "task_report_child",
+              executionId: "exe_report_g38",
+              actor,
+              source: "local",
+              acquiredAt: "2026-11-27T00:00:00.000Z",
+              expiresAt: "2099-01-01T00:00:00.000Z",
+              renewedAt: "2026-11-27T00:00:00.000Z",
+            },
+          },
+        };
+        append(started);
+        for (let index = 0; index < size; index += 1) {
+          const itemId = `self_seed_${String(index).padStart(6, "0")}`;
+          const ev = compileInboxEnqueuedEvent({
+            eventId: `event-seed-report-${index}`,
+            workspaceRevision: ++revision,
+            opId: `op-seed-report-${index}`,
+            actor,
+            source: "local",
+            occurredAt: "2026-11-27T00:00:01.000Z",
+            payload: {
+              inboxId: "task:task_report_child",
+              itemId,
+              source: "runtime_report",
+              sourceRef: "self-report/task_report_child/milestone",
+              sourceEpoch: revision,
+              dedupeKey: `seed-report:${index}`,
+              admission: "dispatchable",
+              consumerKind: "interactive_watch",
+              taskId: "task_report_child",
+              agentId: null,
+              senderPersonId: "person-g38",
+              workId: "task_report_work",
+              lane: "milestone",
+              correlationId: "exe_report_g38",
+              minRevision: revision,
+              summary: `Seeded report ${String(index).padStart(6, "0")}`,
+              enqueuedAt: "2026-11-27T00:00:01.000Z",
+            },
+          });
+          append(ev, canonicalEventWritePlan(ev, "inbox", "task:task_report_child"));
+        }
+        let headRev = revision;
+        let eventsAppended = 0;
+        let documentReads = 0;
+        const measuredProjection = new Proxy(fixture.projection, {
+          get(target, prop, receiver) {
+            if (prop === "readDocument") {
+              return (...args) => {
+                documentReads += 1;
+                return target.readDocument(...args);
+              };
+            }
+            const value = Reflect.get(target, prop, receiver);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+        const measuredStore = {
+          readHead: () => ({ revision: headRev }),
+          append: (bundle) => {
+            const count = 1 + (bundle.preceding?.length ?? 0);
+            eventsAppended += count;
+            headRev = bundle.event.workspaceRevision;
+            for (const pre of bundle.preceding ?? []) fixture.appendEvent(pre.event);
+            fixture.appendEvent(bundle.event);
+            return { revision: headRev };
+          },
+        };
+        const cell = {
+          input: { repoId: "g38-runtime-report" },
+          store: measuredStore,
+          projection: measuredProjection,
+          now: () => "2026-11-27T00:05:00.000Z",
+          operationId: () => "op-g38-runtime-report-measured",
+          cellCodedError: (code, message) => Object.assign(new Error(message), { code }),
+          requiredCellText: (value, name) => {
+            if (typeof value !== "string" || value.trim().length === 0) throw new Error(`missing ${name}`);
+            return value;
+          },
+        };
+        const hashes = measureHashes(() => {
+          const receipt = runRuntimeReportCommand(
+            cell,
+            {
+              kind: "runtime-report",
+              taskId: "task_report_child",
+              reportKind: "milestone",
+              summary: "G38 measured runtime-report entry",
+            },
+            binding,
+          );
+          assert.equal(receipt.outcome, "applied");
+        });
+        assert.equal(documentReads, 0, "runtime-report must not read progress.md");
+        return {
+          size,
+          counts: {
+            eventsAppended,
+            documentReads,
+            sha256Calls: hashes.sha256Calls,
+            sha256Bytes: hashes.sha256Bytes,
+          },
+        };
+      });
+    },
+  },
 });

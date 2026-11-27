@@ -657,6 +657,7 @@ ${deferred ? REPOSITORY_READ_BASE_TABLES_SQL : REPOSITORY_READ_TABLES_SQL}
       execution_id TEXT NOT NULL,
       event_json TEXT NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS task_progress_task_revision ON task_progress(task_id, workspace_revision);
     /* @gate-identity state-store/task.projection.entity_projection */ CREATE TABLE IF NOT EXISTS entity_projection (
       entity_kind TEXT NOT NULL,
       entity_id TEXT NOT NULL,

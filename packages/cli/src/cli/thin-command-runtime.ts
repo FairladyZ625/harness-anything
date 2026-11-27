@@ -13,26 +13,7 @@ export function parseRuntime(
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
   const kind = route.id;
-  if (kind.startsWith("runtime-handoff-")) {
-    const dispatchId = args[3],
-      f = readFlags(kind, args.slice(4), inputs);
-    if (!f.ok) return rejected(f.code, f.nextAction, json);
-    if (!nonEmpty(dispatchId)) return rejected("missing_field", "A source dispatch ID is required.", json);
-    return accepted(
-      rootDir,
-      repoId,
-      json,
-      {
-        kind,
-        dispatchId,
-        operation: kind.slice("runtime-handoff-".length),
-        ...(f.one.get("--instance") ? { runtimeInstanceId: f.one.get("--instance") } : {}),
-        ...(f.one.get("--prompt") ? { prompt: f.one.get("--prompt") } : {}),
-        ...(f.one.get("--idempotency-key") ? { dispatchKey: f.one.get("--idempotency-key") } : {}),
-      },
-      route.method,
-    );
-  }
+  if (kind.startsWith("runtime-handoff-")) return parseRuntimeHandoff(route, args, rootDir, repoId, json, inputs);
   if (kind === "runtime-status") {
     // runtime-status is the one runtime surface with an optional positional — and the only one that
     // accepts several: --wait turns consecutive session ids into one multi-target await request.
@@ -47,6 +28,8 @@ export function parseRuntime(
     return parseRuntimeStatus(route, rootDir, repoId, json, runtimeSessionIds, f);
   }
   if (kind === "runtime-incident-dismiss") return parseIncidentDismiss(route, rootDir, repoId, json, inputs, args);
+  if (kind === "runtime-report") return parseRuntimeReport(route, rootDir, repoId, json, inputs, args);
+  if (kind === "runtime-collect") return parseRuntimeCollect(route, rootDir, repoId, json, inputs, args);
   const id = args[2]?.startsWith("--") ? undefined : args[2],
     f = readFlags(kind, args.slice(id ? 3 : 2), inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
@@ -100,6 +83,35 @@ export function parseRuntime(
   );
 }
 
+function parseRuntimeHandoff(
+  route: ProtocolCommand,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const kind = route.id,
+    dispatchId = args[3],
+    f = readFlags(kind, args.slice(4), inputs);
+  if (!f.ok) return rejected(f.code, f.nextAction, json);
+  if (!nonEmpty(dispatchId)) return rejected("missing_field", "A source dispatch ID is required.", json);
+  return accepted(
+    rootDir,
+    repoId,
+    json,
+    {
+      kind,
+      dispatchId,
+      operation: kind.slice("runtime-handoff-".length),
+      ...(f.one.get("--instance") ? { runtimeInstanceId: f.one.get("--instance") } : {}),
+      ...(f.one.get("--prompt") ? { prompt: f.one.get("--prompt") } : {}),
+      ...(f.one.get("--idempotency-key") ? { dispatchKey: f.one.get("--idempotency-key") } : {}),
+    },
+    route.method,
+  );
+}
+
 function parseIncidentDismiss(
   route: ProtocolCommand,
   rootDir: SafePath,
@@ -117,6 +129,80 @@ function parseIncidentDismiss(
   const reason = f.one.get("--reason");
   if (!nonEmpty(reason)) return rejectInput(inputs, kind, "--reason", json);
   return accepted(rootDir, repoId, json, { kind, dispatchId, reason: reason! }, route.method);
+}
+
+function parseRuntimeReport(
+  route: ProtocolCommand,
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+  args: readonly string[],
+): ThinParseResult {
+  const kind = route.id,
+    f = readFlags(kind, args.slice(2), inputs);
+  if (!f.ok) return rejected(f.code, f.nextAction, json);
+  const taskId = f.one.get("--task"),
+    reportKind = f.one.get("--kind"),
+    summary = f.one.get("--summary"),
+    idempotencyKey = f.one.get("--idempotency-key");
+  if (!nonEmpty(taskId)) return rejectInput(inputs, kind, "--task", json);
+  if (!nonEmpty(reportKind)) return rejectInput(inputs, kind, "--kind", json);
+  if (!nonEmpty(summary)) return rejectInput(inputs, kind, "--summary", json);
+  return accepted(
+    rootDir,
+    repoId,
+    json,
+    {
+      kind,
+      taskId: taskId!,
+      reportKind: reportKind!,
+      summary: summary!,
+      ...(idempotencyKey ? { idempotencyKey } : {}),
+    },
+    route.method,
+  );
+}
+
+function parseRuntimeCollect(
+  route: ProtocolCommand,
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+  args: readonly string[],
+): ThinParseResult {
+  const kind = route.id,
+    id = args[2]?.startsWith("--") ? undefined : args[2],
+    f = readFlags(kind, args.slice(id ? 3 : 2), inputs);
+  if (!f.ok) return rejected(f.code, f.nextAction, json);
+  if (!nonEmpty(id))
+    return rejected(
+      "missing_field",
+      "Use ha runtime collect <task-id|runtime-session-id> [--since <rev>] [--wait-event].",
+      json,
+    );
+  const since = f.one.get("--since"),
+    waitEvent = f.booleans.has("--wait-event"),
+    timeoutMs = f.one.get("--timeout-ms");
+  const target = id!.startsWith("dispatch_")
+    ? { dispatchId: id! }
+    : id!.startsWith("task_")
+      ? { taskId: id! }
+      : { runtimeSessionId: id! };
+  return accepted(
+    rootDir,
+    repoId,
+    json,
+    {
+      kind,
+      ...target,
+      ...(since !== undefined ? { since: Number(since) } : {}),
+      ...(waitEvent ? { waitEvent: true } : {}),
+      ...(timeoutMs !== undefined ? { timeoutMs: Number(timeoutMs) } : {}),
+    },
+    route.method,
+  );
 }
 
 function parseRuntimeControl(
@@ -146,25 +232,33 @@ function parseRuntimeControl(
     );
   // Like agent run, --prompt-file rides the action and is materialized into
   // prompt client-side before the RPC; the daemon only ever sees prompt.
-  const prompt = promptInput(flags.one),
-    promptFile = flags.one.get("--prompt-file");
+  const prompt =
+      promptInput(flags.one) ?? (flags.one.get("--message")?.trim() ? { prompt: flags.one.get("--message")! } : null),
+    promptFile = flags.one.get("--prompt-file"),
+    mode = flags.one.get("--mode");
   if (!prompt && !promptFile)
     return rejected(
       "missing_field",
-      `Use one non-empty value for --prompt or --prompt-file. Run ${inputs.get(kind)?.helpCommand ?? `ha ${kind} --help`} for accepted inputs.`,
+      `Use one non-empty value for --prompt or --prompt-file (or --message). Run ${inputs.get(kind)?.helpCommand ?? `ha ${kind} --help`} for accepted inputs.`,
       json,
     );
   const expected = steerExpectation(flags);
   if (typeof expected === "string") return rejected("invalid_field", expected, json);
+  const target = id.startsWith("dispatch_")
+    ? { dispatchId: id }
+    : id.startsWith("task_")
+      ? { taskId: id }
+      : { runtimeSessionId: id };
   return accepted(
     rootDir,
     repoId,
     json,
     {
       kind,
-      ...(id.startsWith("dispatch_") ? { dispatchId: id } : { runtimeSessionId: id }),
+      ...target,
       ...prompt,
       ...(promptFile ? { promptFile } : {}),
+      ...(mode ? { mode } : {}),
       ...(expected ? { expected } : {}),
       ...(flags.one.has("--idempotency-key") ? { idempotencyKey: flags.one.get("--idempotency-key") } : {}),
     },

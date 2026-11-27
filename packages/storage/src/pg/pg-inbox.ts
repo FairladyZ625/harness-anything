@@ -227,6 +227,33 @@ async function readHistory(
   return { items: items.slice(0, limit), nextCursor: inboxQueueNextCursor(items, limit) };
 }
 
+async function readUpdates(
+  client: PoolClient,
+  scope: PostgresScopeClaims,
+  readers: readonly string[],
+  query: Extract<InboxQuery, { by: "inbox-updates" }>,
+): Promise<{ readonly items: readonly InboxItem[]; readonly nextCursor: string | null }> {
+  if (typeof query.inboxId !== "string" || query.inboxId.length === 0)
+    throw new Error("inbox update reads require a targeted inboxId");
+  const afterRevision = inboxQueueCursor(String(query.afterRevision)),
+    limit = inboxPageLimit(query.limit);
+  const items = (
+    await client.query<{ value: string }>(
+      `SELECT value FROM ha_projection_values
+       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+         AND model='${ITEM}' AND owner_id=$4
+         AND (cardinality($5::text[])=0 OR readers && $5::text[])
+         AND workspace_revision > $6
+       ORDER BY workspace_revision ASC LIMIT $7`,
+      [scope.tenantId, scope.projectId, scope.policyEpoch, query.inboxId, [...readers], afterRevision, limit + 1],
+    )
+  ).rows.map(({ value }) => JSON.parse(value) as InboxItem);
+  return {
+    items: items.slice(0, limit),
+    nextCursor: items.length > limit ? String(items[limit - 1]!.revision) : null,
+  };
+}
+
 export interface PgInboxQueries {
   readonly readInbox: (query: InboxQuery) => Promise<InboxRead>;
 }
@@ -250,6 +277,7 @@ export function pgInboxQueries(options: {
           const base = { status: "ready" as const, watermark: cut.watermark, sourceRevision: cut.sourceRevision };
           if (query.by === "queue") return { ...base, ...(await readQueue(client, scope, readers, query)) };
           if (query.by === "inbox") return { ...base, ...(await readHistory(client, scope, readers, query)) };
+          if (query.by === "inbox-updates") return { ...base, ...(await readUpdates(client, scope, readers, query)) };
           const itemId =
             query.by === "item"
               ? query.itemId

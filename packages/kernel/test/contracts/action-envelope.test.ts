@@ -74,6 +74,7 @@ test("Entity catalogs omit actions that decisions assign to another owner or no 
   ]);
   assert.deepEqual(catalogs["runtime-session"]?.transitions.available, [
     "run",
+    "report",
     "runtime_session_started",
     "runtime_session_provider_bound",
     "runtime_session_task_bound",
@@ -87,6 +88,7 @@ test("Entity catalogs omit actions that decisions assign to another owner or no 
   assert.equal(catalogs["runtime-session"]?.transitions.available.filter((id) => id === "run").length, 1);
   assert.deepEqual(declared("runtime-session"), [
     "run",
+    "report",
     "runtime_session_started",
     "runtime_session_provider_bound",
     "runtime_session_task_bound",

@@ -70,24 +70,34 @@ export function pgTaskEventQueries(options: PgTaskProjectionSourceOptions): PgTa
       const row = (await readRows("event_schema='settings-event/v1'", [], true))[0];
       return row ? (JSON.parse(row.event_json) as ReturnType<TaskProjectionQueries["readSettingsEvent"]>) : null;
     },
-    readProgress: (id) =>
+    readProgress: (id, queryOptions) =>
       withPostgresTransaction(
         options.pool,
-        async (client) => ({
-          ...(await readCutInTransaction(client, scope, readers, repoId)),
-          rows: (
-            await readEventRowsInTransaction(
-              client,
-              scope,
-              readers,
-              repoId,
-              "event_schema='task-progress-event/v1' AND payload_task_id=$6",
-              [id],
-            )
-          ).map(({ event_json }) => JSON.parse(event_json)) as ReturnType<
-            TaskProjectionQueries["readProgress"]
-          >["rows"],
-        }),
+        async (client) => {
+          const values: unknown[] = [id];
+          let predicate = "event_schema='task-progress-event/v1' AND payload_task_id=$6";
+          if (queryOptions?.afterRevision !== undefined) {
+            values.push(queryOptions.afterRevision);
+            predicate += ` AND revision>$${values.length + 5}`;
+          }
+          return {
+            ...(await readCutInTransaction(client, scope, readers, repoId)),
+            rows: (
+              await readEventRowsInTransaction(
+                client,
+                scope,
+                readers,
+                repoId,
+                predicate,
+                values,
+                "ASC",
+                queryOptions?.limit,
+              )
+            ).map(({ event_json }) => JSON.parse(event_json)) as ReturnType<
+              TaskProjectionQueries["readProgress"]
+            >["rows"],
+          };
+        },
         scope,
         { isolationLevel: "repeatable read" },
       ),
