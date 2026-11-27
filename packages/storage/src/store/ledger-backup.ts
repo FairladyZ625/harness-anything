@@ -20,6 +20,11 @@ import { decodeLegacyEventBytes, readStoppedLegacyGeneration } from "./legacy-ge
 import { localGitText } from "./local-version-control-system.ts";
 import { openSqliteEventStore, resolveActiveGeneration, sqliteLedgerPath } from "./sqlite-event-store.ts";
 import { sqliteDatabasePath } from "./sqlite-ledger-layout.ts";
+import {
+  cloneFileWithHardlinkPreferenceSync,
+  createSyncCloneSessionState,
+  type SyncCloneSessionState,
+} from "../immutable-tree-clone.ts";
 
 export interface LedgerBackupManifestV1 {
   readonly schema: "ledger-backup/v1";
@@ -225,8 +230,41 @@ function materializeVerifiedBackup(
 ): void {
   const payloadRoot = path.join(backupDir, "payload");
   if (!alreadyVerified) verifyManifest(payloadRoot, manifest);
-  fileSystem.copy(payloadRoot, destinationRoot, { recursive: true, errorOnExist: true, verbatimSymlinks: true });
+  materializePayloadTree(payloadRoot, destinationRoot);
   verifyManifest(destinationRoot, manifest);
+}
+
+function materializePayloadTree(payloadRoot: string, destinationRoot: string): void {
+  const session = createSyncCloneSessionState();
+  const walk = (sourceCurrent: string, destinationCurrent: string, relativePrefix: string): void => {
+    fileSystem.mkdir(destinationCurrent, { recursive: true });
+    for (const name of fileSystem.readDirectory(sourceCurrent)) {
+      const childSource = path.join(sourceCurrent, name),
+        childDestination = path.join(destinationCurrent, name),
+        childRelative = relativePrefix.length === 0 ? name : `${relativePrefix}/${name}`,
+        stat = fileSystem.lstat(childSource);
+      if (stat.isDirectory()) {
+        walk(childSource, childDestination, childRelative);
+      } else if (stat.isSymbolicLink()) {
+        if (fileSystem.lstat(childDestination, { throwIfNoEntry: false }) !== undefined)
+          throw new Error(`restore destination already exists: ${childDestination}`);
+        fileSystem.symlink(fileSystem.readLink(childSource), childDestination);
+      } else if (stat.isFile()) {
+        if (fileSystem.lstat(childDestination, { throwIfNoEntry: false }) !== undefined)
+          throw new Error(`restore destination already exists: ${childDestination}`);
+        cloneFileWithHardlinkPreferenceSync(childSource, childDestination, childRelative, {
+          session,
+          onExisting: "error",
+          linkSync: localRuntimeStateFileSystem.linkExclusive,
+          unlinkSync: localRuntimeStateFileSystem.remove,
+          copyFileSync: (from, to, mode) =>
+            fileSystem.copy(from, to, mode === undefined ? { errorOnExist: true } : { mode, errorOnExist: true }),
+          ficloneMode: fileSystem.cloneMode,
+        });
+      }
+    }
+  };
+  walk(payloadRoot, destinationRoot, "");
 }
 
 /** The drill runs offline, so the retention setting is read from the authored harness.yaml facet. */
@@ -309,11 +347,12 @@ function workingTreeSources(authoredRoot: string): readonly string[] {
 interface CopyPass {
   readonly previous: ReadonlyMap<string, string> | null;
   readonly seen: Map<string, string>;
+  readonly cloneState: SyncCloneSessionState;
   copiedFiles: number;
 }
 
 function copyPass(previous: ReadonlyMap<string, string> | null): CopyPass {
-  return { previous, seen: new Map(), copiedFiles: 0 };
+  return { previous, seen: new Map(), cloneState: createSyncCloneSessionState(), copiedFiles: 0 };
 }
 
 function copyLiveSources(layout: ReturnType<typeof resolveHarnessLayout>, payloadRoot: string, pass: CopyPass): void {
@@ -398,7 +437,13 @@ function copyVanishingTree(
         if (fileSystem.exists(destination)) fileSystem.remove(destination);
         fileSystem.symlink(fileSystem.readLink(source), destination);
       } else {
-        fileSystem.copy(source, destination, { mode: fileSystem.cloneMode });
+        cloneFileWithHardlinkPreferenceSync(source, destination, portable(source), {
+          session: pass.cloneState,
+          linkSync: localRuntimeStateFileSystem.linkExclusive,
+          unlinkSync: localRuntimeStateFileSystem.remove,
+          copyFileSync: (from, to, mode) => fileSystem.copy(from, to, mode === undefined ? undefined : { mode }),
+          ficloneMode: fileSystem.cloneMode,
+        });
       }
       pass.seen.set(source, signature);
       pass.copiedFiles += 1;

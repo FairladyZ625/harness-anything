@@ -99,6 +99,35 @@ export type {
 export { BASE_BACKUP_ARCHIVE_ROOT } from "./fleet-basebackup-layout.ts";
 
 export * from "./durable-file.ts";
+export {
+  IMMUTABLE_CAS_OBJECT_PATH_PATTERN,
+  clearRefsVolumeProbeCache,
+  cloneFileWithHardlinkPreferenceSync,
+  cloneImmutableTree,
+  cloneTreeSync,
+  copyFileWithFicloneFallbackSync,
+  createSyncCloneSessionState,
+  createWindowsRefsMutableCloner,
+  isImmutableCasObjectPath,
+  isMutableFilePath,
+  probeRefsVolume,
+  tryCloneMutableFile,
+} from "./immutable-tree-clone.ts";
+export type {
+  CloneFileSyncOptions,
+  CloneFileSyncResult,
+  CloneImmutableTreeOptions,
+  CloneTreeStats,
+  CloneTreeSyncOptions,
+  ImmutableCloneFileSystem,
+  MutableFileCloner,
+  ProbeRefsVolumeOptions,
+  RefsVolumeProbeResult,
+  SyncCloneSessionState,
+  TryCloneMutableFileOptions,
+  TryCloneMutableFileResult,
+  WindowsRefsMutableClonerOptions,
+} from "./immutable-tree-clone.ts";
 
 export * from "./migration-projection-oracle.ts";
 export * from "./migration-values.ts";
