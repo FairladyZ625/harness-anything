@@ -170,6 +170,7 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
   let centerStarting = false;
   const residentCeoInboxWatchers = new Map<string, AbortController>();
   const inFlightResidentCeoWakes = new Map<string, number>();
+  const inFlightResidentCeoWakeWaiters = new Map<string, Set<() => void>>();
   let residentCeoTasks: Promise<void>[] = [];
   const residentCeoRestoredRepos = new Set<string>();
   const trackResidentCeoTask = (task: Promise<void>): void => {
@@ -184,15 +185,32 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
       return await executeWake();
     } finally {
       const remaining = (inFlightResidentCeoWakes.get(watcherKey) ?? 1) - 1;
-      inFlightResidentCeoWakes.set(watcherKey, remaining > 0 ? remaining : 0);
+      if (remaining > 0) {
+        inFlightResidentCeoWakes.set(watcherKey, remaining);
+      } else {
+        inFlightResidentCeoWakes.delete(watcherKey);
+        const waiters = inFlightResidentCeoWakeWaiters.get(watcherKey);
+        if (waiters) {
+          inFlightResidentCeoWakeWaiters.delete(watcherKey);
+          for (const resolve of waiters) resolve();
+        }
+      }
     }
+  };
+  const waitForInFlightResidentCeoWake = (watcherKey: string): Promise<void> => {
+    if ((inFlightResidentCeoWakes.get(watcherKey) ?? 0) === 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const waiters = inFlightResidentCeoWakeWaiters.get(watcherKey) ?? new Set<() => void>();
+      waiters.add(resolve);
+      inFlightResidentCeoWakeWaiters.set(watcherKey, waiters);
+    });
   };
   const residentCeoProfiles = (repoId: string, auth: DaemonAuthenticationContext) =>
     openResidentCeoProfileStore({
       key: repoId,
       readSerialized: async () => {
-        const result = await context.host.read(repoId, "repo.settings.read", {}, auth);
-        return result.settings.residentCeoProfilesJson;
+        const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
+        return readLocalState(cell.status().rootDir).value.residentCeoProfilesJson;
       },
       writeSerialized: async (value) => {
         if (context.closeSignal.aborted || context.closing)
@@ -616,6 +634,10 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
                   "Resident CEO requires its principal's local session.",
                 );
               signal.throwIfAborted();
+              if ((inFlightResidentCeoWakes.get(watcherKey) ?? 0) > 0) {
+                await raceLifetime(waitForInFlightResidentCeoWake(watcherKey), signal);
+                continue;
+              }
               if (profile.lastWake?.status === "running") {
                 const reconciled = await reconcileRunningResidentCeoWake(repoId, principalPersonId, profile, auth, {
                   waitForSettlement: true,

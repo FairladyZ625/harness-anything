@@ -72,6 +72,8 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     : options.createProtocolServer(authContext, emit, connectionId, disconnected.signal);
   let waitingForAuthentication = options.authenticateFirstFrame !== undefined;
   let queue = Promise.resolve();
+  const concurrentFrames = new Set<Promise<void>>();
+  const drainAll = (): Promise<unknown> => Promise.allSettled([queue, ...concurrentFrames]);
 
   options.input.on("data", (chunk: Buffer | string) => {
     const batch = reader.push(chunk);
@@ -82,7 +84,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     const batch = reader.flush();
     enqueueFrames(batch.frames, batch.frameBytes);
     if (batch.error) failConnection(parseError(batch.error));
-    else queue = queue.finally(() => server?.close());
+    else queue = queue.finally(() => drainAll().then(() => server?.close()));
   });
   options.input.on("error", (error: Error) => failConnection(error));
   options.input.on("close", disconnect);
@@ -105,7 +107,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
       // on their own; the deadline bounds whatever is still running.
       const deadline = shutdownDrainDeadline();
       server?.close();
-      await Promise.race([queue, deadline]);
+      await Promise.race([drainAll(), deadline]);
       // A reply the queue just produced can still sit in the socket buffer, and
       // destroy() discards buffered bytes -- flush before tearing the stream
       // down. Both waits share the one deadline, so stop stays bounded.
@@ -126,6 +128,22 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     for (let index = 0; index < frames.length; index += 1) {
       const frame = frames[index],
         bytes = frameBytes?.[index];
+      // Long-running parked/LLM frames wait on external runtimes or events. Run them after any
+      // preceding handshake/serialized frames without head-of-line blocking subsequent reads on
+      // the same connection (e.g. remote-proxy or multiplexed JsonRpcLineClient callers).
+      if (!waitingForAuthentication && isConcurrentLongRunningFrame(frame)) {
+        const afterBarrier = queue;
+        const task = afterBarrier
+          .then(() => handleFrame(frame, frameReceivedAt, bytes, eventLoopStallMs))
+          .catch((error: unknown) => {
+            failConnection(error instanceof Error ? error : new Error(String(error)));
+          })
+          .finally(() => {
+            concurrentFrames.delete(task);
+          });
+        concurrentFrames.add(task);
+        continue;
+      }
       queue = queue
         .then(() => handleFrame(frame, frameReceivedAt, bytes, eventLoopStallMs))
         .catch((error: unknown) => {
@@ -212,6 +230,21 @@ function writableReady(output: Writable): Promise<void> {
 
 function parseError(error: Error): Error {
   return new Error(`Invalid JSON-RPC frame: ${error.message}`);
+}
+
+const concurrentLongRunningMethods: ReadonlySet<string> = new Set([
+  "repo.residentCeo.chat",
+  "repo.agentRuntime.sessions.await",
+  "repo.events.read",
+]);
+
+function isConcurrentLongRunningFrame(frame: unknown): boolean {
+  return (
+    isJsonRpcRequestLike(frame) &&
+    !Array.isArray(frame) &&
+    typeof frame.method === "string" &&
+    concurrentLongRunningMethods.has(frame.method)
+  );
 }
 
 function streamErrorResponse(id: null, code: number, message: string): JsonRpcErrorResponse {

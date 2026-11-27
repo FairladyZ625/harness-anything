@@ -3,6 +3,7 @@ import type { ResidentCeoHistoryEntryRead, ResidentCeoWakeCause } from "../../ap
 import { t } from "../../i18n/index.tsx";
 import { formatListTime, formatTime } from "../../model/time.ts";
 import { EntityRefLink, entityRefOf } from "../../components/EntityRefLink.tsx";
+import { MarkdownDocument } from "../../components/MarkdownDocument.tsx";
 import { Button } from "../../components/primitives/Button.tsx";
 import { Empty } from "../../components/primitives/Empty.tsx";
 import { KV, KVRow } from "../../components/primitives/Fields.tsx";
@@ -187,7 +188,9 @@ export function ResidentCeoTimeline({
                   {isOpen ? (
                     <div className="mt-2 space-y-2 border-t border-border/70 pt-2">
                       {entry.responseText ? (
-                        <p className="whitespace-pre-wrap break-words ui-meta text-text">{entry.responseText}</p>
+                        <div className="prose-harness break-words ui-meta text-text" data-layout="single">
+                          <MarkdownDocument content={entry.responseText} />
+                        </div>
                       ) : null}
                       <ExecutionDetails entry={entry} onNavigateEntity={onNavigateEntity} />
                     </div>
@@ -270,12 +273,13 @@ export function ResidentCeoTimeline({
                     </div>
                   </div>
                   {entry.responseText ? (
-                    <p
+                    <div
                       data-testid={`resident-ceo-entry-response-${entry.wakeId}`}
-                      className="mt-2 whitespace-pre-wrap break-words ui-body text-text"
+                      className="prose-harness mt-2 break-words ui-body text-text"
+                      data-layout="single"
                     >
-                      {entry.responseText}
-                    </p>
+                      <MarkdownDocument content={entry.responseText} />
+                    </div>
                   ) : entry.detail ? (
                     <p className="mt-2 whitespace-pre-wrap break-words ui-meta text-danger">{entry.detail}</p>
                   ) : null}

@@ -7,8 +7,10 @@ import test from "node:test";
 import type { ResidentCeoHistoryEntry } from "@harness-anything/kernel/internal/domain/resident-ceo.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { openDaemonJsonRpcClientAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
 import { interactiveRpcDescriptor } from "../src/daemon-host/protocol/client-rpc.ts";
 import { parseClientRpcResponse } from "../src/daemon-host/protocol/daemon-result-validation.ts";
+import { startDaemon } from "../src/daemon-host/runtime.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { eventuallyValue, initIngressRepo, rpc, writeProviderStub } from "./fixtures/runtime-ingress.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
@@ -239,6 +241,117 @@ test(
       assert.equal(persisted[2]?.requestText, "Second human follow-up");
     } finally {
       await restartedHost.close();
+      removeTempRepository(parent);
+    }
+  },
+);
+
+test(
+  "concurrent repo.tasks.list and repo.residentCeo.status complete promptly while repo.residentCeo.chat is in flight",
+  { timeout: 120_000 },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-resident-ceo-concurrency-"));
+    const rootDir = path.join(parent, "repo");
+    const userRoot = path.join(parent, "user");
+    const repoId = "resident-ceo-concurrency-test";
+    const installation = {
+      installationId: "resident-ceo-slow-codex",
+      kindId: "codex" as const,
+      executablePath: writeProviderStub(path.join(parent, "slow-codex.mjs"), "codex", undefined, 700),
+      version: "codex-cli 0.159.1",
+      observedAt: new Date().toISOString(),
+    };
+    initIngressRepo(rootDir, process.getuid?.() ?? 0);
+    registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+    signInPolicyTestUser(userRoot, "person_bob", [repoId], "admin");
+
+    const daemon = await startDaemon({
+      daemonId: repoId,
+      userRoot,
+      runtimeDiscover: () => [installation],
+      buildSupersessionEnabled: false,
+    });
+    assert.ok("stop" in daemon, "expected fresh daemon instance");
+    const client = await openDaemonJsonRpcClientAt(daemon.endpoint, 5_000, 30_000);
+    try {
+      await eventuallyValue(async () => {
+        const status = await client.request("daemon.status", {}, 10_000);
+        const repos = Array.isArray(status.repos) ? (status.repos as readonly Record<string, unknown>[]) : [];
+        return repos.some((entry) => entry.repoId === repoId && entry.state === "attached") ? true : null;
+      }, "daemon repo attached");
+
+      const registeredInstance = await client.request(
+        "daemon.runtimeInstance.create",
+        {
+          repo: { repoId },
+          payload: {
+            instanceId: "codex-slow",
+            name: "Slow Codex fixture",
+            kindId: "codex",
+            installationId: installation.installationId,
+            providerId: "openai",
+            models: ["test-model"],
+            authMode: "subscription",
+            codex: {},
+          },
+        },
+        10_000,
+      );
+      assert.equal(registeredInstance.ok, true, JSON.stringify(registeredInstance));
+
+      assert.equal(
+        (
+          await client.request(
+            "repo.residentCeo.config",
+            {
+              repo: { repoId },
+              payload: {
+                runtimeInstanceId: "codex-slow",
+                model: "test-model",
+                heartbeatIntervalSec: 300,
+              },
+            },
+            10_000,
+          )
+        ).ok,
+        true,
+      );
+      assert.equal(
+        (await client.request("repo.residentCeo.start", { repo: { repoId }, payload: {} }, 10_000)).ok,
+        true,
+      );
+
+      // Issue a slow repo.residentCeo.chat (~2.5s) and immediately issue concurrent reads on the
+      // SAME multiplexed connection while the LLM turn is in flight.
+      let chatSettled = false;
+      const chatPromise = client
+        .request("repo.residentCeo.chat", { repo: { repoId }, payload: { message: "Take your time" } }, 30_000)
+        .finally(() => {
+          chatSettled = true;
+        });
+
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      const readStart = Date.now();
+      const [tasksList, ceoStatus, ceoHistory] = await Promise.all([
+        client.request("repo.tasks.list", { repo: { repoId }, payload: {} }, 5_000),
+        client.request("repo.residentCeo.status", { repo: { repoId }, payload: {} }, 5_000),
+        client.request("repo.residentCeo.history", { repo: { repoId }, payload: {} }, 5_000),
+      ]);
+      const readElapsedMs = Date.now() - readStart;
+
+      assert.equal(tasksList.ok, true, JSON.stringify(tasksList));
+      assert.equal(ceoStatus.ok, true, JSON.stringify(ceoStatus));
+      assert.equal(ceoHistory.ok, true, JSON.stringify(ceoHistory));
+      assert.equal(chatSettled, false, "concurrent reads must complete while repo.residentCeo.chat is still in flight");
+      assert.ok(readElapsedMs < 2_000, `expected concurrent reads to finish promptly, took ${readElapsedMs}ms`);
+
+      const chatResult = await chatPromise;
+      assert.equal(chatResult.ok, true, JSON.stringify(chatResult));
+      assert.equal(chatResult.response, "codex final result");
+    } finally {
+      client.close();
+      await daemon.stop();
       removeTempRepository(parent);
     }
   },

@@ -380,9 +380,36 @@ describe("resident CEO cockpit view", () => {
     });
 
     expect(api.chatResidentCeo).toHaveBeenCalledWith({ repoId: "repo-one", message: "Review the plan" });
-    expect(container.querySelector('[data-testid="resident-ceo-entry-response-wake-chat-2"]')?.textContent).toBe(
-      "The current plan is ready.",
-    );
+    expect(
+      container.querySelector('[data-testid="resident-ceo-entry-response-wake-chat-2"]')?.textContent?.trim(),
+    ).toBe("The current plan is ready.");
+  });
+
+  it("renders Resident CEO replies as formatted Markdown instead of raw markup", async () => {
+    const markdownHistory: readonly ResidentCeoHistoryEntryRead[] = [
+      {
+        wakeId: "wake-md-1",
+        cause: "human-chat",
+        requestedAt: "2026-11-27T01:10:00.000Z",
+        completedAt: "2026-11-27T01:10:02.000Z",
+        status: "succeeded",
+        runtimeSessionId: "session-md-1",
+        requestText: "Give me a status summary.",
+        responseText: "### Priority Summary\n\n- **Blocker**: fix `repo.tasks.list` latency\n- Next step: verify build",
+        detail: null,
+        execution: { model: "model-one", runtimeInstanceId: "instance-one", permissionMode: "read-only" },
+      },
+    ];
+    const { container } = await mountCockpit({ history: markdownHistory });
+
+    const response = container.querySelector('[data-testid="resident-ceo-entry-response-wake-md-1"]');
+    expect(response).not.toBeNull();
+    expect(response?.querySelector("h3")?.textContent).toBe("Priority Summary");
+    expect(response?.querySelector("strong")?.textContent).toBe("Blocker");
+    expect(response?.querySelector("code")?.textContent).toBe("repo.tasks.list");
+    expect(response?.querySelectorAll("li")).toHaveLength(2);
+    expect(response?.textContent).not.toContain("###");
+    expect(response?.textContent).not.toContain("**");
   });
 
   it("renders pending approval proposal card with targetNodeId and Decider Gate verdict, and supports approve and reject", async () => {
