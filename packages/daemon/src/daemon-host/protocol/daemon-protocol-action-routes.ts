@@ -8,6 +8,8 @@ import {
   decisionProviderVendorWords,
   residentCeoApprovalGateModeWords,
   residentCeoExecutionPolicyWords,
+  residentCeoProposalStatusWords,
+  residentCeoWakeCauseWords,
 } from "./daemon-protocol-vocabulary.ts";
 import { daemonReadRoutes } from "./daemon-protocol-read-routes.ts";
 import { todoActionRoutes } from "./todo-action-routes.ts";
@@ -62,8 +64,8 @@ export const daemonActionRoutes = Object.freeze([
         model: "string",
         heartbeatIntervalSec: "number",
         executionPolicy: optionalEnum(residentCeoExecutionPolicyWords),
-        defaultWorkId: "string?",
-        defaultAgentId: "string?",
+        defaultWorkId: "string-null?",
+        defaultAgentId: "string-null?",
         autoApproveSenders: "array?",
         gateMode: optionalEnum(residentCeoApprovalGateModeWords),
         gateProviderId: "string-null?",
@@ -110,6 +112,73 @@ export const daemonActionRoutes = Object.freeze([
     requiresRepo: true,
     commandClass: "admin",
     params: shape({ repo: shape({ repoId: "string" }), payload: shape({ message: "string" }) }),
+  },
+  {
+    id: "ceo-history",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    method: "repo.residentCeo.history",
+    actionKind: "ceo-history",
+    requiresRepo: true,
+    commandClass: "repo-read",
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({
+        limit: "number?",
+        cause: optionalEnum(residentCeoWakeCauseWords),
+      }),
+    }),
+  },
+  {
+    id: "ceo-proposals",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    method: "repo.residentCeo.proposals",
+    actionKind: "ceo-proposals",
+    requiresRepo: true,
+    commandClass: "repo-read",
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({ status: optionalEnum(residentCeoProposalStatusWords) }),
+    }),
+  },
+  {
+    id: "ceo-approve",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    method: "repo.residentCeo.approve",
+    actionKind: "ceo-approve",
+    requiresRepo: true,
+    commandClass: "admin",
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({
+        proposalId: "string",
+        workId: "string?",
+        title: "string?",
+        agentId: "string?",
+        targetNodeId: "string?",
+        runtimeInstanceId: "string?",
+        model: "string?",
+        prompt: "string?",
+      }),
+    }),
+  },
+  {
+    id: "ceo-reject",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    method: "repo.residentCeo.reject",
+    actionKind: "ceo-reject",
+    requiresRepo: true,
+    commandClass: "admin",
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({
+        proposalId: "string",
+        reason: "string",
+      }),
+    }),
   },
   actionRpc(
     "agentRuntime.handoff",

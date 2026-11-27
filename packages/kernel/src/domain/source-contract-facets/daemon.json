@@ -1554,6 +1554,39 @@
         "order": 15
       },
       {
+        "id": "daemon/src/protocol/daemon-protocol-validate-resident-ceo.ts#isValidHistoryEntry",
+        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-resident-ceo.ts#isValidHistoryEntry",
+        "explain": "Wire-response structural validator for Resident CEO bounded conversation history rows returned by repo.residentCeo.history.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-resident-ceo.ts#isValidHistoryEntry:8ea6fae292143ad31fb88438eb77437d",
+            "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-resident-ceo.ts#isValidHistoryEntry"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/protocol/daemon-protocol-validate-resident-ceo.ts#isValidResidentCeoProfileValue",
+        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-resident-ceo.ts#isValidResidentCeoProfileValue",
+        "explain": "N/N-1 wire-response structural validator for Resident CEO profile payloads across Phase 1 and Phase 2/3 daemons; domain invariants remain kernel-owned.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-resident-ceo.ts#isValidResidentCeoProfileValue:862769c8f80faac8ab4aeb22b4d39e85",
+            "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-resident-ceo.ts#isValidResidentCeoProfileValue"
+          }
+        ]
+      },
+      {
+        "id": "daemon/src/protocol/daemon-protocol-validate-resident-ceo.ts#validateResidentCeoRpcResult",
+        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-resident-ceo.ts#validateResidentCeoRpcResult",
+        "explain": "Daemon protocol result validator for all repo.residentCeo.* JSON-RPC methods so custom Resident CEO responses do not fall through to command-receipt/v2 validation.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-resident-ceo.ts#validateResidentCeoRpcResult:1e1735f2e7aaf4d397c6b56c7b7a9350",
+            "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-resident-ceo.ts#validateResidentCeoRpcResult"
+          }
+        ]
+      },
+      {
         "id": "daemon/src/protocol/daemon-protocol-validate-results.ts#validateRuntimeHandoffCheckpoint",
         "symbol": "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts#validateRuntimeHandoffCheckpoint",
         "explain": "Wire-response validator for runtime handoff checkpoint receipts and recorded handoff document anchors.",

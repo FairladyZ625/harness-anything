@@ -693,12 +693,15 @@ export function createJsonRpcProtocolServer(options: {
           | "stop"
           | "status"
           | "chat"
+          | "history"
           | "proposals"
           | "approve"
           | "reject",
         repo = residentCeoParams.repo.repoId;
       markDaemonOperationPhase(
-        operation === "status" || operation === "proposals" ? "projection-read" : "write-prepare",
+        operation === "status" || operation === "proposals" || operation === "history"
+          ? "projection-read"
+          : "write-prepare",
       );
       try {
         return reply(

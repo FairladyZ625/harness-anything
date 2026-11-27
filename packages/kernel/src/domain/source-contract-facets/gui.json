@@ -262,6 +262,17 @@
   "runtime-session": {
     "contracts": [
       {
+        "id": "gui/src/renderer/api-client-resident-ceo.ts#isResidentCeoProfile",
+        "symbol": "packages/gui/src/renderer/api-client-resident-ceo.ts#isResidentCeoProfile",
+        "explain": "Renderer IPC wire-response N/N-1 shape guard for Resident CEO profile payloads; execution policy and approval gate semantics remain kernel-owned.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/gui:packages/gui/src/renderer/api-client-resident-ceo.ts#isResidentCeoProfile:e85ae6bdca8cc20e6e37f50c4436c711",
+            "route": "packages/gui/src/renderer/api-client-resident-ceo.ts#isResidentCeoProfile"
+          }
+        ]
+      },
+      {
         "id": "gui/src/renderer/overview-data.ts#activeAgentIdsOf.isAwaitingOrBlocked",
         "symbol": "packages/gui/src/renderer/overview-data.ts#activeAgentIdsOf.isAwaitingOrBlocked",
         "explain": "Overview agent-swimlane UI prioritization predicate reading projected AgentRuntimeSessionGroupDto blocked status and hasAwaits membership to keep blocked or awaiting agent lanes visible.",
