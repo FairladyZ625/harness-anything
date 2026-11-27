@@ -135,6 +135,7 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     command === "daemon" ||
     command === "gui" ||
     command === "fde" ||
+    (command === "edge" && argv[firstCliCommandIndex(argv) + 1] === "upgrade") ||
     (command === "fleet" && argv[firstCliCommandIndex(argv) + 1] === "center")
   ) {
     const { runDaemonControl } = await import("./daemon/control.ts");
@@ -264,7 +265,7 @@ export function emit(receipt: Record<string, unknown>, json: boolean, explainRef
     const rendered = renderCliReceipt(receipt, explainRefs);
     const versionUpgrade =
       receipt.code === "edge_upgrade_required" || receipt.code === "protocol_version_unsupported"
-        ? "\nUpgrade the edge and center with git pull --ff-only, then build CLI and daemon before retrying."
+        ? "\nUpgrade the edge node with ha edge upgrade before retrying."
         : "";
     console[rendered.stream === "stderr" ? "error" : "log"](`${rendered.text}${versionUpgrade}`);
   }

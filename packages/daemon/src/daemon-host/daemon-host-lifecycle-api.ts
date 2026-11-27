@@ -595,7 +595,7 @@ export function createDaemonHostLifecycleApi(
           ),
         ],
         statusSummary = fleetWarnings.length
-          ? `${summary}\nFleet version warning: ${fleetWarnings.join(" | ")} Run git pull --ff-only, then build CLI and daemon.`
+          ? `${summary}\nFleet version warning: ${fleetWarnings.join(" | ")} Run ha edge upgrade.`
           : summary;
       return {
         daemonId: context.input.daemonId,

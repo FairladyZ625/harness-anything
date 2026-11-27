@@ -591,7 +591,7 @@
         "explain": "Daemon exit wire-response validator for `daemon.fleet-overview/v1` envelopes, center build stamps, replica link states and event summaries carrying canonical attribution.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/fleet/fleet-overview-read.ts#validateFleetOverview:dc893bee1e06eb6b448a9e944fca5465",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/fleet/fleet-overview-read.ts#validateFleetOverview:d3a4b20be42c746deb3ab946ffea2424",
             "route": "packages/daemon/src/daemon-host/fleet/fleet-overview-read.ts#validateFleetOverview"
           }
         ],

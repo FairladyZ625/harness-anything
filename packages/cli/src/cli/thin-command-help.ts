@@ -32,6 +32,21 @@ export const clientLocalCommands = [
   agentDeclarationMigrationCommand,
   writerEpochMigrationCommand,
   {
+    id: "edge-upgrade",
+    path: ["edge", "upgrade"],
+    usage:
+      "ha edge upgrade [--to <commit-or-ref>] [--offline|--no-pull] [--rollback] [--install-root <path>] [--repo <id>] [--root <path>] [--user-root <path>] [--daemon-id <id>] [--json]",
+    summary:
+      "Upgrade this edge node to the center's current build (or --to <ref>) via scripts/install-source, hand off the resident daemon, confirm first sync, and automatically roll back on failure.",
+    help: [
+      "    Runs outside the resident daemon so build_superseded drain can hand off cleanly while preserving",
+      "    in-flight detached runtimes. Reuses scripts/install-source.{sh,ps1} with no second install path.",
+      "    Omit --to to match the center build commit reported by the connected remote-edge repository.",
+      "    Pass --offline to build a local commit without contacting GitHub. Pass --rollback to restore the",
+      "    previous commit recorded in <user-root>/edge-upgrade-state.json.",
+    ].join("\n"),
+  },
+  {
     id: "backup-retention",
     path: ["backup", "retention"],
     usage: "ha backup retention [--days <n>] [--user-root <path>] [--json]",

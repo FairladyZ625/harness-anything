@@ -160,16 +160,17 @@ before and at the moment it is resolved. Model matching is exact first,
 case-insensitive second; the launched model is always the spelling the chosen
 instance publishes.
 
-## Upgrade a source checkout
+## Upgrade an edge node or source checkout
 
-The supported source-distribution upgrade path is:
+Upgrade a joined edge node to the center's current build or an explicit ref with one command (with automatic rollback on failure; the GUI exposes the same flow under **Settings → Updates**):
 
 ```bash
-git pull --ff-only
-npm run build
+ha edge upgrade
+ha edge upgrade --to <commit-or-ref>
+ha edge upgrade --rollback
 ```
 
-The installer performs the same pull-and-build sequence; see [source installation and upgrades](02-edge-join.md#upgrading-including-a-center-without-github-access) for offline-center and pinned-commit procedures.
+The command reuses `scripts/install-source.{sh,ps1}`, waits for `build_superseded` daemon handoff, and confirms first sync; see [upgrading an edge node](02-edge-join.md#upgrading-an-edge-node-including-offline-centers) for offline-center and pinned-commit procedures.
 
 ## Dispatch record retention
 

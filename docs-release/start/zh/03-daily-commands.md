@@ -90,16 +90,17 @@ ha settings update --roles '{"defaultWorker":"worker","defaultReviewer":"reviewe
 
 内置身份无需安装。`ha agent list` 和 `ha agent inspect` 展示已安装声明。需要定制时，编写 `agent-declaration/v1` JSON 文件并执行 `ha agent install --source <file>`；安装的同 ID 声明优先于内置声明。安装属于所选仓库的台账，物化视图位于 `harness/agents/<id>.json`，与机器级 Provider 配置分开。现有身份与角色偏好由用户自行修改。
 
-## 升级源码 checkout
+## 升级边缘节点与源码 checkout
 
-源码分发的受支持升级方式是：
+已接入的边缘节点使用一条产品命令升级到中心当前版本或指定提交（失败自动回退，GUI 同一入口见「设置 → 更新」）：
 
 ```bash
-git pull --ff-only
-npm run build
+ha edge upgrade
+ha edge upgrade --to <commit-or-ref>
+ha edge upgrade --rollback
 ```
 
-安装器执行同样的拉取和构建流程；无外网中心及固定提交的步骤见[源码安装与升级](02-edge-join.md#升级与无外网中心)。
+该命令复用 `scripts/install-source.{sh,ps1}`、触发 daemon `build_superseded` 交棒并确认首次同步；无外网中心及固定提交的步骤见[升级边缘节点与无外网中心](02-edge-join.md#升级边缘节点与无外网中心)。
 
 ## 派工记录保留期
 

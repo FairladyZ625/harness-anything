@@ -166,7 +166,7 @@ HA Fleet Center 原生支持基于现有 SQLite 账本对外同步；`--mode man
    ```
 
 #### 场景 A：全新 Edge 设备首次接入
-1. **对齐版本**：确认 Edge 的 `ha` 构建 commit 与 Center 一致（源码安装用 `scripts/install-source.sh --ref <CENTER_COMMIT>`）。
+1. **对齐版本**：首次源码安装用 `scripts/install-source.sh --ref <CENTER_COMMIT>`；已接入的边缘节点后续升级直接执行 `ha edge upgrade`（自动对齐中心提交、交棒新 daemon 并确认首次同步，失败自动回退）。
 2. **Center 签发直连邀请**：
    - 添加本人另一台设备：
      ```bash

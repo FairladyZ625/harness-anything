@@ -243,7 +243,7 @@ test("fleet status does not turn a compatible build difference into an upgrade w
     versionWarning: {
       centerBuildCommit: "a".repeat(40),
       localBuildCommit: "b".repeat(40),
-      upgradeCommand: "git pull --ff-only, then build CLI and daemon" as const,
+      upgradeCommand: "ha edge upgrade" as const,
     },
   };
   const text = renderDaemonFleetStatus(data as unknown as Record<string, unknown>);
@@ -258,7 +258,7 @@ test("fleet status gives an upgrade instruction for an incompatible edge session
   };
   const text = renderDaemonFleetStatus(data as unknown as Record<string, unknown>);
   assert.match(text, /WARNING Fleet protocol or event shape is incompatible/u);
-  assert.match(text, /git pull --ff-only, then build CLI and daemon/u);
+  assert.match(text, /ha edge upgrade/u);
 });
 
 test("ordinary successful CLI receipts suppress the Fleet build warning", () => {
@@ -276,7 +276,7 @@ test("ordinary successful CLI receipts suppress the Fleet build warning", () => 
         versionWarning: {
           centerBuildCommit: "center-build",
           localBuildCommit: "edge-build",
-          upgradeCommand: "git pull --ff-only, then build CLI and daemon",
+          upgradeCommand: "ha edge upgrade",
         },
       },
       false,

@@ -157,6 +157,9 @@ function AppShell() {
     void queryClient.invalidateQueries({ queryKey: ["center", "fleet-status"] });
     void queryClient.invalidateQueries({ queryKey: ["system"] });
   }, [projectId, queryClient]);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<"repositories" | "repository" | "updates" | undefined>(
+    undefined,
+  );
   // 已注册 kind 清单(内核内建 + 本仓 vertical 声明):图筛选、命令面板与实体页同源于此。
   const entityKinds = useEntityKindOptions(projectId);
   const governedEntities = useGovernedEntityRows(projectId);
@@ -790,6 +793,10 @@ function AppShell() {
                   /^(?:edge_upgrade_required|protocol_version_unsupported)\s/u.test(node.lastFailure.text),
               ) ?? false
             }
+            onOpenUpdates={() => {
+              setSettingsInitialTab("updates");
+              goto("settings");
+            }}
           />
           <GuiBuildWarningBanner
             guiCommit={systemQuery.data?.guiBuild?.commit}
@@ -1390,6 +1397,7 @@ function AppShell() {
                     void openProject(repoId);
                   }}
                   onJoinCenter={edgeJoin.open}
+                  initialTab={settingsInitialTab}
                 />
               )}
             </div>

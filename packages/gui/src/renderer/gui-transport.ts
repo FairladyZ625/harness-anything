@@ -13,6 +13,7 @@ import type { AuthorizationUiComponents } from "@harness-anything/authorization/
 import type { CenterSettingsApi } from "../api/center-settings-contract.ts";
 import type { LocalDocApi } from "../api/local-doc-contract.ts";
 import type { UpdateApi } from "../api/update-contract.ts";
+import type { EdgeUpgradeGuiApi } from "../api/edge-upgrade-contract.ts";
 import { loadBrowserGuiTransport } from "../browser/browser-gui-transport.ts";
 
 type GuiMethod = keyof DaemonRpcMethodMap;
@@ -40,6 +41,7 @@ type GuiBridge = {
   readonly centerSettings?: CenterSettingsApi;
   readonly localDoc?: LocalDocApi;
   readonly updates?: UpdateApi;
+  readonly edgeUpgrade?: EdgeUpgradeGuiApi;
 };
 declare global {
   interface Window {

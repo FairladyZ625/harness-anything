@@ -654,7 +654,7 @@ export async function serve(
             "protocol_version_unsupported",
             `Fleet protocol ${frame.protocolVersion} is incompatible with center ${currentFleetProtocolVersion}; ` +
               `node ${nodeId} build=${frame.buildCommit ?? "unknown"}, center build=${daemonBuildStamp().commit ?? "unknown"}. ` +
-              "Run git pull --ff-only, then build CLI and daemon on the node and center before retrying.",
+              "Run ha edge upgrade on the edge node (and update the center if behind) before retrying.",
           );
         accessToken = frame.accessToken;
         if (pendingReplicationStart) {
@@ -669,7 +669,7 @@ export async function serve(
             frame.buildCommit !== null &&
             centerBuildCommit !== null &&
             frame.buildCommit !== centerBuildCommit
-              ? `Fleet build differs (center=${centerBuildCommit.slice(0, 12)}, edge=${frame.buildCommit.slice(0, 12)}); upgrade with git pull --ff-only, then build CLI and daemon.`
+              ? `Fleet build differs (center=${centerBuildCommit.slice(0, 12)}, edge=${frame.buildCommit.slice(0, 12)}); upgrade with ha edge upgrade.`
               : undefined;
         options.onVersionWarning?.(nodeId, versionWarning ?? null);
         await enqueue(
