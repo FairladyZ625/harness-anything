@@ -415,6 +415,13 @@ export function projectionDdl(
       "peer_request_version",
       "smallint NOT NULL DEFAULT 0",
     ),
+    // Same contract for the shared KB document model.
+    dialectAddColumnIfNotExistsSql(
+      capabilities,
+      "ha_projection_meta",
+      "kb_document_version",
+      "smallint NOT NULL DEFAULT 0",
+    ),
     dialectAddColumnIfNotExistsSql(capabilities, "ha_task_snapshots", "generation", "text NOT NULL DEFAULT 'v1'"),
     dialectAddColumnIfNotExistsSql(capabilities, "ha_task_snapshots", "created_at", "timestamptz"),
     dialectAddColumnIfNotExistsSql(capabilities, "ha_task_snapshots", "completed_at", "timestamptz"),

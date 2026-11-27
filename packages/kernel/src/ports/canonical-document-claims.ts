@@ -1,6 +1,7 @@
 import { isCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
 import { isAgentRuntimeEvent, runtimeEventContentClaims } from "../domain/agent-runtime.ts";
 import { isPeerRequestEvent, peerRequestEventContentClaims } from "../domain/peer-collaboration.ts";
+import { isKbDocumentEvent, kbDocumentEventContentClaims } from "../domain/kb-document-event.ts";
 import { RAW_ARTIFACT_POLICY_ID } from "../domain/artifact-text-classification.ts";
 import type { FactEventV1 } from "../domain/fact-event.ts";
 import { docByteLength, type DocumentState } from "../domain/doc-sync.contract.ts";
@@ -280,7 +281,9 @@ export function contentClaims(event: PersistedCanonicalEventV1): readonly {
                           ]
                         : isPeerRequestEvent(event)
                           ? peerRequestEventContentClaims(event)
-                          : [];
+                          : isKbDocumentEvent(event)
+                            ? kbDocumentEventContentClaims(event)
+                            : [];
   return [...new Map(claims.map((claim) => [claim.sha256, claim])).values()];
 }
 

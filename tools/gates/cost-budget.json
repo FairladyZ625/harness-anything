@@ -796,6 +796,15 @@
         "command:doc-sync-dry-run": {
           "measurements": ["cli-doc-sync-dry-run"]
         },
+        "command:kb-catalog": {
+          "measurements": ["cli-kb-catalog"]
+        },
+        "command:kb-outline": {
+          "measurements": ["cli-kb-outline"]
+        },
+        "command:kb-read": {
+          "measurements": ["cli-kb-read"]
+        },
         "command:dossier-context": {
           "measurements": ["dossier-context"]
         },

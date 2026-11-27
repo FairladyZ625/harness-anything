@@ -18,6 +18,8 @@ import { projectPgInbox } from "./pg-inbox.ts";
 import { INBOX_MODEL_VERSION } from "@harness-anything/kernel/internal/domain/inbox.ts";
 import { projectPgPeerRequest } from "./pg-peer-request.ts";
 import { PEER_REQUEST_MODEL_VERSION } from "@harness-anything/kernel/internal/domain/peer-collaboration.ts";
+import { projectPgKbDocument } from "./pg-kb-document.ts";
+import { KB_DOCUMENT_MODEL_VERSION } from "@harness-anything/kernel/internal/domain/kb-document-event.ts";
 import { derivedRelationRecordsForReplay } from "../projection/relation-entity-projection.ts";
 import { materializePgQueryModels, initializePgTerminalMaterialization } from "./pg-query-model-materialize.ts";
 import { flushPgArtifactDocuments } from "./pg-artifact-timeline.ts";
@@ -173,6 +175,7 @@ async function materializeProjectionEvent(
   await projectPgDispatchLifecycle(client, scope, event);
   await projectPgInbox(client, scope, event);
   await projectPgPeerRequest(client, scope, event);
+  await projectPgKbDocument(client, scope, event);
   await storeEmbeddedRelations(client, scope, event, tables);
   if (!terminalMembershipReady) await initializePgTerminalMaterialization(client, scope, revision);
   await materializePgQueryModels(client, scope, { ...input, event }, snapshot);
@@ -1226,6 +1229,7 @@ async function updateProjectionMeta(
         { name: "dispatch_lifecycle_version", valueSql: `${DISPATCH_LIFECYCLE_MODEL_VERSION}::smallint` },
         { name: "inbox_version", valueSql: `${INBOX_MODEL_VERSION}::smallint` },
         { name: "peer_request_version", valueSql: `${PEER_REQUEST_MODEL_VERSION}::smallint` },
+        { name: "kb_document_version", valueSql: `${KB_DOCUMENT_MODEL_VERSION}::smallint` },
       ],
       conflictColumns: ["tenant_id", "project_id", "policy_epoch", "projection_name"],
       updates: [

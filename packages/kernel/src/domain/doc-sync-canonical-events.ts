@@ -43,6 +43,7 @@ import { validateRetiredPeopleEvent } from "./people-event.ts";
 import { validateRetiredCiRunObservationEvent } from "./ci-run-observation-retired-event.ts";
 import { relationEventTypes, validateCurrentRelationEvent, validateRelationEvent } from "./relation-event.ts";
 import { validateCurrentPeerRequestEvent, validatePeerRequestEvent } from "./peer-collaboration.ts";
+import { kbDocumentEventTypes, validateCurrentKbDocumentEvent, validateKbDocumentEvent } from "./kb-document-event.ts";
 import { isRetiredCodeDocEventType } from "./code-doc-retirement.ts";
 import { canonicalizeWriteValue, isRecord, validateEventEnvelopeIdentity } from "./write-chain.contract.ts";
 import { normalizePersistedTimestamp } from "./timestamp.ts";
@@ -178,6 +179,12 @@ export const canonicalEventSchemas: readonly CanonicalEventSchemaRegistration[] 
     validateCurrent: validateCurrentPeerRequestEvent,
   },
   {
+    schema: "kb-document-event/v1",
+    owner: "document",
+    validate: validateKbDocumentEvent,
+    validateCurrent: validateCurrentKbDocumentEvent,
+  },
+  {
     schema: "migration-import-event/v1",
     owner: "migration",
     validate: validateMigrationImportEvent,
@@ -235,6 +242,8 @@ export function forwardCanonicalEventTypeIsUnknown(value: unknown): boolean {
       return !scheduleEventTypes.includes(value.type as never);
     case "migration-import-event/v1":
       return value.type !== "entity_migrated";
+    case "kb-document-event/v1":
+      return !kbDocumentEventTypes.includes(value.type as never);
     default:
       // Keep events for registered schemas on their existing projection paths unless
       // this runtime has an explicit discriminant set for forward-type detection.

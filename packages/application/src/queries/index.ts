@@ -34,6 +34,7 @@ export * from "./reckoning-signals.ts";
 export * from "./schedule-projection.ts";
 export * from "./todo-read.ts";
 export * from "./channel-read.ts";
+export * from "./kb-read.ts";
 export * from "./collaborator-reads.ts";
 export * from "./collaborator-token-usage.ts";
 export * from "./token-usage-detail-read.ts";

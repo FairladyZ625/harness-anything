@@ -156,6 +156,16 @@ export const actionPresentation = {
   "doc-retire": { domain: "doc", name: "退役文档", description: "结束文档的现行用途。" },
   "dossier-synthesize": { domain: "dossier", name: "合成项目活档案", description: "按水位更新项目活档案槽位。" },
   "doc-submit": { domain: "doc", name: "提交文档", description: "将本地文档提交到中心。" },
+  "kb-put": {
+    domain: "kb",
+    name: "写入知识库文档盒",
+    description: "按双作用域隔离写入本地私有或中心共享知识库 Document Bundle。",
+  },
+  "kb-mount": {
+    domain: "kb",
+    name: "挂载本地知识库目录",
+    description: "在本机私有作用域声明式挂载、查看或移除外部本地 Markdown 目录。",
+  },
   "entity-archive": { domain: "entity", name: "归档对象", description: "将对象移入归档。" },
   "entity-delete": { domain: "entity", name: "删除对象", description: "删除指定业务对象。" },
   "entity-import": { domain: "entity", name: "导入对象", description: "将已有资料导入为业务对象。" },
@@ -512,6 +522,8 @@ export const actionDeclarations = Object.freeze([
   canonical("doc-retire", "document/retire", "repo-write"),
   canonical("doc-submit", "document/submit", "repo-write"),
   canonical("dossier-synthesize", "document/synthesize-dossier", "repo-write", "canonical-acceptance", "maintainer"),
+  canonical("kb-put", "document/kb-put", "repo-write"),
+  declare("kb-mount", "repo-write", hostResidency),
   // entity-import/update/archive/delete have no static declaration: each compiled Artifact kind
   // projects its own <kind>/<action> declaration into the runtime registry
   // (artifact-action-declarations.ts) under dec_2446BC2F8C68630F71AE3E3BD7/CH4.

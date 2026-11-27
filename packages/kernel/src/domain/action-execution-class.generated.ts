@@ -80,6 +80,8 @@ export const actionExecutionClasses: Readonly<Record<string, ActionExecutionClas
     ["fact-unarchive", "repo-write"],
     ["fact-unassign", "repo-write"],
     ["fleet-overview-read", "repo-read"],
+    ["kb-mount", "repo-write"],
+    ["kb-put", "repo-write"],
     ["ledger-backup", "admin"],
     ["ledger-restore-drill", "admin"],
     ["migrate-import", "repo-write"],

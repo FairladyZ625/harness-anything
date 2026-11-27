@@ -144,6 +144,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "retire",
       "conflict-resolve",
       "conflict-overwrite-center",
+      "kb-put",
       "pin",
       "unpin",
     ],

@@ -801,6 +801,9 @@
         }
       }
     },
+    "kb-put": {
+      "owner": "document"
+    },
     "ledger-backup": {
       "owner": "ledger",
       "concurrency": {

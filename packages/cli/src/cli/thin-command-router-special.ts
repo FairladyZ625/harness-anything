@@ -2,6 +2,7 @@ import path from "node:path";
 import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { parseExplain } from "./thin-command-explain.ts";
 import { parseGraph } from "./thin-command-graph.ts";
+import { kbRouteParsers } from "./thin-command-kb.ts";
 import { parseTrace } from "./thin-command-trace.ts";
 import { accepted, nonEmpty, readFlags, rejected } from "./thin-command-flags.ts";
 import { parseProjected, projectFlags } from "./thin-command-projection.ts";
@@ -17,6 +18,8 @@ export function parseRoutedSpecial(
 ): ThinParseResult | undefined {
   if (route.id === "agent-list")
     return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
+  const kbParser = kbRouteParsers[route.id];
+  if (kbParser) return kbParser(route, args, rootDir, repoId, json, inputs);
   if (route.id === "agent-share" || route.id === "agent-unshare") {
     const agentId = args[route.path.length];
     if (!nonEmpty(agentId) || agentId.startsWith("--"))

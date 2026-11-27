@@ -385,6 +385,14 @@
         "order": 0
       }
     ],
+    "kb-put": [
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/kb-write.ts#executeKbPut:0703d5a892e6400dac3aa45632d4cd48",
+        "route": "kb-put",
+        "role": "effect",
+        "order": 0
+      }
+    ],
     "relation-relate": [
       {
         "candidateId": "action:packages/application:packages/application/src/commands/entity-action-relation.ts#executeRelationAction:5f11e18294d5c688445b459ccef26f23",

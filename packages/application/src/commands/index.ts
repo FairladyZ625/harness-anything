@@ -25,6 +25,7 @@ export * from "./decision-review-awaits.ts";
 export * from "./agent-scope-service.ts";
 export * from "./channel-outbox.ts";
 export * from "./channel-action.ts";
+export * from "./kb-write.ts";
 export * from "./entity-action-catalog-executor.ts";
 export * from "./resident-ceo.ts";
 

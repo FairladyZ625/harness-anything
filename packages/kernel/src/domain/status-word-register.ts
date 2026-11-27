@@ -1159,6 +1159,18 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
   ...authoredDocumentStatusWordRegister,
 
   // Canonical object-store materialization and terminal retention states.
+  ...(["active", "superseded", "rejected"] as const).map((word) => ({
+    word,
+    entity: "AuthoredDocument" as const,
+    field: "kb document status",
+    meaning:
+      word === "active"
+        ? "Knowledge base document is active and visible in default catalog reads."
+        : word === "superseded"
+          ? "Knowledge base document has been superseded by a newer document and is hidden by default."
+          : "Knowledge base document was rejected and is hidden from default catalog reads.",
+    divergence: "entity-scoped" as const,
+  })),
   ...(["materialized", "dematerialized_terminal", "skipped_by_node_policy"] as const).map((word) => ({
     word,
     entity: "AuthoredDocument" as const,

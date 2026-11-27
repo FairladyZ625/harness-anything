@@ -315,8 +315,8 @@ test("the center admits its own local source on every ledger write an edge canno
   let ledgerWrites = 0;
   for (const command of daemonProtocolCommands) {
     if (command.commandClass !== "repo-write") continue;
-    // Publish and materialize where the managed checkout lives; neither forwards local bytes.
-    if (command.id === "task-push" || command.id === "doc-materialize") {
+    // Publish, materialize, and local KB mounts live on the host; none forwards local bytes.
+    if (command.id === "task-push" || command.id === "doc-materialize" || command.id === "kb-mount") {
       assert.deepEqual(command.admission, {
         local: "direct",
         "remote-proxy": "rejected",
