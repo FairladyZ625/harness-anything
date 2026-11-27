@@ -158,7 +158,8 @@ test("KB dual-scope positive & negative evidence: local isolation, shared CAS + 
       auth("writer"),
     );
     assert.equal(localPut.outcome, "applied", JSON.stringify(localPut));
-    assert.equal(localPut.proof?.canonicalVisible, false);
+    assert.equal(localPut.status, "settled_no_write");
+    assert.equal(localPut.proof, undefined);
 
     const localRejectedPut = await host.run(
       repoId,
@@ -189,7 +190,8 @@ test("KB dual-scope positive & negative evidence: local isolation, shared CAS + 
       auth("writer"),
     );
     assert.equal(mountAdd.outcome, "applied", JSON.stringify(mountAdd));
-    assert.equal(mountAdd.proof?.canonicalVisible, false);
+    assert.equal(mountAdd.status, "settled_no_write");
+    assert.equal(mountAdd.proof, undefined);
 
     const revAfterLocal = await readCanonicalRevision();
     const replicaHeadAfterLocal = host.replica(repoId).ledgerCut();

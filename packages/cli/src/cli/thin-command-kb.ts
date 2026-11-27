@@ -4,14 +4,6 @@ import { parseProjected } from "./thin-command-projection.ts";
 import { isRecord } from "./receipt-render-values.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
-export const kbRouteParsers: readonly (readonly [string, typeof parseKb])[] = [
-  ["kb-catalog", parseKb],
-  ["kb-outline", parseKb],
-  ["kb-read", parseKb],
-  ["kb-put", parseKb],
-  ["kb-mount", parseKb],
-];
-
 export function parseKb(
   route: ProtocolCommand,
   args: readonly string[],
