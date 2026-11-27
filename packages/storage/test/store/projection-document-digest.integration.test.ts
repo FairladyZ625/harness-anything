@@ -49,6 +49,7 @@ const legacyStateDigestTables = [
   ["dispatch_lifecycle_task_lease", "task_id"],
   ["inbox_item", "inbox_id, item_id"],
   ["peer_request", "request_id"],
+  ["kb_document", "doc_id"],
 ] as const;
 
 const chunkBytes = 1024 * 1024;

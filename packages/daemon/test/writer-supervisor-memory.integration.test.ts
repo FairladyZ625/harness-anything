@@ -14,9 +14,10 @@ import { initRepo, actor } from "./task-surface.fixtures.ts";
 import { policyTestCenter, provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
-// dec_04A9211B073F29F0FC1E1CA573 CH2: min(950, ceil(391 * 1.10)) = 431.
+// dec_04A9211B073F29F0FC1E1CA573 CH2: min(950, ceil(391 * 1.10)) = 431 (reached 431/431 on main),
+// +3 KB S1 canonical domain/projection modules (kb-document-bundle, kb-document-event, kb-document-projection) -> 434.
 // The same ratchet applies before and after writes; no lazy import can escape it.
-const WRITER_MODULE_BUDGET = 431;
+const WRITER_MODULE_BUDGET = 434;
 
 test("five attached writers report comparable mount and post-write working sets", { timeout: 120_000 }, async (t) => {
   console.log(

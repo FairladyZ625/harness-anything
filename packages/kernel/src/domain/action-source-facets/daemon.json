@@ -3124,7 +3124,8 @@
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/local-kb-store.ts#removeLocalKbBundle:7014a92362be58754bbe654dbb58c947",
         "route": "daemon-local-state",
-        "role": "effect",
+        "role": "technical-port",
+        "port": "packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove",
         "order": 1303
       },
       {
