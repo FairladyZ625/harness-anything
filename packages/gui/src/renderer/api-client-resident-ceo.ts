@@ -6,7 +6,7 @@ export type ResidentCeoWakeCause = "heartbeat" | "peer-request" | "human-chat";
 export type ResidentCeoExecutionPolicy = "advisory-only" | "approval-gated";
 export type ResidentCeoProposalStatus = "pending_approval" | "promoted" | "rejected" | "failed";
 export type ResidentCeoPromotedTaskStatus = "done" | "cancelled";
-export type ResidentCeoApprovalMode = "manual" | "allowlist-auto" | "decider-auto";
+export type ResidentCeoApprovalMode = "manual" | "allowlist-auto" | "decider-auto" | "owner-direct";
 export type ResidentCeoApprovalGateMode = "off" | "secondary-guard" | "auto-promote";
 
 export interface ResidentCeoApprovalGateConfigRead {
@@ -42,6 +42,14 @@ export interface ResidentCeoDelegationProposalRead {
   readonly peerRequestId: string;
   readonly fromPersonId: string;
   readonly summary: string;
+  readonly actionKind?:
+    | "promote_and_dispatch"
+    | "start_and_dispatch_existing"
+    | "archive_or_cancel_unleased"
+    | "doc_sync_plan";
+  readonly sourceChannel?: "peer-request" | "human-chat";
+  readonly targetTaskId?: string | null;
+  readonly cleanupMode?: "archive" | "cancel" | null;
   readonly proposedTitle: string;
   readonly proposedWorkId: string | null;
   readonly proposedAgentId: string | null;
@@ -114,11 +122,27 @@ export interface ResidentCeoProfileRead {
   readonly updatedAt: string;
 }
 
+export interface ResidentCeoActionReceiptRead {
+  readonly tier: "tier0" | "tier1" | "tier2";
+  readonly actionKind: string;
+  readonly outcome: string;
+  readonly approvalMode: string | null;
+  readonly targetRef: string | null;
+  readonly resultRef: string | null;
+  readonly proposalId: string | null;
+  readonly requestId?: string | null;
+  readonly taskId?: string | null;
+  readonly runtimeSessionId?: string | null;
+  readonly errorCode: string | null;
+  readonly detail: string;
+}
+
 export interface ResidentCeoReceipt {
   readonly ok: true;
   readonly profile: ResidentCeoProfileRead | null;
   readonly summary?: string;
   readonly response?: string | null;
+  readonly actionReceipts?: readonly ResidentCeoActionReceiptRead[];
 }
 
 export interface ResidentCeoProposalsReceipt {

@@ -23,6 +23,7 @@ export {
   isResidentCeoHistoryEntry,
   isResidentCeoProfile,
   isResidentCeoProposal,
+  type ResidentCeoActionReceiptRead,
   type ResidentCeoApprovalGateConfigRead,
   type ResidentCeoApprovalGateMode,
   type ResidentCeoApprovalMode,
