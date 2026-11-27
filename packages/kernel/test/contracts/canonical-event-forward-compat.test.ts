@@ -373,6 +373,20 @@ test("runtime_steer_requested expected readers ignore additions while current wr
   };
   assert.deepEqual(parseCanonicalEvent(stableStringify(future) + "\n"), future);
   assert.ok(validateCurrentCanonicalEvent(future).length > 0);
+  // N-1 frames without mode remain identical; PR 1A reader-first tolerates optional mode (dec_659E15CF, dec_A7A88E2079CA1DE548234A6CC3).
+  assert.equal("mode" in event.payload, false);
+  assert.deepEqual(validateCurrentCanonicalEvent(event), []);
+  assert.deepEqual(parseCanonicalEvent(stableStringify(event) + "\n"), event);
+  for (const mode of ["auto", "queue", "interrupt"] as const) {
+    const withMode = { ...event, payload: { ...event.payload, mode } };
+    assert.deepEqual(validateCurrentCanonicalEvent(withMode), [], `runtime_steer_requested.mode=${mode}`);
+    assert.deepEqual(parseCanonicalEvent(stableStringify(withMode) + "\n"), withMode);
+  }
+  for (const badMode of ["bogus", 123, null]) {
+    const invalidMode = { ...event, payload: { ...event.payload, mode: badMode } };
+    assert.ok(validateCurrentCanonicalEvent(invalidMode).length > 0);
+    assert.throws(() => parseCanonicalEvent(serializeEventEnvelope(invalidMode)), /runtime steer request payload/u);
+  }
   const invalidKnown = {
     ...event,
     payload: { ...event.payload, expected: { ...event.payload.expected, version: -1, futureConstraint: "v2" } },
@@ -407,6 +421,33 @@ test("runtime_session_liveness_changed controlRequest and controlReceipt readers
     },
   };
   assert.deepEqual(validateCurrentCanonicalEvent(steerControl), []);
+  assert.deepEqual(parseCanonicalEvent(stableStringify(steerControl) + "\n"), steerControl);
+  // PR 1A reader-first N/N-1 compat (dec_659E15CF, dec_A7A88E2079CA1DE548234A6CC3): tolerate optional mode on steer controlRequest.
+  for (const mode of ["auto", "queue", "interrupt"] as const) {
+    const withMode = {
+      ...steerControl,
+      payload: {
+        ...steerControl.payload,
+        controlRequest: { ...steerControl.payload.controlRequest, mode },
+      },
+    };
+    assert.deepEqual(validateCurrentCanonicalEvent(withMode), [], `controlRequest.mode=${mode}`);
+    assert.deepEqual(parseCanonicalEvent(stableStringify(withMode) + "\n"), withMode);
+  }
+  for (const badMode of ["bogus", 42, null]) {
+    const badModeControl = {
+      ...steerControl,
+      payload: {
+        ...steerControl.payload,
+        controlRequest: { ...steerControl.payload.controlRequest, mode: badMode },
+      },
+    };
+    assert.ok(validateCurrentCanonicalEvent(badModeControl).length > 0);
+    assert.throws(
+      () => parseCanonicalEvent(serializeEventEnvelope(badModeControl)),
+      /runtime control request payload/u,
+    );
+  }
   const futureSteerControl = {
     ...steerControl,
     payload: {
@@ -458,4 +499,59 @@ test("runtime_session_liveness_changed controlRequest and controlReceipt readers
   };
   assert.ok(validateCurrentCanonicalEvent(bothPresent).length > 0);
   assert.throws(() => parseCanonicalEvent(serializeEventEnvelope(bothPresent)), /runtime control metadata/u);
+});
+
+test("inbox_item_enqueued runtime_steer and runtime_report round-trip through persisted canonical event codec (dec_659E15CF)", () => {
+  const baseEnqueue = {
+    schema: "agent-runtime-event/v1" as const,
+    eventId: "event-inbox-compat-1",
+    workspaceRevision: 101,
+    opId: "op-inbox-compat-1",
+    actor,
+    source: "local" as const,
+    occurredAt: "2026-11-27T01:00:00.000Z",
+    type: "inbox_item_enqueued" as const,
+    payload: {
+      inboxId: "task:task_compat",
+      itemId: "item-compat-1",
+      source: "runtime_steer" as const,
+      sourceRef: "dispatch/dispatch_compat",
+      sourceEpoch: 1,
+      dedupeKey: "runtime_steer:dispatch/dispatch_compat@1",
+      admission: "dispatchable" as const,
+      consumerKind: "unattended_dispatch" as const,
+      taskId: "task_compat",
+      agentId: "neon",
+      lane: "steer",
+      summary: "Queued steer compatibility payload",
+      enqueuedAt: "2026-11-27T01:00:00.000Z",
+    },
+  };
+  const reportEnqueue = {
+    ...baseEnqueue,
+    eventId: "event-inbox-compat-2",
+    workspaceRevision: 102,
+    opId: "op-inbox-compat-2",
+    payload: {
+      ...baseEnqueue.payload,
+      inboxId: "person:owner",
+      itemId: "item-compat-2",
+      source: "runtime_report" as const,
+      sourceRef: "task/task_compat",
+      dedupeKey: "runtime_report:task/task_compat@1",
+      consumerKind: "interactive_watch" as const,
+      taskId: null,
+      agentId: null,
+      lane: "milestone",
+      summary: "Runtime report compatibility payload",
+    },
+  };
+  for (const event of [baseEnqueue, reportEnqueue]) {
+    const bytes = serializePersistedCanonicalEvent(event);
+    assert.deepEqual(parseCanonicalEvent(bytes), event);
+    assert.deepEqual(parseCanonicalEvent(bytes, { allowUnknownForwardFields: true }), event);
+    assert.equal(serializePersistedCanonicalEvent(event, { allowUnknownForwardFields: true }), bytes);
+  }
+  const unknownSource = { ...baseEnqueue, payload: { ...baseEnqueue.payload, source: "runtime_unknown" } };
+  assert.throws(() => parseCanonicalEvent(serializeEventEnvelope(unknownSource)), /inbox item enqueue payload/u);
 });

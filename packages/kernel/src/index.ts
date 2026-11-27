@@ -36,6 +36,7 @@ export type {
   RuntimeResultClaim,
   RuntimeSession,
   RuntimeSessionSemanticState,
+  RuntimeSteerMode,
   SessionIdentity,
   SessionIdentityResolver,
   SessionIdentityResolverInput,

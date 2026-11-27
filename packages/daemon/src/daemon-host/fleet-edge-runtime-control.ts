@@ -1,4 +1,4 @@
-import type { AgentRuntimeEventV1, RuntimeControlRequest } from "@harness-anything/kernel";
+import type { AgentRuntimeEventV1, RuntimeControlRequest, RuntimeSteerMode } from "@harness-anything/kernel";
 import { runtimeErrorCode, runtimeErrorMessage } from "../runtime-engine/runtime-spawn-errors.ts";
 
 export type RemoteRuntimeControlEvent = Extract<
@@ -25,6 +25,7 @@ export interface RemoteSteerControlRequest {
   readonly controlRequestId: string;
   readonly targetNodeId: string;
   readonly prompt: string;
+  readonly mode?: RuntimeSteerMode;
   readonly expected?: Extract<RuntimeControlRequest, { readonly action: "steer" }>["expected"];
 }
 
@@ -117,6 +118,7 @@ export function extractRemoteControlRequest(event: RemoteRuntimeControlEvent): R
       controlRequestId: event.payload.controlRequestId,
       targetNodeId: event.payload.targetNodeId,
       prompt: event.payload.prompt,
+      ...(event.payload.mode !== undefined ? { mode: event.payload.mode } : {}),
       ...(event.payload.expected !== undefined ? { expected: event.payload.expected } : {}),
     };
   }
@@ -142,6 +144,7 @@ export function extractRemoteControlRequest(event: RemoteRuntimeControlEvent): R
     controlRequestId: control.controlRequestId,
     targetNodeId: control.targetNodeId,
     prompt: control.prompt,
+    ...(control.mode !== undefined ? { mode: control.mode } : {}),
     ...(control.expected !== undefined ? { expected: control.expected } : {}),
   };
 }
