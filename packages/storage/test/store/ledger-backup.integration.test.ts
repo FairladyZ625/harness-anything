@@ -30,6 +30,7 @@ import { openSqliteEventStore, sqliteLedgerPath } from "../../src/store/sqlite-e
 import {
   localContentObjectFileSystem,
   localLedgerBackupFileSystem,
+  localRuntimeStateFileSystem,
 } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import { objectPath } from "../../src/store/content-objects.ts";
 import { sha256Bytes, sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
@@ -322,9 +323,15 @@ test("backup and restore reject missing or wrong-sized accepted content in gener
     });
     store.close();
     const copy = localLedgerBackupFileSystem.copy;
+    const linkExclusive = localRuntimeStateFileSystem.linkExclusive;
     t.mock.method(localLedgerBackupFileSystem, "copy", (...args: Parameters<typeof copy>) => {
       const result = copy(...args);
-      if (args[0] === object) rmSync(object);
+      if (args[0] === object && existsSync(object)) rmSync(object);
+      return result;
+    });
+    t.mock.method(localRuntimeStateFileSystem, "linkExclusive", (...args: Parameters<typeof linkExclusive>) => {
+      const result = linkExclusive(...args);
+      if (args[0] === object && existsSync(object)) rmSync(object);
       return result;
     });
     t.mock.method(localContentObjectFileSystem, "readBytes", () => {
@@ -532,6 +539,93 @@ test("backup skips entries that vanish after enumeration instead of failing", as
 function readdirDirectories(parent: string): string[] {
   return readdirSync(parent).filter((entry) => lstatSync(path.join(parent, entry)).isDirectory());
 }
+
+test("same-volume backup, restore, and drill hard-link immutable CAS objects, isolate SQLite, and fall back on EXDEV", (t) => {
+  const generation = 2,
+    root = fixture("cas-hardlink"),
+    backupDir = path.join(root, "backup-same-vol"),
+    fallbackBackupDir = path.join(root, "backup-exdev"),
+    body = "immutable generation-2 cas payload\n",
+    sha256 = sha256Text(body),
+    claim = {
+      path: "tasks/task-cas/task_plan.md",
+      sha256,
+      size: Buffer.byteLength(body),
+      mediaType: "text/markdown",
+      policyId: "markdown-body-replaceable/v1",
+    } as const,
+    claimedEvent = { ...event, payload: { ...event.payload, documentClaims: [claim] } },
+    store = openSqliteEventStore({ repoId: "backup-cas-test", rootInput: root, generation }),
+    sourceObject = objectPath(path.join(path.dirname(store.databasePath), "objects/sha256"), sha256),
+    sourceLedger = store.databasePath;
+  try {
+    store.appendCommand({
+      fence: { repoId: "backup-cas-test", holder: "test", epoch: 1 },
+      intent: {
+        opId: event.opId,
+        intentDigest: `sha256:${sha256Text(JSON.stringify(claimedEvent))}`,
+        summary: event.type,
+      },
+      events: [claimedEvent],
+      blobs: [{ ...claim, body }],
+    });
+    store.close();
+
+    const manifest = createLedgerBackup({ rootInput: root, backupDir, generation });
+    assert.equal(manifest.schema, "ledger-backup/v1");
+    const relObject = path.relative(root, sourceObject).split(path.sep).join("/");
+    const relLedger = path.relative(root, sourceLedger).split(path.sep).join("/");
+    assert.equal(manifest.files.find(({ path: file }) => file === relObject)?.method, "copy");
+    assert.equal(manifest.files.find(({ path: file }) => file === relLedger)?.method, "vacuum-into");
+
+    const backupObject = path.join(backupDir, "payload", ...relObject.split("/"));
+    const backupLedger = path.join(backupDir, "payload", ...relLedger.split("/"));
+    assert.equal(statSync(backupObject).ino, statSync(sourceObject).ino, "backup CAS object shares inode");
+    assert.ok(statSync(backupObject).nlink >= 2);
+    assert.notEqual(
+      statSync(backupLedger).ino,
+      statSync(sourceLedger).ino,
+      "backup SQLite ledger must not share inode",
+    );
+
+    const restored = restoreLedgerBackup({ backupDir, destinationRoot: path.join(root, "restored") });
+    const restoredObject = path.join(restored.restoredRoot, ...relObject.split("/"));
+    const restoredLedger = path.join(restored.restoredRoot, ...relLedger.split("/"));
+    assert.equal(statSync(restoredObject).ino, statSync(backupObject).ino, "restored CAS object shares inode");
+    assert.notEqual(statSync(restoredLedger).ino, statSync(backupLedger).ino, "restored SQLite must not share inode");
+
+    const drilled = drillLedgerBackup({ backupDir, shadowParent: path.join(root, "shadows") });
+    const drilledObject = path.join(drilled.shadowRoot, ...relObject.split("/"));
+    const drilledLedger = path.join(drilled.shadowRoot, ...relLedger.split("/"));
+    assert.equal(statSync(drilledObject).ino, statSync(backupObject).ino, "drilled CAS object shares inode");
+    assert.notEqual(statSync(drilledLedger).ino, statSync(backupLedger).ino, "drilled SQLite must not share inode");
+
+    // Simulated EXDEV during backup and restore falls back cleanly to independent copy.
+    let linkCalls = 0;
+    t.mock.method(localRuntimeStateFileSystem, "linkExclusive", () => {
+      linkCalls += 1;
+      throw Object.assign(new Error("EXDEV: cross-device link"), { code: "EXDEV" });
+    });
+    const exdevManifest = createLedgerBackup({ rootInput: root, backupDir: fallbackBackupDir, generation });
+    assert.equal(linkCalls, 1, "EXDEV short-circuits hard-linking for the backup pass");
+    const exdevBackupObject = path.join(fallbackBackupDir, "payload", ...relObject.split("/"));
+    assert.notEqual(statSync(exdevBackupObject).ino, statSync(sourceObject).ino);
+    assert.equal(readFileSync(exdevBackupObject, "utf8"), body);
+    assert.equal(exdevManifest.schema, "ledger-backup/v1");
+
+    const exdevRestored = restoreLedgerBackup({
+      backupDir: fallbackBackupDir,
+      destinationRoot: path.join(root, "restored-exdev"),
+    });
+    const exdevRestoredObject = path.join(exdevRestored.restoredRoot, ...relObject.split("/"));
+    assert.equal(readFileSync(exdevRestoredObject, "utf8"), body);
+    assert.notEqual(statSync(exdevRestoredObject).ino, statSync(exdevBackupObject).ino);
+  } finally {
+    t.mock.restoreAll();
+    store.close();
+    removeTempRepository(root);
+  }
+});
 
 function fixture(name: string): string {
   const root = mkdtempSync(path.join(os.tmpdir(), `ha-ledger-backup-${name}-`)),

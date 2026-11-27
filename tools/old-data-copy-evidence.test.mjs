@@ -23,14 +23,15 @@ import { writeDaemonRegistryRepo } from "../packages/kernel/src/daemon/registry.
 import { parseLocalSettings } from "../packages/kernel/src/domain/settings.ts";
 import { seedSettingsEvent } from "../packages/daemon/test/repo-settings.fixture.ts";
 import {
+  cleanupStaleTempRoots,
+  cleanupTempRoot,
+  cliInvocation,
   copyFilesIntoDirectory,
   copyLayout,
   copyRepoId,
   copyTree,
   copyTreeArgs,
   copyTreeMethod,
-  cleanupStaleTempRoots,
-  cliInvocation,
   externalWorkspaceLinks,
   forensicEnv,
   harnessCloneArgs,
@@ -44,9 +45,10 @@ import {
   processAlive,
   processRssBytes,
   processRssMethod,
+  resolveBuild,
   resolveSourceDataRoot,
   resolveSourceRoot,
-  resolveBuild,
+  resolveTempParent,
   snapshotRepository,
 } from "./old-data-copy-evidence.mjs";
 
@@ -992,6 +994,99 @@ test("snapshotRepository writes schema-valid nodeTaskMaterializationPolicy=none 
     );
     assert.equal(withLocaleParsed?.locale, "zh-CN");
     assert.equal(withLocaleParsed?.nodeTaskMaterializationPolicy, "none");
+  } finally {
+    rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("temp-root option parsing, cleanupTempRoot boundary guard, and CAS hard-linking in snapshotRepository", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-oldcopy-temproot-test-"));
+  try {
+    // 1. CLI --temp-root parsing
+    assert.equal(parseArgs([]).tempRoot, undefined);
+    assert.equal(parseArgs(["--temp-root", parent]).tempRoot, parent);
+    assert.throws(() => parseArgs(["--temp-root"]), /--temp-root requires a directory path/u);
+    assert.throws(() => parseArgs(["--temp-root", "--keep"]), /--temp-root requires a directory path/u);
+
+    // 2. cleanupTempRoot boundary protection under custom tempParent
+    const customParent = resolveTempParent(path.join(parent, "custom-temp-root"));
+    const ownedDir = path.join(customParent, `ha-oldcopy-${process.pid}-owned`);
+    const unownedDir = path.join(customParent, "not-owned-dir");
+    const nestedOwned = path.join(ownedDir, "ha-oldcopy-nested");
+    const outsideOwned = path.join(parent, `ha-oldcopy-${process.pid}-outside`);
+    for (const dir of [ownedDir, unownedDir, nestedOwned, outsideOwned]) mkdirSync(dir, { recursive: true });
+
+    await assert.rejects(() => cleanupTempRoot(unownedDir, customParent), /refusing to remove outside/u);
+    await assert.rejects(() => cleanupTempRoot(nestedOwned, customParent), /refusing to remove outside/u);
+    await assert.rejects(() => cleanupTempRoot(outsideOwned, customParent), /refusing to remove outside/u);
+    assert.equal(existsSync(unownedDir), true);
+    assert.equal(existsSync(outsideOwned), true);
+
+    await cleanupTempRoot(ownedDir, customParent);
+    assert.equal(existsSync(ownedDir), false, "owned direct child ha-oldcopy-* inside custom temp root is removed");
+
+    // 3. snapshotRepository hard-links immutable CAS objects while isolating mutable SQLite files
+    const source = await createSourceFixture(parent);
+    const casHex = "ab" + "0123456789abcdef".repeat(3) + "0123456789abcd";
+    const srcCasPath = path.join(
+      source,
+      ".harness",
+      "store",
+      "generations",
+      "3",
+      "objects",
+      "sha256",
+      casHex.slice(0, 2),
+      casHex.slice(2),
+    );
+    mkdirSync(path.dirname(srcCasPath), { recursive: true });
+    writeFileSync(srcCasPath, "immutable-cas-object-body\n", "utf8");
+
+    const ws = path.join(customParent, "ws-cas");
+    const snap = await snapshotRepository(source, ws, { platform: "win32" });
+    const objectsStep = snap.steps.find((step) => step.item === "store/generations/3 objects and retired generations");
+    assert.ok(objectsStep?.cloneStats, "objects step records cloneStats");
+    assert.ok(objectsStep.cloneStats.hardlinkedFiles >= 1, "at least one CAS object was hard-linked");
+
+    const dstCasPath = path.join(
+      ws,
+      ".harness",
+      "store",
+      "generations",
+      "3",
+      "objects",
+      "sha256",
+      casHex.slice(0, 2),
+      casHex.slice(2),
+    );
+    assert.equal(statSync(dstCasPath).ino, statSync(srcCasPath).ino, "CAS object shares inode");
+    assert.ok(statSync(dstCasPath).nlink >= 2);
+
+    const srcLedger = path.join(source, ".harness", "store", "generations", "3", "ledger.sqlite");
+    const dstLedger = path.join(ws, ".harness", "store", "generations", "3", "ledger.sqlite");
+    const srcCache = path.join(source, ".harness", "cache", "task.sqlite");
+    const dstCache = path.join(ws, ".harness", "cache", "task.sqlite");
+    assert.notEqual(statSync(dstLedger).ino, statSync(srcLedger).ino, "ledger.sqlite must never share inode");
+    assert.notEqual(statSync(dstCache).ino, statSync(srcCache).ino, "cache/task.sqlite must never share inode");
+
+    // 4. End-to-end CLI with --temp-root succeeds and cleans up owned temp dir inside customParent
+    const out = path.join(parent, "out-custom-temp");
+    const result = runCommand([
+      "--source",
+      source,
+      "--temp-root",
+      customParent,
+      "--out",
+      out,
+      "--cold-attach",
+      "--attach-timeout-ms",
+      "120000",
+    ]);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    const receipt = JSON.parse(result.stdout);
+    assert.equal(receipt.ok, true, JSON.stringify(receipt.failures));
+    assert.equal(path.dirname(receipt.cleanup.tempRoot), customParent);
+    assert.equal(existsSync(receipt.cleanup.tempRoot), false, "custom temp root child removed after run");
   } finally {
     rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
