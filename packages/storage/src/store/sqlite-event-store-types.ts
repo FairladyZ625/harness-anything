@@ -1,3 +1,4 @@
+import type { EventStreamContinuityCheck } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import type { receiptAcceptanceStatuses } from "@harness-anything/kernel/internal/domain/receipt-acceptance.ts";
 import type { CanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import type { CanonicalContentBlob } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
@@ -225,6 +226,8 @@ export interface SqliteEventStore {
   ) => import("@harness-anything/kernel/internal/ports/task-event-store.ts").AuditEventWindowBatch;
   /** Runs multi-statement SQLite queries inside one frozen deferred WAL read transaction. */
   readonly readSnapshot: <A>(run: () => A) => A;
+  /** Verifies that revisions 1..throughRevision exist continuously without JSON-parsing event bodies. */
+  readonly verifyRevisionContinuity: (throughRevision: number) => EventStreamContinuityCheck;
   readonly close: () => void;
 }
 export interface GenerationTwoActivationV2 {

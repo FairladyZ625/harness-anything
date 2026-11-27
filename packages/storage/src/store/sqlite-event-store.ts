@@ -774,6 +774,49 @@ function openSqliteEventStoreInternal(
           for (const target of settledPaths) query("DELETE FROM git_outbox_baseline WHERE logical_path=?", [target]);
       }),
     readSnapshot: <A>(run: () => A): A => transaction(run, true),
+    verifyRevisionContinuity: (throughRevision) => {
+      if (!Number.isInteger(throughRevision) || throughRevision < 0)
+        throw new TaskEventStoreError("invalid_store", "continuity check revision bound is invalid");
+      if (throughRevision === 0) return { continuous: true };
+      return transaction(() => {
+        const minRow = query("SELECT MIN(revision) AS min_rev FROM event").at(0),
+          maxRow = query("SELECT MAX(revision) AS max_rev FROM event").at(0),
+          minRev = minRow?.min_rev === null || minRow?.min_rev === undefined ? null : Number(minRow.min_rev),
+          maxRev = maxRow?.max_rev === null || maxRow?.max_rev === undefined ? null : Number(maxRow.max_rev);
+        // Fast path: when the entire table is contiguous 1..M with M >= throughRevision,
+        // COUNT(*) scans the small UNIQUE op_id covering index without reading event_json pages.
+        if (minRev === 1 && maxRev !== null && maxRev >= throughRevision) {
+          const totalCount = Number(query("SELECT COUNT(*) AS count FROM event").at(0)?.count ?? 0);
+          if (totalCount === maxRev) return { continuous: true };
+        }
+        // Range aggregate handles tables with gaps above throughRevision or non-positive revisions.
+        const rangeRow = query(
+            "SELECT COUNT(*) AS count, MIN(revision) AS min_rev, MAX(revision) AS max_rev FROM event WHERE revision >= 1 AND revision <= ?",
+            [throughRevision],
+          ).at(0),
+          rangeCount = Number(rangeRow?.count ?? 0),
+          rangeMin = rangeRow?.min_rev === null || rangeRow?.min_rev === undefined ? null : Number(rangeRow.min_rev),
+          rangeMax = rangeRow?.max_rev === null || rangeRow?.max_rev === undefined ? null : Number(rangeRow.max_rev);
+        if (rangeCount === throughRevision && rangeMin === 1 && rangeMax === throughRevision)
+          return { continuous: true };
+        if (rangeCount === 0 || rangeMin === null)
+          return { continuous: false, missingRange: { from: 1, to: throughRevision } };
+        if (rangeMin > 1)
+          return { continuous: false, missingRange: { from: 1, to: Math.min(throughRevision, rangeMin - 1) } };
+        const gapRow = query(
+          "SELECT revision, next_rev FROM (" +
+            "SELECT revision, LEAD(revision) OVER (ORDER BY revision) AS next_rev " +
+            "FROM event WHERE revision >= 1 AND revision <= ?" +
+            ") WHERE next_rev IS NULL OR next_rev > revision + 1 ORDER BY revision LIMIT 1",
+          [throughRevision],
+        ).at(0);
+        const beforeGap = gapRow ? Number(gapRow.revision) : 0,
+          nextRev = gapRow?.next_rev === null || gapRow?.next_rev === undefined ? null : Number(gapRow.next_rev),
+          from = beforeGap + 1,
+          to = nextRev === null ? throughRevision : Math.min(throughRevision, nextRev - 1);
+        return { continuous: false, missingRange: { from, to } };
+      }, true);
+    },
     close: registerLedgerClose(databasePath, db),
   };
 }
