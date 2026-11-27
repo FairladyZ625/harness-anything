@@ -27,7 +27,14 @@ function writeSource(root, relPath, content) {
 
 function writeAllowlist(
   root,
-  { hardcodedTmpSock = [], unguardedCmdSpawn = [], unguardedPosixModeAssertion = [] } = {},
+  {
+    hardcodedTmpSock = [],
+    unguardedCmdSpawn = [],
+    unguardedPosixModeAssertion = [],
+    unguardedPosixShellExec = [],
+    unguardedSigkillSignalAssertion = [],
+    forbiddenPowershellCimProbe = [],
+  } = {},
 ) {
   const allowlistRoot = path.join(root, ".allowlists");
   mkdirSync(allowlistRoot, { recursive: true });
@@ -47,6 +54,9 @@ function writeAllowlist(
           hardcodedTmpSock: wrap(hardcodedTmpSock),
           unguardedCmdSpawn: wrap(unguardedCmdSpawn),
           unguardedPosixModeAssertion: wrap(unguardedPosixModeAssertion),
+          unguardedPosixShellExec: wrap(unguardedPosixShellExec),
+          unguardedSigkillSignalAssertion: wrap(unguardedSigkillSignalAssertion),
+          forbiddenPowershellCimProbe: wrap(forbiddenPowershellCimProbe),
         },
       },
       null,
@@ -210,6 +220,186 @@ test("negative control: allows win32-guarded mode assertions and non-assertion m
         'test("posix-only", { skip: process.platform === "win32" && "requires POSIX permissions" }, () => {',
         '  assert.equal(statSync("x").mode & 0o777, 0o600);',
         "});",
+      ].join("\n"),
+    );
+
+    const result = await scanWindowsPortability(root, { allowlistRoot, report: false });
+    assert.equal(result.ok, true, result.violations.join("\n"));
+    assert.equal(result.violations.length, 0);
+  });
+});
+
+test("positive control: rejects unguarded POSIX-only shell/bin spawns via spawn/spawnSync/execFile/execFileSync", async () => {
+  await withSyntheticRoot(async (root) => {
+    const allowlistRoot = writeAllowlist(root);
+    writeSource(
+      root,
+      "packages/daemon/test/bad-posix-exec.test.ts",
+      [
+        'import { execFile, execFileSync, spawn, spawnSync } from "node:child_process";',
+        'spawnSync("/bin/sh", ["-c", "echo hi"]);',
+        'execFileSync("/usr/bin/true");',
+        'execFile("which", ["git"]);',
+        'spawn("lsof", ["-i", ":8080"]);',
+        'spawnSync("pkill", ["-f", "daemon"]);',
+        'const shellBin = "/bin/bash";',
+        'spawnSync(shellBin, ["-lc", "pwd"]);',
+        'if (process.platform === "win32") {',
+        '  execFileSync("which", ["node"]);',
+        "}",
+      ].join("\n"),
+    );
+
+    const result = await scanWindowsPortability(root, { allowlistRoot, report: false });
+    assert.equal(result.ok, false);
+    assert.equal(result.violations.length, 7, result.violations.join("\n"));
+    for (const violation of result.violations) {
+      assert.match(violation, /\[unguarded-posix-shell-exec\]/u);
+    }
+  });
+});
+
+test("negative control: allows win32-guarded POSIX spawns, cross-platform ternaries, and portable binaries", async () => {
+  await withSyntheticRoot(async (root) => {
+    const allowlistRoot = writeAllowlist(root);
+    writeSource(
+      root,
+      "packages/daemon/test/good-posix-exec.test.ts",
+      [
+        'import { execFileSync, spawnSync } from "node:child_process";',
+        'import test from "node:test";',
+        'const skipOnWindows = process.platform === "win32" ? "POSIX shell only" : false;',
+        'const windows = process.platform === "win32";',
+        "// Never call /bin/sh or which without a win32 guard.",
+        "export function run() {",
+        '  execFileSync(windows ? "where" : "which", ["git"]);',
+        '  execFileSync(process.platform === "win32" ? "where" : "which", ["node"]);',
+        '  if (process.platform !== "win32") spawnSync("/bin/sh", ["-c", "true"]);',
+        '  if (!windows) execFileSync("lsof", ["-i", ":8080"]);',
+        '  execFileSync(process.execPath, ["-e", "process.exit(0)"]);',
+        '  if (process.platform === "win32") return;',
+        '  spawnSync("pkill", ["-f", "demo"]);',
+        "}",
+        'test("posix shell", { skip: skipOnWindows }, () => {',
+        '  spawnSync("/bin/sh", ["-c", "echo ok"]);',
+        "});",
+      ].join("\n"),
+    );
+
+    const result = await scanWindowsPortability(root, { allowlistRoot, report: false });
+    assert.equal(result.ok, true, result.violations.join("\n"));
+    assert.equal(result.violations.length, 0);
+  });
+});
+
+test("positive control: rejects unguarded SIGKILL/SIGTERM child signal assertions", async () => {
+  await withSyntheticRoot(async (root) => {
+    const allowlistRoot = writeAllowlist(root);
+    writeSource(
+      root,
+      "packages/daemon/test/bad-signal.test.ts",
+      [
+        'import assert from "node:assert/strict";',
+        "export function check(result: any, child: any, doomedSignal: string | null, expect: any) {",
+        '  assert.equal(result.signal, "SIGKILL");',
+        '  assert.strictEqual(child.signalCode, "SIGTERM");',
+        '  assert.deepEqual([result.status, doomedSignal], [null, "SIGKILL"]);',
+        '  expect(result.signal).toBe("SIGKILL");',
+        '  assert.ok(result.signal === "SIGTERM");',
+        '  if (process.platform === "win32") {',
+        '    assert.equal(result.signal, "SIGKILL");',
+        "  }",
+        "}",
+      ].join("\n"),
+    );
+
+    const result = await scanWindowsPortability(root, { allowlistRoot, report: false });
+    assert.equal(result.ok, false);
+    assert.equal(result.violations.length, 6, result.violations.join("\n"));
+    for (const violation of result.violations) {
+      assert.match(violation, /\[unguarded-sigkill-signal-assertion\]/u);
+    }
+  });
+});
+
+test("negative control: allows win32-guarded signal assertions, mock record deepEqual, and non-signal assertions", async () => {
+  await withSyntheticRoot(async (root) => {
+    const allowlistRoot = writeAllowlist(root);
+    writeSource(
+      root,
+      "packages/daemon/test/good-signal.test.ts",
+      [
+        'import assert from "node:assert/strict";',
+        'import test from "node:test";',
+        'const skipOnWindows = process.platform === "win32" ? "requires POSIX SIGKILL semantics" : false;',
+        "export function check(result: any, stream: any) {",
+        '  if (process.platform !== "win32") assert.equal(result.signal, "SIGKILL");',
+        '  assert.equal(result.signal, process.platform === "win32" ? null : "SIGKILL");',
+        '  assert.deepEqual(stream?.process, { pid: 4321, exitCode: null, signal: "SIGKILL", exited: true });',
+        '  assert.equal(result.status, null, "killed with SIGTERM");',
+        '  if (process.platform === "win32") return;',
+        '  assert.strictEqual(result.signalCode, "SIGTERM");',
+        "}",
+        'test("sigkill", { skip: skipOnWindows }, () => {',
+        '  assert.equal(({ signal: "SIGKILL" }).signal, "SIGKILL");',
+        "});",
+      ].join("\n"),
+    );
+
+    const result = await scanWindowsPortability(root, { allowlistRoot, report: false });
+    assert.equal(result.ok, true, result.violations.join("\n"));
+    assert.equal(result.violations.length, 0);
+  });
+});
+
+test("positive control: rejects production PowerShell Get-NetTCPConnection probes", async () => {
+  await withSyntheticRoot(async (root) => {
+    const allowlistRoot = writeAllowlist(root);
+    writeSource(
+      root,
+      "packages/authorization/src/keycloak/bad-probe.ts",
+      [
+        'import { execFile, spawnSync } from "node:child_process";',
+        "export function probe(port: number) {",
+        '  spawnSync("powershell.exe", ["-NoProfile", "-Command", "Get-NetTCPConnection -LocalPort 8080"]);',
+        '  execFile("pwsh", ["-Command", `Get-NetTCPConnection -State Listen -LocalPort ${port}`]);',
+        '  const script = "get-nettcpconnection -LocalPort 9000";',
+        '  return spawnSync("powershell.exe", ["-Command", script]);',
+        "}",
+      ].join("\n"),
+    );
+
+    const result = await scanWindowsPortability(root, { allowlistRoot, report: false });
+    assert.equal(result.ok, false);
+    assert.equal(result.violations.length, 3, result.violations.join("\n"));
+    for (const violation of result.violations) {
+      assert.match(violation, /\[forbidden-powershell-cim-probe\]/u);
+    }
+  });
+});
+
+test("negative control: allows netstat.exe -ano, non-CIM PowerShell calls, comments, and test references", async () => {
+  await withSyntheticRoot(async (root) => {
+    const allowlistRoot = writeAllowlist(root);
+    writeSource(
+      root,
+      "packages/authorization/src/keycloak/good-probe.ts",
+      [
+        'import { spawnSync } from "node:child_process";',
+        "/** Use native netstat.exe -ano instead of slow Get-NetTCPConnection (NetTCPIP/CIM). */",
+        "export function probe(pid: number) {",
+        '  spawnSync("netstat.exe", ["-ano"]);',
+        '  return spawnSync("powershell.exe", ["-NoProfile", "-Command", `Get-Process -Id ${pid}`]);',
+        "}",
+      ].join("\n"),
+    );
+    writeSource(
+      root,
+      "packages/authorization/test/keycloak/probe-contract.test.ts",
+      [
+        'import assert from "node:assert/strict";',
+        'assert.doesNotMatch("netstat.exe -ano", /Get-NetTCPConnection/u);',
+        'export const docNote = "Get-NetTCPConnection is banned in production";',
       ].join("\n"),
     );
 

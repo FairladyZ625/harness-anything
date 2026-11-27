@@ -131,11 +131,6 @@ test("all rewrite-ci jobs that download managed PostgreSQL or Keycloak configure
       requiresKeycloak: false,
     },
     {
-      jobId: "windows-integration-shard",
-      testCommand: "node tools/run-manifest-gates.mjs --workflow-job windows-integration-shard",
-      requiresKeycloak: true,
-    },
-    {
       jobId: "full-check",
       testCommand: "npm run check",
       requiresKeycloak: true,

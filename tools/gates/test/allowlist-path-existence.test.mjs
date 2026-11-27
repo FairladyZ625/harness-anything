@@ -144,10 +144,15 @@ test("B13 audits check-windows-portability frozen baseline paths and task citati
       hardcodedTmpSock: "path",
       unguardedCmdSpawn: "path",
       unguardedPosixModeAssertion: "path",
+      unguardedPosixShellExec: "path",
+      unguardedSigkillSignalAssertion: "path",
+      forbiddenPowershellCimProbe: "path",
     },
     nonPathSections: [],
   });
   assert.ok(EVIDENCE_INDEX.tasks.includes("task_60653ee4139523060fac49b667"));
+  assert.ok(EVIDENCE_INDEX.tasks.includes("task_8dcc04f9af4d409c083fda162b"));
+  assert.ok(EVIDENCE_INDEX.decisions.includes("dec_24E62D650F4905663399CB335A"));
   const allowlist = JSON.parse(
     readFileSync(path.join(repoRoot, "tools/gate-allowlists/check-windows-portability.json"), "utf8"),
   );

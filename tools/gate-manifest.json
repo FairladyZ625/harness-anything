@@ -203,7 +203,6 @@
         "full-check",
         "crlf-checkout",
         "node26-compatibility",
-        "windows-integration-shard",
         "nightly-daemon-soak",
         "nightly-cli-command-timing",
         "fast-contract",
@@ -1374,8 +1373,7 @@
       ],
       "consumerScope": [
         "all disk-discovered node:test suites whose first-line harness-test-tier marker is integration",
-        "deterministically derived integration shard execution sets",
-        "the same integration shard execution sets run on windows-latest; the ubuntu arm is the positive control (dec_9B75595FC45E01DDFD0938FE95/CH2)"
+        "deterministically derived integration shard execution sets"
       ],
       "githubContext": {
         "requiredContexts": [
@@ -1390,7 +1388,7 @@
           "integration-shard (9)",
           "integration-shard (10)"
         ],
-        "workflowJobs": ["integration-shard", "windows-integration-shard"],
+        "workflowJobs": ["integration-shard"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -1418,7 +1416,7 @@
         },
         "rewriteCi": {
           "pullRequestJobs": ["integration-shard"],
-          "nonPullRequestJobs": ["windows-integration-shard", "integration-shard"]
+          "nonPullRequestJobs": ["integration-shard"]
         },
         "branchProtection": {
           "required": true,
@@ -3019,7 +3017,7 @@
     {
       "id": "check-windows-portability",
       "command": "npm run harness:check-windows-portability",
-      "failureHint": "Avoid hardcoded /tmp/*.sock paths, pass shell or use cmdShellInvocation for .cmd/npm sync spawns, and guard 0o600/0o700 mode assertions with process.platform !== 'win32'.",
+      "failureHint": "Avoid hardcoded /tmp/*.sock paths and production PowerShell Get-NetTCPConnection probes (use netstat.exe -ano), pass shell or cmdShellInvocation for .cmd/npm sync spawns, and guard 0o600/0o700 mode assertions, POSIX-only shell/bin spawns, and SIGKILL/SIGTERM child signal assertions with process.platform !== 'win32'.",
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
@@ -3028,12 +3026,14 @@
         "tools/**"
       ],
       "authoritySource": [
+        "dec_24E62D650F4905663399CB335A",
         "task_60653ee4139523060fac49b667",
+        "task_8dcc04f9af4d409c083fda162b",
         "tools/check-windows-portability.mjs",
         "tools/gate-allowlists/check-windows-portability.json"
       ],
       "consumerScope": [
-        "hardcoded /tmp/*.sock literals, unguarded spawnSync/execFileSync of .cmd/npm shims, and unguarded 0o600/0o700 mode assertions across packages/** and tools/**"
+        "hardcoded /tmp/*.sock literals, unguarded spawnSync/execFileSync of .cmd/npm shims, unguarded 0o600/0o700 mode assertions, unguarded POSIX-only shell/bin spawns, unguarded SIGKILL/SIGTERM child signal assertions, and production PowerShell Get-NetTCPConnection probes across packages/** and tools/**"
       ],
       "githubContext": {
         "requiredContexts": ["quick-gates"],
