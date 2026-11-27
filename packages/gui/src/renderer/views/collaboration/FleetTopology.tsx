@@ -47,6 +47,27 @@ function nodeLinkState(node: FleetOverviewNode, links: readonly FleetOverviewLin
   return node.replica?.connected === false ? "disconnected" : linkStateOf(links);
 }
 
+function measureCanvasSize(element: HTMLDivElement, entry?: ResizeObserverEntry): { width: number; height: number } {
+  const box = entry?.contentBoxSize?.[0];
+  if (box !== undefined) {
+    return { width: Math.floor(box.inlineSize), height: Math.floor(box.blockSize) };
+  }
+  const rect = element.getBoundingClientRect();
+  const width =
+    rect.width > 0
+      ? element.clientWidth > 0
+        ? Math.min(element.clientWidth, Math.floor(rect.width))
+        : Math.floor(rect.width)
+      : element.clientWidth;
+  const height =
+    rect.height > 0
+      ? element.clientHeight > 0
+        ? Math.min(element.clientHeight, Math.floor(rect.height))
+        : Math.floor(rect.height)
+      : element.clientHeight;
+  return { width, height };
+}
+
 export function FleetTopology({
   nodes,
   links,
@@ -71,10 +92,13 @@ export function FleetTopology({
   useLayoutEffect(() => {
     const element = containerRef.current;
     if (element === null) return;
-    const measure = () => setSize({ width: element.clientWidth, height: element.clientHeight });
+    const measure = (entry?: ResizeObserverEntry) => {
+      const next = measureCanvasSize(element, entry);
+      setSize((prev) => (prev.width === next.width && prev.height === next.height ? prev : next));
+    };
     measure();
     if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver((entries) => measure(entries[0]));
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
@@ -122,7 +146,7 @@ export function FleetTopology({
       ref={containerRef}
       data-testid="collaboration-topology"
       data-focus={hoverNode ?? undefined}
-      className="fleet-canvas fleet-grid relative flex h-full w-full flex-col overflow-y-auto"
+      className="fleet-canvas fleet-grid relative flex h-full w-full flex-col overflow-x-hidden overflow-y-auto"
     >
       {/* 内容层按节点包围盒收紧尺寸,在(更高的)容器里垂直居中:flex 容器里的
           auto 边距吃掉富余空间,内容比容器高时边距归零、从顶部开始滚动——

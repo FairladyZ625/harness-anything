@@ -667,4 +667,76 @@ describe("协作页舰队拓扑契约", () => {
     expect(mapped).not.toBeNull();
     expect(mapped!.getAttribute("title")).toContain("keycloak-unreachable");
   });
+
+  it("小数像素容器高度下拓扑测量向下取整且禁用横向滚动条,防止 60fps ResizeObserver 振荡", () => {
+    const originalRO = globalThis.ResizeObserver;
+    let observerCallback: ResizeObserverCallback | null = null;
+    class StubResizeObserver {
+      constructor(cb: ResizeObserverCallback) {
+        observerCallback = cb;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    globalThis.ResizeObserver = StubResizeObserver as unknown as typeof ResizeObserver;
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    try {
+      const data = overview();
+      act(() =>
+        root.render(
+          <CollaborationView
+            repoId="repo-test"
+            mode="remote-center"
+            overview={data}
+            onOpenTask={() => {}}
+            onNavigateEntity={() => {}}
+            now="2026-10-06T01:00:00.000Z"
+          />,
+        ),
+      );
+      const canvas = host.querySelector<HTMLDivElement>('[data-testid="collaboration-topology"]')!;
+      const inner = canvas.firstElementChild as HTMLDivElement;
+      expect(canvas.className).toContain("overflow-x-hidden");
+      expect(canvas.className).toContain("overflow-y-auto");
+      // 模拟 68vh 产出小数盒高 665.72px(clientHeight 四舍五入向上取整为 666):
+      // 内层高度必须向下取整为 665px(<= 665.72px),避免 0.28px 假溢出拉出 8px 滚动条形成振荡环。
+      Object.defineProperty(canvas, "clientWidth", { value: 1170, configurable: true });
+      Object.defineProperty(canvas, "clientHeight", { value: 666, configurable: true });
+      canvas.getBoundingClientRect = () => ({
+        width: 1170.4,
+        height: 665.72,
+        top: 0,
+        left: 0,
+        right: 1170.4,
+        bottom: 665.72,
+        x: 0,
+        y: 0,
+        toJSON() {},
+      });
+      act(() => {
+        observerCallback?.(
+          [
+            {
+              target: canvas,
+              contentBoxSize: [{ inlineSize: 1170.4, blockSize: 665.72 }],
+            } as unknown as ResizeObserverEntry,
+          ],
+          {} as ResizeObserver,
+        );
+      });
+      expect(inner.style.width).toBe("1170px");
+      expect(inner.style.height).toBe("665px");
+      // 缺少 contentBoxSize 时回退 getBoundingClientRect() 也必须向下取整而非使用向上取整的 clientHeight。
+      act(() => {
+        observerCallback?.([{ target: canvas } as unknown as ResizeObserverEntry], {} as ResizeObserver);
+      });
+      expect(inner.style.width).toBe("1170px");
+      expect(inner.style.height).toBe("665px");
+    } finally {
+      act(() => root.unmount());
+      globalThis.ResizeObserver = originalRO;
+    }
+  });
 });
