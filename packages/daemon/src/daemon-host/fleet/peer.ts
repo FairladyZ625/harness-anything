@@ -12,7 +12,9 @@ import { once } from "node:events";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import {
+  CENTER_MOVED_DETAILS_CAPABILITY,
   ReplicationDecoder,
+  ReplicationError,
   serializeReplicationFrame,
   serializeReplicationWireFrame,
   type ReplicationFrame,
@@ -31,6 +33,7 @@ import {
   consumeKnownError,
   DISPATCH_LIFECYCLE_PAGE_LIMIT,
   dispatchLifecycleSummary,
+  TASK_EVENT_SHAPE_COMPAT_VERSION,
   type DispatchLifecycleRead,
   type LedgerCutIdentity,
 } from "@harness-anything/kernel";
@@ -246,76 +249,93 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
   let pendingChangedPaths: Set<string> | null = new Set<string>();
   try {
     // The center admits a replica on the node owner's signed-in session; the hello is the only
-    // frame of this conversation that can carry it.
-    const accessToken = await options.readAccessToken?.();
+    // frame of this conversation that can carry it. When the old login authority is already down
+    // during a center switchover, still send the hello and probe replica.start so a relocated
+    // center can return CENTER_MOVED before falling back to the original token error.
+    const tokenOutcome:
+      | { readonly failed: false; readonly token: string | undefined }
+      | { readonly failed: true; readonly error: unknown } = await (async () => {
+      try {
+        return { failed: false as const, token: await options.readAccessToken?.() };
+      } catch (error) {
+        return { failed: true as const, error };
+      }
+    })();
+    const accessToken = tokenOutcome.failed ? undefined : tokenOutcome.token;
     signal.throwIfAborted();
     if (closed) throw closed;
-    await new Promise<void>((resolve, reject) => {
-      const commandDecoder = new FleetUtf8LineDecoder();
-      const onData = (chunk: Buffer) => {
-        void Promise.resolve()
-          .then(() => {
-            for (const line of commandDecoder.push(chunk)) {
-              const frame = parseFleetFrame(line);
-              if (frame.schema === "fleet.error/v1") throw new FleetRemoteError(frame);
-              if (frame.schema !== "fleet.session.ready/v1") continue;
-              const localBuildCommit = daemonBuildStamp().commit;
-              options.onVersionWarning?.(
-                frame.versionWarning && frame.centerBuildCommit && localBuildCommit
-                  ? {
-                      centerBuildCommit: frame.centerBuildCommit,
-                      localBuildCommit,
-                      upgradeCommand: "git pull --ff-only, then build CLI and daemon",
-                      message: frame.versionWarning,
-                    }
-                  : null,
-              );
-              replicationAdmitted = true;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const commandDecoder = new FleetUtf8LineDecoder();
+        const onData = (chunk: Buffer) => {
+          void Promise.resolve()
+            .then(() => {
+              for (const line of commandDecoder.push(chunk)) {
+                const frame = parseFleetFrame(line);
+                if (frame.schema === "fleet.error/v1") throw new FleetRemoteError(frame);
+                if (frame.schema !== "fleet.session.ready/v1") continue;
+                const localBuildCommit = daemonBuildStamp().commit;
+                options.onVersionWarning?.(
+                  frame.versionWarning && frame.centerBuildCommit && localBuildCommit
+                    ? {
+                        centerBuildCommit: frame.centerBuildCommit,
+                        localBuildCommit,
+                        upgradeCommand: "git pull --ff-only, then build CLI and daemon",
+                        message: frame.versionWarning,
+                      }
+                    : null,
+                );
+                replicationAdmitted = true;
+                socket.off("data", onData);
+                socket.off("close", onClose);
+                socket.on("data", (data: Buffer) => {
+                  void Promise.resolve()
+                    .then(() => {
+                      for (const replicated of decoder.push(data)) {
+                        const waiter = waiters.shift();
+                        if (waiter) waiter.resolve(replicated);
+                        else {
+                          queue.push(replicated);
+                          queuedBytes += queuedFrameBytes(replicated);
+                        }
+                      }
+                      // Stop reading while frames wait: the unread TCP window is what makes the center's
+                      // drain wait, so a base backup flows at the speed this node writes it.
+                      if (queue.length >= queuedFramesHigh || queuedBytes >= queuedBytesHigh) socket.pause();
+                    })
+                    .catch(failReplicationSession);
+                });
+                resolve();
+                return;
+              }
+            })
+            .catch((error: unknown) => {
               socket.off("data", onData);
               socket.off("close", onClose);
-              socket.on("data", (data: Buffer) => {
-                void Promise.resolve()
-                  .then(() => {
-                    for (const replicated of decoder.push(data)) {
-                      const waiter = waiters.shift();
-                      if (waiter) waiter.resolve(replicated);
-                      else {
-                        queue.push(replicated);
-                        queuedBytes += queuedFrameBytes(replicated);
-                      }
-                    }
-                    // Stop reading while frames wait: the unread TCP window is what makes the center's
-                    // drain wait, so a base backup flows at the speed this node writes it.
-                    if (queue.length >= queuedFramesHigh || queuedBytes >= queuedBytesHigh) socket.pause();
-                  })
-                  .catch(failReplicationSession);
-              });
-              resolve();
-              return;
-            }
-          })
-          .catch((error: unknown) => {
-            socket.off("data", onData);
-            socket.off("close", onClose);
-            failReplicationSession(error);
-            reject(closed);
-          });
-      };
-      const onClose = () => reject(closed ?? new Error("replication session was not authenticated"));
-      socket.on("data", onData);
-      socket.once("close", onClose);
-      socket.write(
-        serializeFleetFrame({
-          schema: "fleet.session.hello/v1",
-          messageId: "replication-hello",
-          protocolVersion: currentFleetProtocolVersion,
-          nodeId: options.nodeId,
-          credential: options.credential,
-          buildCommit: daemonBuildStamp().commit,
-          ...(accessToken ? { accessToken } : {}),
-        }),
-      );
-    });
+              failReplicationSession(error);
+              reject(closed);
+            });
+        };
+        const onClose = () => reject(closed ?? new Error("replication session was not authenticated"));
+        socket.on("data", onData);
+        socket.once("close", onClose);
+        socket.write(
+          serializeFleetFrame({
+            schema: "fleet.session.hello/v1",
+            messageId: "replication-hello",
+            protocolVersion: currentFleetProtocolVersion,
+            nodeId: options.nodeId,
+            credential: options.credential,
+            buildCommit: daemonBuildStamp().commit,
+            ...(accessToken ? { accessToken } : {}),
+          }),
+        );
+      });
+    } catch (helloError) {
+      if (tokenOutcome.failed && !(helloError instanceof FleetRemoteError && helloError.code === "CENTER_MOVED"))
+        throw tokenOutcome.error;
+      throw helloError;
+    }
     // A crash mid-install leaves staging behind, and one between an install and its collection
     // leaves superseded generations behind.
     await generations.discardStaging();
@@ -435,6 +455,26 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
         });
       },
     };
+    if (tokenOutcome.failed) {
+      const probeSignal = AbortSignal.any([signal, AbortSignal.timeout(options.timeoutMs ?? 5_000)]);
+      try {
+        await replicationPeer.send({
+          type: "replica.start",
+          repoId: options.repoId,
+          position: null,
+          edgeBuildCommit: daemonBuildStamp().commit,
+          taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+          capabilities: [CENTER_MOVED_DETAILS_CAPABILITY],
+        });
+        const frame = await replicationPeer.receive(probeSignal);
+        if ((frame.type === "replica.reject" || frame.type === "replica.failure") && frame.code === "CENTER_MOVED")
+          throw new ReplicationError(frame.message, frame.code, frame.centerMoved);
+      } catch (probeError) {
+        if (probeError instanceof ReplicationError && probeError.code === "CENTER_MOVED") throw probeError;
+        throw tokenOutcome.error;
+      }
+      throw tokenOutcome.error;
+    }
     await runWalReceiver({
       peer: replicationPeer,
       resumeOnly: options.resumeOnly,
@@ -595,7 +635,8 @@ export async function runFleetRuntimeEventClient(
       repoId: options.repoId,
     });
     if (assigned.schema !== "fleet.repo.metadata.result/v1") throw new Error("repository metadata result expected");
-    const result =
+    for (const finalPass of [false, false, true]) {
+      const result =
         options.resultBody === undefined
           ? null
           : await uploadFleetChange(
@@ -610,20 +651,33 @@ export async function runFleetRuntimeEventClient(
               // the same failure body, and each publish must own its claim. The event request id is
               // that identity, and a retry of the same event reuses this claim.
               options.opId,
-            ),
-      response = await session.request({
-        schema: "fleet.runtime.event/v1",
-        messageId: session.messageId(),
-        writerEpoch: assigned.writerEpoch,
-        repoId: options.repoId,
-        opId: options.opId,
-        eventType: options.eventType,
-        payload: options.payload,
-        result,
-        dispatchContext: options.dispatchContext ?? null,
-      });
-    if (response.schema !== "fleet.runtime.event.result/v1") throw new Error("runtime event result expected");
-    return response;
+            );
+      try {
+        const response = await session.request({
+          schema: "fleet.runtime.event/v1",
+          messageId: session.messageId(),
+          writerEpoch: assigned.writerEpoch,
+          repoId: options.repoId,
+          opId: options.opId,
+          eventType: options.eventType,
+          payload: options.payload,
+          result,
+          dispatchContext: options.dispatchContext ?? null,
+        });
+        if (response.schema !== "fleet.runtime.event.result/v1") throw new Error("runtime event result expected");
+        return response;
+      } catch (error) {
+        if (
+          !finalPass &&
+          options.resultBody !== undefined &&
+          error instanceof FleetRemoteError &&
+          error.code === "claim_not_owned"
+        )
+          continue;
+        throw error;
+      }
+    }
+    throw new Error("runtime event pass exhausted");
   } finally {
     session.close();
   }

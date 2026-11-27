@@ -340,9 +340,16 @@ test("reopen generated-file reads remain bounded as accepted task history grows"
     writeFileSync(manifestPath, physicalManifest);
     writeFileSync(indexPath, firstIndex);
     let reads = 0;
-    const original = fs.readFileSync,
+    const normalizedIndexPath = path.resolve(indexPath),
+      original = fs.readFileSync,
       spy = t.mock.method(fs, "readFileSync", (...args: Parameters<typeof fs.readFileSync>) => {
-        if (String(args[0]) === indexPath) reads++;
+        const candidate = path.resolve(String(args[0]));
+        if (
+          process.platform === "win32"
+            ? candidate.toLowerCase() === normalizedIndexPath.toLowerCase()
+            : candidate === normalizedIndexPath
+        )
+          reads++;
         return original(...args);
       });
     syncBuiltinESMExports();
@@ -749,11 +756,20 @@ test("opening waits for a concurrent writer lock instead of failing with databas
   }
 });
 
+function assertAbruptKill(result: ReturnType<typeof spawnSync>): void {
+  if (process.platform === "win32") {
+    assert.equal(result.signal, null, String(result.stderr));
+    assert.notEqual(result.status, 0, String(result.stderr));
+    return;
+  }
+  assert.equal(result.signal, "SIGKILL", String(result.stderr));
+}
+
 test("SIGKILL after acceptance preserves exact event bytes and the same op_id outcome", (t) => {
   const databasePath = scratch("reopen", t),
     fixture = fileURLToPath(new URL("./sqlite-event-store-kill.fixture.mjs", import.meta.url)),
     killed = spawnSync(process.execPath, [fixture, databasePath, repoId, "after-commit"], { encoding: "utf8" });
-  assert.equal(killed.signal, "SIGKILL", killed.stderr);
+  assertAbruptKill(killed);
   const accepted = JSON.parse(killed.stdout),
     store = openSqliteEventStore({ repoId, databasePath }),
     retry = { ...command(store, 1), fence: { repoId, holder: "replacement-writer", epoch: 2 } };
@@ -847,7 +863,7 @@ test("SIGKILL recovery discards an uncommitted event and writer takeover", (t) =
   store.close();
   const fixture = fileURLToPath(new URL("./sqlite-event-store-kill.fixture.mjs", import.meta.url)),
     killed = spawnSync(process.execPath, [fixture, databasePath, repoId], { encoding: "utf8" });
-  assert.equal(killed.signal, "SIGKILL", killed.stderr);
+  assertAbruptKill(killed);
   const reopened = openSqliteEventStore({ repoId, databasePath });
   try {
     assert.equal(reopened.events().length, 0);
