@@ -168,6 +168,7 @@ export type RpcShape = {
       | "string?"
       | "string-or-empty?"
       | "string-null?"
+      | "string-record?"
       | "json"
       | "json?"
       | "array"
@@ -205,6 +206,7 @@ export function validateShape(value: unknown, expected: RpcShape, prefix: string
       ((rule === "string?" ||
         rule === "string-or-empty?" ||
         rule === "string-null?" ||
+        rule === "string-record?" ||
         rule === "json?" ||
         rule === "array?" ||
         rule === "boolean?" ||
@@ -217,6 +219,9 @@ export function validateShape(value: unknown, expected: RpcShape, prefix: string
     if (enumRule) {
       if (!enumRule.values.includes(String(item)))
         errors.push(`${prefix}.${field} must be one of ${enumRule.values.join(", ")}`);
+    } else if (rule === "string-record?") {
+      if (!isJsonObject(item) || Object.values(item).some((entry) => typeof entry !== "string"))
+        errors.push(`${prefix}.${field} must be string record`);
     } else if (rule === "json" || rule === "json?") {
       if (!isJsonObject(item)) errors.push(`${prefix}.${field} must be object`);
     } else if (rule === "array" || rule === "array?") {
