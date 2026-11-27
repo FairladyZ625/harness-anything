@@ -1011,6 +1011,7 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
             ...(typeof payload.title === "string" ? { title: payload.title } : {}),
             ...(typeof payload.agentId === "string" ? { agentId: payload.agentId } : {}),
             ...(typeof payload.targetNodeId === "string" ? { targetNodeId: payload.targetNodeId } : {}),
+            ...(typeof payload.supersedesTaskId === "string" ? { supersedesTaskId: payload.supersedesTaskId } : {}),
             ...(typeof payload.runtimeInstanceId === "string" ? { runtimeInstanceId: payload.runtimeInstanceId } : {}),
             ...(typeof payload.model === "string" ? { model: payload.model } : {}),
             ...(typeof payload.prompt === "string" ? { prompt: payload.prompt } : {}),
@@ -1021,12 +1022,16 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
           ...receipt(
             approved.profile,
             `Approved proposal ${approved.proposal.proposalId} -> task/${approved.proposal.promotedTaskId}` +
+              `${approved.proposal.supersededTaskId ? ` (superseded task/${approved.proposal.supersededTaskId})` : ""}` +
+              `${approved.proposal.supersedeError ? ` (supersede error: ${approved.proposal.supersedeError})` : ""}` +
               `${approved.proposal.dispatchedTargetNodeId ? ` (assigned to node/${approved.proposal.dispatchedTargetNodeId})` : ""}` +
               `${approved.proposal.dispatchRuntimeSessionId ? ` (dispatched ${approved.proposal.dispatchRuntimeSessionId})` : ""}` +
               `${approved.proposal.dispatchError ? ` (dispatch error: ${approved.proposal.dispatchError})` : ""}.`,
           ),
           proposal: approved.proposal as unknown as JsonObject,
           promotedTaskId: approved.proposal.promotedTaskId,
+          supersededTaskId: approved.proposal.supersededTaskId ?? null,
+          supersedeError: approved.proposal.supersedeError ?? null,
           dispatchedTargetNodeId: approved.proposal.dispatchedTargetNodeId ?? null,
           dispatchRuntimeSessionId: approved.proposal.dispatchRuntimeSessionId,
           dispatchError: approved.proposal.dispatchError,
