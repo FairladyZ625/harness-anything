@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
@@ -13,7 +13,6 @@ import {
   runMaybe,
   seedTask,
 } from "./runtime-cli.fixtures.ts";
-import { readFileSync } from "node:fs";
 import {
   livingDeliverableProtocol,
   taskPlanSection,
@@ -23,6 +22,7 @@ import {
 import { safePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { runCommandThroughDaemon } from "../src/daemon/client.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
+import { waitForValue } from "../../../tools/fixtures/wait-for-condition.ts";
 import { renderedRulingContract, writeIdentity, workerWorktreeBoundary } from "./runtime-cli.fixtures.ts";
 
 test("a worker escalation blocks its task until the owner answers and resumes with that answer", async (context) => {
@@ -175,10 +175,21 @@ test(
     // #1572: with HARNESS_ACTOR declared, the daemon request log is the server-side proof that executor
     // attribution still arrives — inside the action for repo.task.run writes (task start) and at payload
     // level for preset methods (task create) — while nothing is ever rejected for an undeclared executor.
-    const requests = readFileSync(path.join(root, ".harness", "requests", "requests.jsonl"), "utf8")
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    // Request logging runs asynchronously after the JSON-RPC reply is written, so wait for the task-start row.
+    const requestLogPath = path.join(root, ".harness", "requests", "requests.jsonl");
+    const requests = await waitForValue(() => {
+      if (!existsSync(requestLogPath)) return null;
+      const lines = readFileSync(requestLogPath, "utf8").trim().split("\n").filter(Boolean);
+      const parsed: Array<Record<string, unknown>> = [];
+      for (const line of lines) {
+        try {
+          parsed.push(JSON.parse(line) as Record<string, unknown>);
+        } catch {
+          return null;
+        }
+      }
+      return parsed.some((entry) => entry.method === "repo.task.run" && entry.command === "task-start") ? parsed : null;
+    }, "daemon request log task-start entry");
     assert.deepEqual(
       requests.find((entry) => entry.method === "repo.task.run" && entry.command === "task-start")?.executor,
       { kind: "agent", id: "runtime-cli-test" },

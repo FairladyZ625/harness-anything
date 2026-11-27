@@ -32,6 +32,7 @@ import { ensureCliDaemonRunning } from "./autostart.ts";
 import { firstCliCommandIndex } from "../cli/command-index.ts";
 import { daemonFailure, daemonOption, resolveFleetEdgeSyncInputs } from "./control-support.ts";
 import { assessDaemonStatus, status } from "./control-status.ts";
+import { dispatchClientLocalControl } from "./edge-upgrade-control.ts";
 import { fleetRepointControl } from "./fleet-repoint-control.ts";
 const fleetNumber = { port: /^(?:0|[1-9][0-9]{0,4})$/u, quota: /^[1-9][0-9]{0,15}$/u };
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
@@ -68,14 +69,17 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     );
     return 1;
   }
-  if (argv[at] === "gui") {
-    const { runGuiLaunch } = await import("../cli/gui-launch.ts");
-    return runGuiLaunch(argv, {}, renderReceipt);
-  }
-  if (argv[at] === "fde") {
-    const { runFdeLaunch } = await import("../cli/fde-launch.ts");
-    return runFdeLaunch(argv, {}, renderReceipt);
-  }
+  const clientLocal = await dispatchClientLocalControl(
+    argv,
+    at,
+    command,
+    userRoot,
+    daemonId,
+    invokingRoot,
+    renderReceipt,
+    finish,
+  );
+  if (clientLocal !== undefined) return clientLocal;
   try {
     if (command === "probe") {
       const { runDaemonProbeControl } = await import("./probe/probe-control.ts");

@@ -44,12 +44,8 @@ test("Fleet sessions stay connected across build identities and return an upgrad
     });
   assert.equal(peer.centerBuildCommit, daemonBuildStamp().commit);
   assert.match(peer.versionWarning ?? "", /build differs/u);
-  assert.match(peer.versionWarning ?? "", /git pull --ff-only, then build CLI and daemon/u);
-  assert.ok(
-    center
-      .status()
-      .versionWarnings.some((warning) => warning.includes("git pull --ff-only, then build CLI and daemon")),
-  );
+  assert.match(peer.versionWarning ?? "", /ha edge upgrade/u);
+  assert.ok(center.status().versionWarnings.some((warning) => warning.includes("ha edge upgrade")));
   // Host status reads these warnings too; consulting host status here would recurse in a real host.
   const status = t.mock.method(fixture.host, "status", () => {
     assert.fail("version warnings must read repository associations without re-entering host status");
@@ -131,7 +127,7 @@ test("incompatible Fleet hello rejects with the actual node and center builds an
   assert.equal(frame.code, "protocol_version_unsupported");
   assert.ok(frame.message.includes(`node ${fixture.subject.nodeId} build=${edgeBuild}`), frame.message);
   assert.ok(frame.message.includes(`center build=${daemonBuildStamp().commit ?? "unknown"}`), frame.message);
-  assert.match(frame.message, /git pull --ff-only, then build CLI and daemon on the node and center/u);
+  assert.match(frame.message, /ha edge upgrade on the edge node/u);
   assert.deepEqual(reviewDispatchDiagnostic(frame), { code: frame.code, message: frame.message });
 });
 test("version metadata stays outside the closed dispatch read result", async (t) => {

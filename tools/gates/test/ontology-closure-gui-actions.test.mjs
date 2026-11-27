@@ -55,8 +55,9 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: non-main packages/gui action candidate
   // two net daemon-local-state sites raise the registered census from 343 to 372.
   // dec_4276A0CEACD4D402F122295925/CH1 (+4 -> 376); dec_AAEC26DBB6F23BDF80876ABB2C/CH5 (+3 -> 379); dec_166C5D2EAB57F8BCA3F15107E2/CH2,CH4 (+3 -> 382).
   // task_211789c20aee8c48a40535b9ac adds five registered Resident CEO GUI actions (382 -> 387);
-  // task_0c21f32136a93ca9edd13b16e5 adds four Resident CEO history/proposals/approve/reject GUI actions (387 -> 391).
-  assert.equal(nonMainGuiActions.length, 391);
+  // task_0c21f32136a93ca9edd13b16e5 adds four Resident CEO history/proposals/approve/reject GUI actions (387 -> 391);
+  // task_4b278f23905b1cb00ab2c6d2fd adds four host-local edge-upgrade GUI actions (391 -> 395).
+  assert.equal(nonMainGuiActions.length, 395);
   assert.deepEqual(
     nonMainGuiActions.filter((row) => row.status !== "registered"),
     [],
@@ -132,7 +133,11 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: non-main packages/gui action candidate
     [],
   );
   const guiLocalState = nonMainGuiActions.filter((row) => row.declarationRef === "action:daemon-local-state");
-  assert.equal(guiLocalState.length, 113);
+  assert.equal(guiLocalState.length, 117);
+  for (const fn of ["status:", "run:", "relaunch:"]) {
+    assert.equal(declOf(`edge-upgrade-preload.ts#edgeUpgradePreloadApi.${fn}`), "action:daemon-local-state");
+  }
+  assert.equal(declOf("UpdatesSettingsPanel.tsx#UpdatesSettingsPanel.executeEdgeAction:"), "action:daemon-local-state");
   assert.deepEqual(
     guiLocalState.filter((row) =>
       /api-client\.ts|todos-client\.ts|schedules-client\.ts|entity-locator-client\.ts|fleet-client\.ts|access-admin-preload\.ts/u.test(

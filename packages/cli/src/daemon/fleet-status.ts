@@ -48,7 +48,7 @@ export function renderDaemonFleetStatus(result: JsonObject): string {
   if (overview.nodes.some((node) => needsFleetUpgrade(node.lastFailure)))
     lines.push(
       "",
-      "WARNING Fleet protocol or event shape is incompatible. Upgrade the edge and center with git pull --ff-only, then build CLI and daemon.",
+      "WARNING Fleet protocol or event shape is incompatible. Upgrade the edge node with ha edge upgrade (and update the center if behind).",
     );
   lines.push("", `links ${overview.links.length}`);
   for (const link of overview.links)

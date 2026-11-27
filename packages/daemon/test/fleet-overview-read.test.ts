@@ -342,7 +342,7 @@ test("the validator accepts a real overview and rejects each pinned negative fix
       versionWarning: {
         centerBuildCommit: "a".repeat(40),
         localBuildCommit: "b".repeat(40),
-        upgradeCommand: "git pull --ff-only, then build CLI and daemon",
+        upgradeCommand: "ha edge upgrade",
       },
     }),
   );
@@ -350,13 +350,11 @@ test("the validator accepts a real overview and rejects each pinned negative fix
   assert.deepEqual(good.versionWarning, {
     centerBuildCommit: "a".repeat(40),
     localBuildCommit: "b".repeat(40),
-    upgradeCommand: "git pull --ff-only, then build CLI and daemon",
+    upgradeCommand: "ha edge upgrade",
   });
   assert.ok(good.warnings.length === 1);
   const invalidWarning = { ...good, versionWarning: { ...good.versionWarning, upgradeCommand: "ha daemon update" } };
-  assert.deepEqual(validateFleetOverview(invalidWarning), [
-    "versionWarning.upgradeCommand must be git pull --ff-only, then build CLI and daemon",
-  ]);
+  assert.deepEqual(validateFleetOverview(invalidWarning), ["versionWarning.upgradeCommand must be ha edge upgrade"]);
   const negative = JSON.parse(
     readFileSync(new URL("../fixtures/contracts/daemon-fleet-overview-invalid.json", import.meta.url), "utf8"),
   );

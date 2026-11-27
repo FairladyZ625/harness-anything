@@ -43,6 +43,7 @@ import { registerCenterSettingsIpc } from "./center-settings-ipc.ts";
 import { createCenterSwitchPort } from "./center-switch-port.ts";
 import { EDGE_JOIN_LINK_CHANNEL } from "@harness-anything/authorization/gui/edge-join-entry-contract";
 import { edgeJoinLinkFromArgv, registerEdgeJoinEntryIpc } from "./edge-join-entry-ipc.ts";
+import { registerEdgeUpgradeIpc } from "./edge-upgrade-ipc.ts";
 import { registerArtifactOpenIpc } from "./artifact-open-ipc.ts";
 import { registerLocalDocIpc } from "./local-doc-ipc.ts";
 import {
@@ -663,6 +664,16 @@ export async function startGuiApp(): Promise<void> {
   if (argvLink !== null) deliverEdgeJoinLink(argvLink);
   const updaterWindow = BrowserWindow.getAllWindows()[0];
   if (updaterWindow) registerUpdaterIpc(registrar, updaterWindow, trustPolicy, autoUpdater, app.getVersion());
+  registerEdgeUpgradeIpc(registrar, trustPolicy, {
+    isPackaged: app.isPackaged,
+    userRoot: () => guiDaemonUserRoot(),
+    daemonId: () => guiGlobalDaemonTarget().daemonId,
+    targets: () => BrowserWindow.getAllWindows(),
+    relaunch: () => {
+      app.relaunch();
+      app.exit(0);
+    },
+  });
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) projectWindows.newWindow(null);
   });

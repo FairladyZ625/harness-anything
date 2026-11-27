@@ -39,6 +39,7 @@
     "src/api/local-doc-contract.ts",
     "src/api/project-directory-contract.ts",
     "src/api/project-window-contract.ts",
+    "src/api/edge-upgrade-contract.ts",
     "src/api/update-contract.ts",
     "src/api/renderer-dto.ts"
   ],

@@ -213,7 +213,7 @@ export interface FleetOverviewResult {
   readonly versionWarning?: {
     readonly centerBuildCommit: string;
     readonly localBuildCommit: string;
-    readonly upgradeCommand: "git pull --ff-only, then build CLI and daemon";
+    readonly upgradeCommand: "ha edge upgrade";
   };
   /** 事件归属语义与读面限制的显式声明(渲染时如实展示,不隐含)。 */
   readonly notes: readonly string[];
@@ -553,8 +553,8 @@ export function validateFleetOverview(value: unknown): readonly string[] {
       if (typeof warning.centerBuildCommit !== "string")
         errors.push("versionWarning.centerBuildCommit must be a string");
       if (typeof warning.localBuildCommit !== "string") errors.push("versionWarning.localBuildCommit must be a string");
-      if (warning.upgradeCommand !== "git pull --ff-only, then build CLI and daemon")
-        errors.push("versionWarning.upgradeCommand must be git pull --ff-only, then build CLI and daemon");
+      if (warning.upgradeCommand !== "ha edge upgrade")
+        errors.push("versionWarning.upgradeCommand must be ha edge upgrade");
     }
   }
   for (const field of ["nodes", "links", "events", "notes", "warnings"] as const) {

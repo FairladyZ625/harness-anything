@@ -43,6 +43,10 @@ const catalogs: readonly Catalog[] = [
           "Home repository roll-up reports an attached cell as online, warming, unavailable, or offline when unloaded.",
         repoAttachPhaseWords:
           "Repository cell startup opens storage, recovers durable state, catches up projections, or restores runtime sessions.",
+        edgeUpgradeOutcomeWords:
+          "An edge node upgrade applied a new build, was already current, rolled back to the prior build, failed, or failed to roll back.",
+        edgeUpgradeStateOutcomeWords:
+          "The persisted local edge-upgrade state records an upgrade in progress, upgraded, rolled back, or failed.",
       },
       Migration: {
         migrationPhaseWords:

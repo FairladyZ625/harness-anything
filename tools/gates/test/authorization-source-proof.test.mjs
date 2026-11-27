@@ -1413,7 +1413,8 @@ test("all live non-main GUI client and daemon-local-state sources pass source pr
   assert.equal(guiClientPairs.length, 263);
   assert.equal(new Set(guiClientPairs.map(({ action }) => action.kind)).size, 97);
   // Stream cancellation adds two local support sites, with source proof for every entry.
-  assert.equal(guiLocalSources.length, 113);
+  // task_4b278f23905b1cb00ab2c6d2fd adds 4 host-local edge-upgrade callsites (3 preload IPC channels + UpdatesSettingsPanel.executeEdgeAction).
+  assert.equal(guiLocalSources.length, 117);
 
   const allSources = [...guiClientPairs.map(({ source }) => source), ...guiLocalSources];
   const graph = baselineFlowGraph();

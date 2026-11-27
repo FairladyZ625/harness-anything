@@ -130,13 +130,21 @@ irm https://raw.githubusercontent.com/FairladyZ625/harness-anything/main/scripts
 安装器不改写 shell 启动文件。Linux 会设置 Electron 所需的 `chrome-sandbox`
 属主与 setuid 权限（必要时使用 `sudo`）。
 
-### 升级与无外网中心
+### 升级边缘节点与无外网中心
 
-再次运行同一命令会先 `git pull --ff-only` 升级源码，再构建。依赖（`package-lock.json` 与各 workspace 的
-`package.json`）未变时跳过 `npm ci`；构建产物更新后，正在运行的 daemon 会以 build-superseded 自行退出并由新构建接管，
-不需要手工重启。
+已接入的边缘节点直接执行一条命令，或打开 GUI 的「设置 → 更新」触发同一升级入口：
 
-中心机访问不了 GitHub 时，先让另一台能访问仓库的机器把提交推到中心，再在中心合并并安装：
+```bash
+ha edge upgrade [--to <commit-or-ref>] [--offline] [--rollback]
+```
+
+- 省略 `--to` 时自动读取中心当前提交，复用 `scripts/install-source.{sh,ps1}` 拉取并构建 daemon、CLI 与 GUI（依赖未变时跳过 `npm ci`）。
+- 构建完成后自动触发 `build_superseded` 交棒给新 daemon（保持在飞 detached runtime 被新 daemon 收养），并执行首次同步确认。
+- 构建、交棒或首次同步任一步失败时自动回退到旧提交；也可随时用 `ha edge upgrade --rollback` 手工回退到上次升级前的提交。
+- 多个边缘节点可并发升级，无需中心锁或串行协调；若升级伴随全量基线重拉，中心复用单次快照缓存与背压队列。
+- 升级后退出正在运行的旧 GUI 窗口并重新运行 `ha gui`（或在 GUI 更新页点击「重启 GUI」）加载新前端包。
+
+中心机访问不了 GitHub 时，先让另一台能访问仓库的机器把提交推到中心，再在中心合并并离线安装（边缘侧可加 `--offline --to <commit>`）：
 
 ```bash
 # 在另一台机器上执行（center 是中心机的 SSH 别名）

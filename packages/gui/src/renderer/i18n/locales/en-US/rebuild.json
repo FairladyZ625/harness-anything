@@ -405,6 +405,7 @@
   "collaboration.fleetSummary": "{nodes} nodes · {executing} executing · {events} events",
   "collaboration.readFailed": "The fleet overview could not be read: {error}",
   "collaboration.versionWarning": "Fleet protocol or event shape is incompatible. Upgrade the edge and center: {command}.",
+  "collaboration.openUpdates": "Open updates",
   "gui.versionBehind": "GUI build {gui} is behind daemon {daemon}. Rebuild the GUI: {command}, then restart Electron (a running window keeps its old bundle).",
   "collaboration.topologyTitle": "Fleet topology",
   "collaboration.topologyNote": "Click a node to see what it is doing and its internal state",

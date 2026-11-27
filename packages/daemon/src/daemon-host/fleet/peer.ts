@@ -139,7 +139,7 @@ export interface FleetReplicaStreamOptions extends FleetPeerOptions {
 export interface FleetVersionWarning {
   readonly centerBuildCommit: string;
   readonly localBuildCommit: string;
-  readonly upgradeCommand: "git pull --ff-only, then build CLI and daemon";
+  readonly upgradeCommand: "ha edge upgrade";
   readonly message: string;
 }
 export interface FleetEdgeView {
@@ -280,7 +280,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
                     ? {
                         centerBuildCommit: frame.centerBuildCommit,
                         localBuildCommit,
-                        upgradeCommand: "git pull --ff-only, then build CLI and daemon",
+                        upgradeCommand: "ha edge upgrade",
                         message: frame.versionWarning,
                       }
                     : null,
@@ -822,7 +822,7 @@ function withFleetVersionWarning(
     versionWarning: {
       centerBuildCommit: session.centerBuildCommit,
       localBuildCommit: daemonBuildStamp().commit,
-      upgradeCommand: "git pull --ff-only, then build CLI and daemon",
+      upgradeCommand: "ha edge upgrade",
     },
   };
 }

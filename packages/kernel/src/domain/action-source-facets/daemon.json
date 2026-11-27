@@ -763,6 +763,12 @@
         "order": 495
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/client/edge-upgrade-support.ts#defaultRunSourceInstaller.child:341091e61ae03dd835f0e01e69a9354f",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn"
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/client/local-daemon-target.ts#assertRuntimeCredentialEndpoint:d4cf8dd198d0a8afde3e4f8b4c483070",
         "route": "daemon-local-state",
         "role": "technical-port",

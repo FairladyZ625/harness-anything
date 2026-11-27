@@ -68,6 +68,9 @@ const GUI_LOCAL_IPC_CHANNELS = new Set([
   "UPDATE_CHECK_CHANNEL",
   "UPDATE_INSTALL_CHANNEL",
   "UPDATE_STATUS_CHANNEL",
+  "EDGE_UPGRADE_STATUS_CHANNEL",
+  "EDGE_UPGRADE_RUN_CHANNEL",
+  "EDGE_UPGRADE_RELAUNCH_CHANNEL",
 ]);
 
 const GUI_DIRECT_IPC_CHANNELS = new Map([
@@ -235,7 +238,8 @@ function resolveGuiPreloadIpcLeaf(graph, callExpr, portKey, env) {
     portKey === "node_modules/electron/electron.d.ts#Electron.IpcRenderer.invoke" ||
     portKey === "packages/gui/src/preload/access-admin-preload.ts#accessAdminPreloadApi.invoke" ||
     portKey === "packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.invoke" ||
-    portKey === "packages/gui/src/preload/edge-join-entry-preload.ts#edgeJoinEntryPreloadApi.invoke";
+    portKey === "packages/gui/src/preload/edge-join-entry-preload.ts#edgeJoinEntryPreloadApi.invoke" ||
+    portKey === "packages/gui/src/preload/edge-upgrade-preload.ts#edgeUpgradePreloadApi.invoke";
   if (!isPreloadInvoke) return null;
   const chArg = unwrap(callExpr.arguments[0]);
   const payloadArg = callExpr.arguments[1];
