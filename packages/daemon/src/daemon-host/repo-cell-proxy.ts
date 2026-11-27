@@ -296,7 +296,8 @@ export async function openRepoCellProxy(
       ) as Awaited<ReturnType<RepoCell["run"]>>;
     if (
       repoCellExecutionForAction(action.kind) === "query-only" &&
-      !(action.kind === "receipt-show" && action.waitFor !== undefined)
+      !(action.kind === "receipt-show" && action.waitFor !== undefined) &&
+      !(action.kind === "runtime-collect" && action.waitEvent === true)
     ) {
       try {
         return await query("run", [action, supervisor.status()], binding, signal);

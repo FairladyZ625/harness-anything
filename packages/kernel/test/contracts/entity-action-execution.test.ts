@@ -201,6 +201,14 @@ test("canonical-stream kind bindings resolve to declared Actions on their stream
     assert.equal(action?.execution?.ingress, "runtime-run");
     assert.equal(action?.execution?.implementation, "catalog-runtime");
   }
+  // dec_A7A88E2079CA1DE548234A6CC3: runtime-report is the canonical runtime-session/report action.
+  {
+    const action = getExecutableEntityAction("runtime-report");
+    assert.equal(action?.id, "report");
+    assert.equal(action?.target.kind, "runtime-session");
+    assert.equal(action?.execution?.ingress, "runtime-report");
+    assert.equal(action?.execution?.implementation, "catalog-runtime");
+  }
   for (const ingress of [
     "runtime-batch",
     "runtime-spawn",
@@ -216,6 +224,7 @@ test("canonical-stream kind bindings resolve to declared Actions on their stream
     explainEntityKind("runtime-session").transitions.actions.map(({ id }) => id),
     [
       "run",
+      "report",
       "runtime_session_started",
       "runtime_session_provider_bound",
       "runtime_session_task_bound",
@@ -356,6 +365,7 @@ test("RuntimeSession explains adoption, operation replay, center arbitration, an
     runtimeRun = getExecutableEntityAction("runtime-run");
   assert.deepEqual(explanation.transitions.available, [
     "run",
+    "report",
     "runtime_session_started",
     "runtime_session_provider_bound",
     "runtime_session_task_bound",

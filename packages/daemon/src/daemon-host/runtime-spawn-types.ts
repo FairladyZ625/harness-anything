@@ -516,6 +516,11 @@ export interface RuntimeSpawnerInput {
     },
     binding: RuntimeBinding,
   ) => Promise<{ readonly event?: AgentRuntimeEventV1; readonly receipt: JsonObject }>;
+  /** Center-only canonical inbox append; only wired by RepoCell (never on Edge nodes). */
+  readonly commitRuntimeInboxBundles?: (
+    bundles: readonly Parameters<CanonicalEventStore["append"]>[0][],
+    binding: RuntimeBinding,
+  ) => Promise<{ readonly revision: number }> | { readonly revision: number };
   /** Serialize prepared recovery mutations; external observation and authorization run before this port. */
   readonly writeRuntime?: <T>(work: () => T | Promise<T>, binding: RuntimeBinding) => Promise<T>;
   /** Cell-default local binding (writer fence + current operator session) for writes the cell owns

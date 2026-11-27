@@ -493,13 +493,26 @@ export function readTaskRuntimeBatchPage(
   };
 }
 
-/** One task's progress events in revision order; the shared body of every progress read. */
-export function readTaskProgressRows(db: DatabaseSync, taskId: string): readonly TaskProgressEventV1[] {
-  return queryRows<{ readonly event_json: string }>(
-    db,
-    "SELECT event_json FROM task_progress WHERE task_id = ? ORDER BY workspace_revision",
-    taskId,
-  ).map((row) => JSON.parse(String(row.event_json)) as TaskProgressEventV1);
+/** One task's progress events in revision order; pushes optional revision lower bound and limit into SQL. */
+export function readTaskProgressRows(
+  db: DatabaseSync,
+  taskId: string,
+  options?: { readonly afterRevision?: number; readonly limit?: number },
+): readonly TaskProgressEventV1[] {
+  const params: (string | number)[] = [taskId];
+  let sql = "SELECT event_json FROM task_progress WHERE task_id = ?";
+  if (options?.afterRevision !== undefined) {
+    sql += " AND workspace_revision > ?";
+    params.push(options.afterRevision);
+  }
+  sql += " ORDER BY workspace_revision ASC";
+  if (options?.limit !== undefined) {
+    sql += " LIMIT ?";
+    params.push(options.limit);
+  }
+  return queryRows<{ readonly event_json: string }>(db, sql, ...params).map(
+    (row) => JSON.parse(String(row.event_json)) as TaskProgressEventV1,
+  );
 }
 
 export function createTaskRelationProjectionTable(db: DatabaseSync): void {

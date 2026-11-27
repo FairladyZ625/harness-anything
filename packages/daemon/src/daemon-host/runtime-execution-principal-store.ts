@@ -27,7 +27,9 @@ export function recordRuntimeExecutionPrincipal(
     role: header.taskId
       ? header.role === "reviewer"
         ? "reviewer"
-        : "implementation"
+        : header.role === "coordinator"
+          ? "coordinator"
+          : "implementation"
       : header.role === "read-only"
         ? "read-only"
         : "session",
@@ -96,7 +98,7 @@ function isPersistedPrincipal(
     typeof value.dispatchId === "string" &&
     (value.role === "session" || value.role === "read-only"
       ? value.taskId === null && value.executionId === null
-      : (value.role === "implementation" || value.role === "reviewer") &&
+      : (value.role === "implementation" || value.role === "coordinator" || value.role === "reviewer") &&
         typeof value.taskId === "string" &&
         typeof value.executionId === "string") &&
     (value.reviewDecisionId === undefined || typeof value.reviewDecisionId === "string") &&

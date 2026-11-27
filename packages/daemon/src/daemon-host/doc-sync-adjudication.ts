@@ -87,5 +87,7 @@ export function scannerSubmit(input: Input): DocCandidateScan {
 function docScanExecutionId(input: Input): string | null {
   if (typeof input.action.executionId === "string") return input.action.executionId;
   const principal = input.binding.executionPrincipal;
-  return principal?.role === "implementation" && principal.taskId !== null ? principal.executionId : null;
+  return (principal?.role === "implementation" || principal?.role === "coordinator") && principal.taskId !== null
+    ? principal.executionId
+    : null;
 }

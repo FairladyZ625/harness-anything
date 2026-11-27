@@ -440,12 +440,12 @@ export function taskQueryApi(
           ? readPeerRequestRows(db, query, cut)
           : { status: "pending", watermark: cut.watermark, sourceRevision: cut.sourceRevision };
       }),
-    readProgress: (taskId) =>
+    readProgress: (taskId, options) =>
       withDatabase(projectionPath, readHead, (db) => {
         const cut = readProjectionCut(db, readHead);
         return {
           status: cut.status,
-          rows: readTaskProgressRows(db, taskId),
+          rows: readTaskProgressRows(db, taskId, options),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };

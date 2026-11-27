@@ -329,6 +329,20 @@ export const READ_PROBES = Object.freeze({
     },
     size: () => 1,
   },
+  "runtime-collect-since-history": {
+    // F-B8F72105: incremental collect --since on a task with long/large progress & dispatch history
+    // must push the revision lower bound into SQL (dec_EF5F3820 CH4) so cost stays O(1).
+    reads: ["command:runtime-collect"],
+    run: ({ runtime, projection }) =>
+      runtime.run(
+        { kind: "runtime-collect", taskId: "history-task", since: projection.readCut().watermark },
+        runtime.binding,
+      ),
+    size: (value) => {
+      const parsed = JSON.parse(value.evidence);
+      return parsed.reports.length + parsed.inbox.length;
+    },
+  },
   "startup-adopt": {
     reads: ["background:startup-adopt"],
     run: ({ recovery }) => adoptRuntimes(recovery),

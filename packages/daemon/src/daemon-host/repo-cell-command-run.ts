@@ -2,6 +2,7 @@ import { enqueueRuntimePublication } from "./runtime-publication-queue.ts";
 import { continueSubmittedTask } from "./repo-cell-submit.ts";
 import { continueReviewRework } from "./task-return-dispatch.ts";
 import { runCompletionSources } from "./task-witness-runner.ts";
+import { executeRuntimeCollectAction } from "./runtime-report-collect-action.ts";
 import { requireSquadBusinessAction } from "./squad-runtime-ingress.ts";
 import { executionDelegationPath, readExecutionDelegations } from "./execution-delegation-store.ts";
 import {
@@ -294,12 +295,24 @@ export function makeRepoCellCommandRunner(
       return Promise.resolve()
         .then(async () => {
           executionStarted?.();
-          const admission = admitRepoMode(context.mode, command, binding.source);
-          if (!admission.ok) throw context.cellCodedError(admission.code, admission.nextAction);
-          if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-          return context.withHumanSummary(await context.executeAction(action, binding));
+          const readOnce = async (): Promise<WriteReceipt> => {
+            const admission = admitRepoMode(context.mode, command, binding.source);
+            if (!admission.ok) throw context.cellCodedError(admission.code, admission.nextAction);
+            if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
+            return context.withHumanSummary(await context.executeAction(action, binding)) as WriteReceipt;
+          };
+          const initial = await readOnce();
+          if (action.kind === "runtime-collect" && action.waitEvent === true && initial.outcome === "applied")
+            return await executeRuntimeCollectAction(
+              context.input.repoId,
+              action,
+              initial,
+              readOnce,
+              context.cellCodedError,
+              signal,
+            );
+          return initial;
         })
-        .then((receipt) => receipt as WriteReceipt)
         .catch((error) => failAction(context, action, binding, error));
     const appendCompletionWarnings = async <T extends WriteReceiptDraft | WriteReceipt | SquadControlResult>(
       receipt: T,

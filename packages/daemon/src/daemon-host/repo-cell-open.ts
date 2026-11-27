@@ -605,6 +605,11 @@ export async function openRepoWriterCell(
     handoffTaskLease: (handoff) => handoffTaskLease(handoff),
     authorizeRuntimeContinuation: async (payload, binding, actionId) =>
       await authorizeRuntimeAction({ ...payload, kind: "runtime-spawn" }, binding, actionId),
+    commitRuntimeInboxBundles: async (bundles, binding) => {
+      const final = bundles[bundles.length - 1]!;
+      await authorizeRuntimeAction({ kind: "runtime-steer" }, binding, `runtime-steer-inbox:${final.event.opId}`);
+      return store.append({ ...final, preceding: bundles.slice(0, -1) });
+    },
     commitRuntimeEvent: async (draft, binding) => {
       const action = { kind: "event" as const, ...draft },
         livenessControlRequest =

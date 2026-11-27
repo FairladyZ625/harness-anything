@@ -22,6 +22,11 @@ import {
   runtimeExecutionActor,
   type RuntimeExecutionPrincipal,
 } from "./runtime-execution-credential.ts";
+import {
+  requireCoordinatorActionScope,
+  requireCurrentCoordinatorScope,
+  type CoordinatorScopeProjection,
+} from "./runtime-coordinator-scope.ts";
 
 /**
  * The canonical Kernel repository-read action has no command descriptor of its own, so the
@@ -189,6 +194,10 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
     });
   if (selfApprovalActions.has(action.kind) || commandClass === "arbiter" || commandClass === "admin")
     throw executionCredentialRejected("self-approval");
+  if (p.role === "coordinator") {
+    requireCoordinatorActionScope(p, action, selectedDocPaths(action) !== null);
+    return;
+  }
   if (
     p.role === "implementation" &&
     action.kind === "task-amend" &&
@@ -231,7 +240,7 @@ export function isCurrentSubmittedWorkerWrite(input: {
 }): boolean {
   const { action, taskId, executionId, role, snapshot } = input;
   if (
-    role !== "implementation" ||
+    (role !== "implementation" && role !== "coordinator") ||
     snapshot.lease != null ||
     action.taskId !== taskId ||
     (action.kind !== "task-push" && !(action.kind === "task-submit" && action.amend === true)) ||
@@ -251,9 +260,9 @@ export function selectedDocPaths(action: RepoTaskAction): readonly string[] | nu
     : null;
 }
 
-/** One owner-approved path grant, copied from Task metadata only for implementation credentials. */
+/** One owner-approved path grant, copied from Task metadata only for implementation/coordinator credentials. */
 export function taskExecutionSurfaces(task: TaskV2 | null, role: RuntimeExecutionPrincipal["role"]): readonly string[] {
-  return role === "implementation" ? (task?.metadata?.surfaces ?? []) : [];
+  return role === "implementation" || role === "coordinator" ? (task?.metadata?.surfaces ?? []) : [];
 }
 
 /** Task package ownership still wins; declared surfaces only admit non-task authored documents. */
@@ -262,7 +271,7 @@ export function requireExecutionDocumentSelection(
   paths: readonly unknown[],
   resolve: (path: string) => { readonly path: string; readonly taskId: string | null },
 ): void {
-  if (principal.role !== "implementation" || principal.taskId === null) return;
+  if ((principal.role !== "implementation" && principal.role !== "coordinator") || principal.taskId === null) return;
   const surfaces = (principal.surfaces ?? []).map((surface) => {
     const directory = surface.endsWith("/**"),
       base = directory ? surface.slice(0, -3) : surface;
@@ -288,7 +297,9 @@ export function requireCurrentExecutionScope(input: {
   readonly projection: Pick<
     TaskProjection,
     "read" | "readRuntimeSession" | "readRuntimeDispatch" | "readDispatchLifecycle" | "currentLease"
-  >;
+  > & {
+    readonly readRuntimeDispatchById?: TaskProjection["readRuntimeDispatchById"];
+  };
   readonly now: string;
   /** Admits owner/host physical exit & archive settlement after the 12h worker lease expires. */
   readonly hostSettlement?: boolean;
@@ -556,6 +567,15 @@ export function requireCurrentExecutionScope(input: {
         role: p.role,
         detail: `Dispatch ${p.dispatchId} is a reviewer dispatch and cannot authorize ${p.role} writes.`,
       });
+    if (p.role === "coordinator" && !ingress) {
+      if (dispatch.payload.role !== "coordinator")
+        throw executionCredentialRejected("scope", {
+          dispatchId: p.dispatchId,
+          role: p.role,
+          detail: `Dispatch ${p.dispatchId} is not a coordinator dispatch (actual role: ${String(dispatch.payload.role)}).`,
+        });
+      requireCurrentCoordinatorScope(p, input.action, input.projection as CoordinatorScopeProjection);
+    }
     return;
   }
 }

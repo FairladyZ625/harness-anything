@@ -843,7 +843,9 @@ export function bindVerifiedExecutorClaim(input: {
   readonly projection: Pick<
     TaskProjection,
     "read" | "readRuntimeSession" | "readRuntimeDispatch" | "readDispatchLifecycle" | "currentLease" | "readDocument"
-  >;
+  > & {
+    readonly readRuntimeDispatchById?: TaskProjection["readRuntimeDispatchById"];
+  };
   readonly now: string;
   readonly executionDelegations?: readonly ExecutionDelegationRecord[];
 }): { readonly action: RepoTaskAction; readonly binding: RepoCellBinding } {
@@ -928,8 +930,16 @@ export function bindVerifiedExecutorClaim(input: {
       return { action, binding: { ...input.binding, actor: runtimeActor } };
     throw invalidExecutorBindingFor(input, raw, "The reviewer is not bound to this submitted execution.");
   }
-  const exactBinding =
-      taskId === null
+  const coordinatorChildControl =
+      input.binding.executionPrincipal?.role === "coordinator" &&
+      input.binding.executionPrincipal.taskId !== null &&
+      (action.kind === "runtime-spawn" ||
+        action.kind === "runtime-run" ||
+        action.kind === "runtime-steer" ||
+        action.kind === "runtime-cancel"),
+    exactBinding = coordinatorChildControl
+      ? session.taskBindings.find((candidate) => candidate.taskId === input.binding.executionPrincipal!.taskId)
+      : taskId === null
         ? session.taskBindings.length === 1
           ? session.taskBindings[0]
           : undefined
@@ -983,7 +993,7 @@ export function bindVerifiedExecutorClaim(input: {
         action,
         taskId: taskBinding.taskId,
         executionId: taskBinding.executionId,
-        role: "implementation",
+        role: input.binding.executionPrincipal?.role ?? "implementation",
         snapshot: submittedCut,
       }),
     submittedPush = action.kind === "task-push" && submittedWorkerWrite,

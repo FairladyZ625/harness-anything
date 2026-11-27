@@ -38,6 +38,7 @@ import type { CommandAction } from "@harness-anything/application/internal/comma
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
 import { readEffectiveCloseoutGates, readRepositorySettings } from "./repo-cell-settings-state.ts";
 import { readCompletionDeliveryStatus } from "./task-completion-read.ts";
+import { observeProjectionCommitForCollectWaiters } from "./runtime-report-collect-action.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type {
   RepoCellAttachProgress,
@@ -245,10 +246,21 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
           watermark: progress.watermark,
         }),
     });
-    const closeProjection = projection.close;
+    const baseProjection = projection,
+      applyProjection = projection.apply,
+      closeProjection = projection.close;
+    let projectionClosed = false;
     projection = {
-      ...projection,
+      ...baseProjection,
+      apply: (event, plan) => {
+        const receipt = applyProjection(event, plan);
+        queueMicrotask(() => {
+          if (!projectionClosed) observeProjectionCommitForCollectWaiters(context.input.repoId, baseProjection, event);
+        });
+        return receipt;
+      },
       close: () => {
+        projectionClosed = true;
         materializationReader?.close();
         closeProjection();
       },

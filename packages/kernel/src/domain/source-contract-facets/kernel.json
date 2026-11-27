@@ -1180,7 +1180,7 @@
         "explain": "WriteReceipt: Receipt/guidance/diagnostic wire decoding.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/receipt-domain-registry.ts#validateWriteReceipt:f7889a91a93a9a571641c29132b356f1",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/receipt-domain-registry.ts#validateWriteReceipt:a2d9371a1408c2acbf5caab62c8f4ce1",
             "route": "packages/kernel/src/domain/receipt-domain-registry.ts#validateWriteReceipt"
           }
         ],

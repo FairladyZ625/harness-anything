@@ -371,6 +371,13 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         code: "invalid_field",
       }),
       cliInput("--limit", "single", false, { code: "invalid_field" }, { pathKind: "non-path", projection: "number" }),
+      cliInput(
+        "--cursor",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", description: "Resume paginated runtime session listing from page.nextCursor." },
+      ),
     ],
   }),
   defineRepoReadCommand({
@@ -413,8 +420,9 @@ export const runtimeFleetProtocolCommands = Object.freeze([
   defineRuntimeLocalWriteCommand({
     id: "runtime-steer",
     phase: "Runtime-B",
-    path: ["runtime", "steer", "<runtime-session|dispatch>"],
-    summary: "Interrupt at a safe point and continue the same provider session with additional instructions.",
+    path: ["runtime", "steer", "<runtime-session|dispatch|task>"],
+    summary:
+      "Queue non-destructive follow-up instructions into the task Inbox (auto/queue, covering agy) or interrupt a live steerable session (--mode interrupt).",
     method: "repo.agentRuntime.steer",
     inputs: [
       cliInput(
@@ -422,7 +430,19 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "missing_field" },
-        { pathKind: "non-path", conflictsWith: ["--prompt-file"] },
+        { pathKind: "non-path", conflictsWith: ["--prompt-file", "--message"] },
+      ),
+      cliInput(
+        "--message",
+        "single",
+        false,
+        { code: "missing_field" },
+        {
+          field: "prompt",
+          pathKind: "non-path",
+          description: "Alias for --prompt.",
+          conflictsWith: ["--prompt", "--prompt-file"],
+        },
       ),
       cliInput(
         "--prompt-file",
@@ -434,7 +454,18 @@ export const runtimeFleetProtocolCommands = Object.freeze([
           pathKind: "workspace-file",
           zeroHit: "not-a-selection",
           format: workspacePathFormat,
-          conflictsWith: ["--prompt"],
+          conflictsWith: ["--prompt", "--message"],
+        },
+      ),
+      cliInput(
+        "--mode",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          pathKind: "non-path",
+          enum: ["auto", "queue", "interrupt"],
+          description: "Delivery mode: auto (default; queues for agy/zcode or stopped turns), queue, or interrupt.",
         },
       ),
       // Compare-and-steer (#4372): each stated expectation must still hold when the daemon appends.
@@ -494,6 +525,91 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         false,
         { code: "invalid_field" },
         { pathKind: "non-path", description: "Caller key for idempotent remote steering." },
+      ),
+    ],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "runtime-report",
+    phase: "Runtime-B",
+    path: ["runtime", "report"],
+    summary:
+      "Record a structured milestone, blocker, question, or converged report on a task and notify its parent inbox.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput(
+        "--task",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "taskId", pathKind: "non-path", description: "Canonical task id receiving this structured report." },
+      ),
+      cliInput(
+        "--kind",
+        "single",
+        true,
+        { code: "missing_field" },
+        {
+          field: "reportKind",
+          pathKind: "non-path",
+          enum: ["milestone", "blocker", "question", "converged"],
+          description: "Structured report kind.",
+        },
+      ),
+      cliInput(
+        "--summary",
+        "single",
+        true,
+        { code: "missing_field" },
+        { pathKind: "non-path", description: "Concise report summary written to task progress and parent inbox." },
+      ),
+      cliInput(
+        "--idempotency-key",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", description: "Caller key for idempotent report recording." },
+      ),
+    ],
+  }),
+  defineRepoReadCommand({
+    id: "runtime-collect",
+    phase: "Runtime-B",
+    path: ["runtime", "collect", "<task-or-session-id>"],
+    summary:
+      "Incrementally collect structured reports, inbox notifications, direct child task status, and latest artifacts without waiting for exit.",
+    method: "repo.task.read",
+    inputs: [
+      cliInput(
+        "--since",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          pathKind: "non-path",
+          regex: "^(?:0|[1-9][0-9]*)$",
+          projection: "number",
+          description: "Return incremental reports and inbox events strictly after this workspace revision.",
+        },
+      ),
+      cliInput(
+        "--wait-event",
+        "boolean",
+        false,
+        { code: "invalid_field" },
+        { description: "Wait up to --timeout-ms for a new report, inbox item, or child status change." },
+      ),
+      cliInput(
+        "--timeout-ms",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          pathKind: "non-path",
+          regex: "^(?:0|[1-9][0-9]*)$",
+          projection: "number",
+          requires: ["--wait-event"],
+          description: "Maximum wait duration in milliseconds (0..60000) when --wait-event is set.",
+        },
       ),
     ],
   }),

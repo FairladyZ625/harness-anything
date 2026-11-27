@@ -1280,6 +1280,7 @@ export function openFleetEdgeRuntime(input: {
         {
           runtimeSessionId: controlRequest.runtimeSessionId,
           prompt: controlRequest.prompt,
+          ...(controlRequest.mode !== undefined ? { mode: controlRequest.mode } : {}),
           ...(controlRequest.expected ? { expected: controlRequest.expected as unknown as JsonObject } : {}),
         },
         await controlBinding(request),

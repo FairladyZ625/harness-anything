@@ -220,6 +220,11 @@ export const actionPresentation = {
   "runtime-batch": { domain: "runtime", name: "批量派发运行", description: "提交一批代理运行请求。" },
   "runtime-cancel": { domain: "runtime", name: "取消运行", description: "请求取消正在执行的代理运行。" },
   "runtime-steer": { domain: "runtime", name: "纠偏运行", description: "向正在执行的代理追加指令并续跑。" },
+  "runtime-report": {
+    domain: "runtime",
+    name: "上报运行进展",
+    description: "写入结构化任务里程碑或阻塞报告并通知父邮箱。",
+  },
   "runtime-handoff-export": { domain: "runtime", name: "导出运行交接", description: "导出供接续执行的交接资料。" },
   "runtime-handoff-claim": { domain: "runtime", name: "领取运行交接", description: "领取交接资料并接续执行。" },
   "runtime-handoff-revoke": { domain: "runtime", name: "撤销运行交接", description: "结束交接资料的领取资格。" },
@@ -559,6 +564,7 @@ export const actionDeclarations = Object.freeze([
   // (runtime-spawn-control.ts, settled_no_write receipt). Its receipt still settles through the
   // declared no-write path, so the GUI command keeps canonical-acceptance.
   declare("runtime-steer", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
+  canonical("runtime-report", "runtime-session/report", "repo-write"),
   declare("runtime-handoff-export", "repo-write", hostResidency, {
     receiptSettlement: "canonical-acceptance",
   }),
