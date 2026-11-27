@@ -8,7 +8,7 @@ import test from "node:test";
 import { makeTaskEventReader, openPersistentWriterEpoch, registerDaemonRepo } from "@harness-anything/storage";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { runEdgeLocalKbAction } from "../src/daemon-host/kb-action.ts";
-import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
+import { revokeTestPolicyActions, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import { seedSettingsEvent } from "./repo-settings.fixture.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
@@ -115,6 +115,7 @@ test("KB dual-scope positive & negative evidence: local isolation, shared CAS + 
   await signInPolicyTestUser(fixture.userRoot, "writer", [repoId], "contributor");
   await signInPolicyTestUser(fixture.userRoot, "reader", [repoId], "viewer");
   await signInPolicyTestUser(fixture.userRoot, "outsider", ["other-repo"], "viewer");
+  revokeTestPolicyActions("outsider", repoId, ["repository-read"]);
 
   const host = await openDaemonHost({ daemonId: "kb-dual-scope", userRoot: fixture.userRoot });
   await host.attachmentsSettled();
