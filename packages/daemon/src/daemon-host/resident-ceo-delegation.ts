@@ -4,9 +4,12 @@ import {
   parseResidentCeoDelegationDecision,
   RESIDENT_CEO_GATE_ABSTAIN_OPTION_ID,
   type ResidentCeoDelegationProposal,
+  type ResidentCeoHistoryEntry,
+  type ResidentCeoHistoryExecutionSummary,
   type ResidentCeoProfile,
   type ResidentCeoPromotedTaskTerminalState,
 } from "@harness-anything/kernel/internal/domain/resident-ceo.ts";
+import type { AgentRuntimeSessionResult } from "./agent-runtime-contract.ts";
 import {
   isPeerDelegationRequest,
   type PeerRequestV1,
@@ -253,8 +256,8 @@ export async function settleResidentCeoPeerTurn(input: {
     readonly proposedPrompt: string | null;
     readonly rationale: string;
     readonly wakeId: string;
-  }) => Promise<unknown>;
-}): Promise<void> {
+  }) => Promise<{ readonly proposal?: { readonly proposalId?: string } } | unknown>;
+}): Promise<string | null> {
   if (
     effectiveResidentCeoExecutionPolicy(input.profile) === "approval-gated" &&
     input.peerRequest !== null &&
@@ -268,9 +271,9 @@ export async function settleResidentCeoPeerTurn(input: {
     });
     if (decision.decision === "advise_only") {
       await input.acknowledgePeer(input.peerRequestId, decision.rationale);
-      return;
+      return null;
     }
-    await input.recordProposal({
+    const recorded = await input.recordProposal({
       peerRequestId: input.peerRequestId,
       fromPersonId: input.peerRequest.from.personId,
       summary: input.peerRequest.summary,
@@ -282,9 +285,14 @@ export async function settleResidentCeoPeerTurn(input: {
       rationale: decision.rationale,
       wakeId: input.wakeId,
     });
-    return;
+    const proposal =
+      recorded !== null && typeof recorded === "object" && "proposal" in recorded
+        ? (recorded as { readonly proposal?: { readonly proposalId?: unknown } }).proposal
+        : undefined;
+    return typeof proposal?.proposalId === "string" ? proposal.proposalId : null;
   }
   await input.acknowledgePeer(input.peerRequestId, input.response);
+  return null;
 }
 
 export async function syncResidentCeoPromotedTaskOutcomes(input: {
@@ -484,6 +492,38 @@ export function formatResidentCeoProposalsSummary(proposals: readonly ResidentCe
         `${entry.promotedTaskId ? ` · task=${entry.promotedTaskId}` : ""}` +
         `${entry.terminalOutcome ? ` · outcome=${entry.terminalOutcome.taskStatus}` : ""} · ${entry.proposedTitle}`
       );
+    })
+    .join("\n");
+}
+
+export function extractResidentCeoExecutionSummary(
+  session: AgentRuntimeSessionResult,
+  fallback: { readonly runtimeInstanceId: string; readonly model: string },
+): ResidentCeoHistoryExecutionSummary {
+  const metrics = session.session.metrics;
+  return {
+    runtimeInstanceId: session.session.instanceId || fallback.runtimeInstanceId,
+    model: fallback.model,
+    permissionMode: session.session.effectivePermissionMode ?? "read-only",
+    ...(metrics
+      ? {
+          inputTokens: metrics.inputTokens,
+          outputTokens: metrics.outputTokens,
+          totalTokens: metrics.totalTokens,
+          toolCallCount: metrics.toolCallCount,
+        }
+      : {}),
+  };
+}
+
+export function formatResidentCeoHistorySummary(entries: readonly ResidentCeoHistoryEntry[]): string {
+  if (entries.length === 0) return "No resident CEO history entries.";
+  return entries
+    .map((entry) => {
+      const source = entry.fromPersonId ? ` · from=${entry.fromPersonId}` : "";
+      const summary = entry.peerSummary ?? entry.requestText ?? entry.detail ?? entry.responseText ?? "";
+      const preview = summary.replace(/\s+/gu, " ").trim().slice(0, 120);
+      return `${entry.requestedAt} · ${entry.cause} · ${entry.status}${source}${preview ? ` · ${preview}` : ""}`;
     })
     .join("\n");
 }

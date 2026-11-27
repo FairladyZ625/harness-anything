@@ -1331,7 +1331,7 @@ function AppShell() {
                   }}
                 />
               ) : view === "residentCeo" ? (
-                <ResidentCeoView repoId={projectId} />
+                <ResidentCeoView repoId={projectId} onNavigateEntity={navigateToEntity} />
               ) : view === "tokenUsage" ? (
                 <TokenUsageView
                   repoId={projectId}

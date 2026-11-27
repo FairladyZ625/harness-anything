@@ -21,6 +21,7 @@ import type {
   ResidentCeoApprovalGateMode,
   ResidentCeoExecutionPolicy,
   ResidentCeoProposalStatus,
+  ResidentCeoWakeCause,
 } from "@harness-anything/kernel/internal/domain/resident-ceo.ts";
 import type { TaskDeliveryStage } from "./daemon-protocol-results.ts";
 
@@ -138,6 +139,12 @@ export const residentCeoProposalStatusWords = Object.freeze([
   "failed",
 ] as const satisfies readonly ResidentCeoProposalStatus[]);
 
+export const residentCeoWakeCauseWords = Object.freeze([
+  "heartbeat",
+  "peer-request",
+  "human-chat",
+] as const satisfies readonly ResidentCeoWakeCause[]);
+
 type _AssertExactResidentCeoExecutionPolicy = [ResidentCeoExecutionPolicy] extends [
   (typeof residentCeoExecutionPolicyWords)[number],
 ]
@@ -153,10 +160,14 @@ type _AssertExactResidentCeoProposalStatus = [ResidentCeoProposalStatus] extends
 ]
   ? true
   : never;
+type _AssertExactResidentCeoWakeCause = [ResidentCeoWakeCause] extends [(typeof residentCeoWakeCauseWords)[number]]
+  ? true
+  : never;
 export type ResidentCeoProtocolVocabularyExact = readonly [
   _AssertExactResidentCeoExecutionPolicy,
   _AssertExactResidentCeoApprovalGateMode,
   _AssertExactResidentCeoProposalStatus,
+  _AssertExactResidentCeoWakeCause,
 ];
 
 export const decisionProviderVendorWords = Object.freeze([

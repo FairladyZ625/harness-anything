@@ -76,6 +76,7 @@ import {
   type DaemonProtocolErrorResult,
 } from "./daemon-protocol.contract.ts";
 import { isDaemonActionRoute, isDaemonReadRoute } from "./daemon-protocol-rpc-validation.ts";
+import { validateResidentCeoRpcResult } from "./daemon-protocol-validate-resident-ceo.ts";
 
 export function parseClientRpcResponse(method: string, result: JsonObject): JsonObject {
   if (method === "daemon.runtimeInstance.list" || method === "daemon.runtimeInstance.show")
@@ -593,7 +594,9 @@ export function parseDaemonActionResult(method: DaemonGuiActionMethod, value: un
               ? validateTerminalDetachAck(value)
               : method.startsWith("repo.terminal.") || method.startsWith("repo.runtimeInstance.auth.")
                 ? validateTerminalControlReceipt(value)
-                : validateDaemonGuiCommandReceipt(value);
+                : method.startsWith("repo.residentCeo.")
+                  ? validateResidentCeoRpcResult(method, value)
+                  : validateDaemonGuiCommandReceipt(value);
   if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
   return value as DaemonGuiActionResult;
 }

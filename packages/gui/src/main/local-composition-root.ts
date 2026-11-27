@@ -209,6 +209,8 @@ const INSTANCE_KEY_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.inst
 const REPO_WRITE_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.repoWrite;
 const INSTANCE_OP_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.instanceOperation;
 const INSTANCE_SHOW_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.instanceShow;
+// Resident CEO chat waits for a live provider turn; use the declared long-operation deadline ceiling.
+const RESIDENT_CEO_CHAT_TIMEOUT_MS = guiInteractionPolicy.defaultValue.deadlines.serviceInstall;
 // Account refresh can run model listing and quota sequentially, each with the provider's
 // model-listing budget, in addition to installation discovery and receipt publication.
 const INSTANCE_PROBE_TIMEOUT_MS =
@@ -237,6 +239,8 @@ function requestTimeoutMs(route: InteractiveRpcDescriptor, payload: JsonObject, 
   )
     return INSTANCE_OP_TIMEOUT_MS;
   if (route.method === "daemon.runtimeInstance.show") return INSTANCE_SHOW_TIMEOUT_MS;
+  if (route.method === "repo.residentCeo.chat")
+    return Math.max(timeouts.requestTimeoutMs, RESIDENT_CEO_CHAT_TIMEOUT_MS);
   // Reads share the daemon with the single-writer queue; sustained ledger writes hold the
   // workspace for seconds at a time, so any deadline that undercuts a normal write window
   // turns ordinary contention into a visible GUI error (200ms, 2s and 10s all did, live;
