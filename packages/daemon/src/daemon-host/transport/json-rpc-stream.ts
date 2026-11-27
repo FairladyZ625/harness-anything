@@ -72,7 +72,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     : options.createProtocolServer(authContext, emit, connectionId, disconnected.signal);
   let waitingForAuthentication = options.authenticateFirstFrame !== undefined;
   let queue = Promise.resolve();
-  const concurrentFrames = new Set<Promise<void>>();
+  let concurrentFrames: Promise<void>[] = [];
   const drainAll = (): Promise<unknown> => Promise.allSettled([queue, ...concurrentFrames]);
 
   options.input.on("data", (chunk: Buffer | string) => {
@@ -139,9 +139,9 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
             failConnection(error instanceof Error ? error : new Error(String(error)));
           })
           .finally(() => {
-            concurrentFrames.delete(task);
+            concurrentFrames = concurrentFrames.filter((entry) => entry !== task);
           });
-        concurrentFrames.add(task);
+        concurrentFrames.push(task);
         continue;
       }
       queue = queue

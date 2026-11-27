@@ -309,7 +309,6 @@ export function createJsonRpcProtocolServer(options: {
       (method === "daemon.fleet.edge.sync" && params.payload.repoint === true);
     if (daemonControl && executionCredential !== undefined)
       return reply(method, protocolFailure(method, executionCredentialRejected()));
-    const requestAuth: DaemonAuthenticationContext = { ...options.authContext };
     markDaemonOperationPhase("authorization");
     if (!daemonControl && executionCredential !== undefined) {
       try {
@@ -318,7 +317,7 @@ export function createJsonRpcProtocolServer(options: {
             code: "authentication_required",
           });
         const principal = await options.executionPrincipal(executionCredential, method, params as JsonObject);
-        Object.assign(requestAuth, {
+        Object.assign(options.authContext, {
           executionPrincipal: principal,
           executionCredential,
           oidcPrincipal: undefined,
@@ -334,7 +333,7 @@ export function createJsonRpcProtocolServer(options: {
     ) {
       // A connection outlives access tokens: each request carries the session as it is now, renewed or ended.
       try {
-        Object.assign(requestAuth, {
+        Object.assign(options.authContext, {
           oidcPrincipal: await options.sessionPrincipal(method, params as JsonObject),
         });
       } catch (error) {
@@ -343,8 +342,8 @@ export function createJsonRpcProtocolServer(options: {
     }
     markDaemonOperationPhase("repository-admission");
     updateDaemonOperation({
-      actor: trafficActorForLog(observed.executor, requestAuth),
-      nodeId: requestAuth.nodePrincipal?.nodeId ?? null,
+      actor: trafficActorForLog(observed.executor, options.authContext),
+      nodeId: options.authContext.nodePrincipal?.nodeId ?? null,
     });
     const remoteProxy = options.host.remoteProxy;
     if (method === "daemon.repo.bootstrap" && typeof params.repoId === "string" && remoteProxy?.route(params.repoId))
@@ -392,7 +391,7 @@ export function createJsonRpcProtocolServer(options: {
         }
         if (isDaemonStreamCall(call)) {
           return await openStream(call.method, () =>
-            remoteProxy.stream(remoteRepoId, call.method, call.params.payload, requestAuth.connectionSignal),
+            remoteProxy.stream(remoteRepoId, call.method, call.params.payload, options.authContext.connectionSignal),
           );
         }
         const result = await remoteProxy.request(remoteRepoId, method, params);
@@ -405,7 +404,7 @@ export function createJsonRpcProtocolServer(options: {
       try {
         // Pricing is a daemon-local authority. Fleet TLS callers must use their local daemon
         // rather than asking an edge to invent a second price-table cut.
-        if (requestAuth.transportKind !== "unix-socket" || requestAuth.nodePrincipal)
+        if (options.authContext.transportKind !== "unix-socket" || options.authContext.nodePrincipal)
           throw Object.assign(new Error("Runtime quotes are available only through the local daemon socket."), {
             code: "local_transport_required",
           });
@@ -420,14 +419,14 @@ export function createJsonRpcProtocolServer(options: {
     }
     if (request.method === "daemon.nodeAutoClaim.configure" && method === request.method) {
       try {
-        return reply(method, await options.host.configureNodeAutoClaim(params.policy, requestAuth));
+        return reply(method, await options.host.configureNodeAutoClaim(params.policy, options.authContext));
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }
     }
     if (request.method === "daemon.stop" && method === request.method) {
       const refusal = daemonStopRefusal(
-        requestAuth,
+        options.authContext,
         options.requestShutdown,
         params.expectedRepoMode,
         () => options.host.status().repos,
@@ -439,21 +438,21 @@ export function createJsonRpcProtocolServer(options: {
     }
     if (request.method === "daemon.repo.bootstrap" && method === request.method) {
       try {
-        return reply(method, await options.host.bootstrap(params, requestAuth));
+        return reply(method, await options.host.bootstrap(params, options.authContext));
       } catch (error) {
         return reply(method, protocolFailure("init", error));
       }
     }
     if (request.method === "daemon.rbac.manage" && method === request.method) {
       try {
-        return reply(method, await options.host.manageRbac(params, requestAuth));
+        return reply(method, await options.host.manageRbac(params, options.authContext));
       } catch (error) {
         return reply(method, protocolFailure("bootstrap", error));
       }
     }
     if (isSkillEvalCall(call)) {
       try {
-        return reply(call.method, await dispatchSkillEvalCall(call, options.host.skillEval, requestAuth));
+        return reply(call.method, await dispatchSkillEvalCall(call, options.host.skillEval, options.authContext));
       } catch (error) {
         return reply(call.method, protocolFailure(call.method, error));
       }
@@ -461,13 +460,16 @@ export function createJsonRpcProtocolServer(options: {
     switch (call.method) {
       case "daemon.repo.register":
         try {
-          return reply(call.method, await options.host.admin({ kind: "register", ...call.params }, requestAuth));
+          return reply(
+            call.method,
+            await options.host.admin({ kind: "register", ...call.params }, options.authContext),
+          );
         } catch (error) {
           return reply(call.method, protocolFailure(call.method, error));
         }
       case "daemon.repo.update":
         try {
-          return reply(call.method, await options.host.admin({ kind: "update", ...call.params }, requestAuth));
+          return reply(call.method, await options.host.admin({ kind: "update", ...call.params }, options.authContext));
         } catch (error) {
           return reply(call.method, protocolFailure(call.method, error));
         }
@@ -475,20 +477,23 @@ export function createJsonRpcProtocolServer(options: {
         try {
           return reply(
             call.method,
-            await options.host.admin({ kind: "unbind", repoId: call.params.repoId }, requestAuth),
+            await options.host.admin({ kind: "unbind", repoId: call.params.repoId }, options.authContext),
           );
         } catch (error) {
           return reply(call.method, protocolFailure(call.method, error));
         }
       case "daemon.repo.backup":
         try {
-          return reply(call.method, await options.host.admin({ kind: "backup", ...call.params }, requestAuth));
+          return reply(call.method, await options.host.admin({ kind: "backup", ...call.params }, options.authContext));
         } catch (error) {
           return reply(call.method, protocolFailure(call.method, error));
         }
       case "daemon.repo.restoreDrill":
         try {
-          return reply(call.method, await options.host.admin({ kind: "restore-drill", ...call.params }, requestAuth));
+          return reply(
+            call.method,
+            await options.host.admin({ kind: "restore-drill", ...call.params }, options.authContext),
+          );
         } catch (error) {
           return reply(call.method, protocolFailure(call.method, error));
         }
@@ -504,7 +509,7 @@ export function createJsonRpcProtocolServer(options: {
                 ...(call.params.backup ? { backup: call.params.backup } : {}),
                 ...(call.params.confirm ? { confirm: call.params.confirm } : {}),
               },
-              requestAuth,
+              options.authContext,
             ),
           );
         } catch (error) {
@@ -514,7 +519,7 @@ export function createJsonRpcProtocolServer(options: {
         try {
           return reply(
             call.method,
-            await options.host.admin({ kind: "connection-register", ...call.params }, requestAuth),
+            await options.host.admin({ kind: "connection-register", ...call.params }, options.authContext),
           );
         } catch (error) {
           return reply(call.method, protocolFailure(call.method, error));
@@ -523,7 +528,7 @@ export function createJsonRpcProtocolServer(options: {
         try {
           return reply(
             call.method,
-            await options.host.admin({ kind: "connection-update", ...call.params }, requestAuth),
+            await options.host.admin({ kind: "connection-update", ...call.params }, options.authContext),
           );
         } catch (error) {
           return reply(call.method, protocolFailure(call.method, error));
@@ -534,7 +539,7 @@ export function createJsonRpcProtocolServer(options: {
             call.method,
             await options.host.admin(
               { kind: "connection-unregister", connectionId: call.params.connectionId },
-              requestAuth,
+              options.authContext,
             ),
           );
         } catch (error) {
@@ -544,7 +549,7 @@ export function createJsonRpcProtocolServer(options: {
         try {
           return reply(
             call.method,
-            await options.host.admin({ kind: "connection-probe", endpoint: call.params.endpoint }, requestAuth),
+            await options.host.admin({ kind: "connection-probe", endpoint: call.params.endpoint }, options.authContext),
           );
         } catch (error) {
           return reply(call.method, protocolFailure(call.method, error));
@@ -570,8 +575,8 @@ export function createJsonRpcProtocolServer(options: {
           await options.host.runtimeInstance(
             method,
             params.payload,
-            requestAuth,
-            params.repo === undefined ? requestAuth.executionPrincipal?.repoId : repoIdFromParams(params),
+            options.authContext,
+            params.repo === undefined ? options.authContext.executionPrincipal?.repoId : repoIdFromParams(params),
           ),
         );
       } catch (error) {
@@ -580,7 +585,10 @@ export function createJsonRpcProtocolServer(options: {
     }
     if (isProviderCall(call)) {
       try {
-        return reply(call.method, await options.host.decisionProvider(call.method, call.params.payload, requestAuth));
+        return reply(
+          call.method,
+          await options.host.decisionProvider(call.method, call.params.payload, options.authContext),
+        );
       } catch (error) {
         return reply(call.method, protocolFailure(call.method, error));
       }
@@ -589,7 +597,7 @@ export function createJsonRpcProtocolServer(options: {
       const { method, params } = call,
         repo = params.repo.repoId;
       try {
-        return reply(method, await options.host.runtimeInstanceAuth(repo, method, params.payload, requestAuth));
+        return reply(method, await options.host.runtimeInstanceAuth(repo, method, params.payload, options.authContext));
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }
@@ -604,14 +612,14 @@ export function createJsonRpcProtocolServer(options: {
       try {
         const result =
           method === "daemon.fleet.center.start"
-            ? await options.host.fleet.startCenter(params.payload, requestAuth)
+            ? await options.host.fleet.startCenter(params.payload, options.authContext)
             : method === "daemon.fleet.center.read"
-              ? await options.host.fleet.readCenterState(requestAuth)
+              ? await options.host.fleet.readCenterState(options.authContext)
               : method === "daemon.fleet.center.external-address.read"
-                ? await options.host.fleet.readCenterExternalAddress(requestAuth)
+                ? await options.host.fleet.readCenterExternalAddress(options.authContext)
                 : method === "daemon.fleet.center.external-address.set"
-                  ? await options.host.fleet.setCenterExternalAddress(params.payload, requestAuth)
-                  : await options.host.fleet.edgeSync(params.payload, requestAuth);
+                  ? await options.host.fleet.setCenterExternalAddress(params.payload, options.authContext)
+                  : await options.host.fleet.edgeSync(params.payload, options.authContext);
         return reply(method, result);
       } catch (error) {
         return reply(method, protocolFailure(method, error));
@@ -620,7 +628,7 @@ export function createJsonRpcProtocolServer(options: {
     if (method === "daemon.gui.system.read") {
       try {
         markDaemonOperationPhase("projection-read");
-        return reply(method, parseDaemonReadResult(method, options.host.system(requestAuth)));
+        return reply(method, parseDaemonReadResult(method, options.host.system(options.authContext)));
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }
@@ -630,7 +638,10 @@ export function createJsonRpcProtocolServer(options: {
         markDaemonOperationPhase("projection-read");
         return reply(
           method,
-          parseDaemonReadResult(method, await options.host.home({ ...requestAuth, connectionSignal: readSignal })),
+          parseDaemonReadResult(
+            method,
+            await options.host.home({ ...options.authContext, connectionSignal: readSignal }),
+          ),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
@@ -640,7 +651,7 @@ export function createJsonRpcProtocolServer(options: {
       try {
         return reply(
           method,
-          parseDaemonReadResult(method, options.host.controlReceipt(params.payload.operationId, requestAuth)),
+          parseDaemonReadResult(method, options.host.controlReceipt(params.payload.operationId, options.authContext)),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
@@ -650,7 +661,7 @@ export function createJsonRpcProtocolServer(options: {
       try {
         return reply(
           method,
-          parseDaemonActionResult(method, await options.host.requestControl(params.payload, requestAuth)),
+          parseDaemonActionResult(method, await options.host.requestControl(params.payload, options.authContext)),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
@@ -662,8 +673,13 @@ export function createJsonRpcProtocolServer(options: {
       try {
         return await openStream(method, () =>
           method === "repo.agentRuntime.attach"
-            ? options.host.attach(repo, params.payload.runtimeSessionId, params.payload.afterCursor, requestAuth)
-            : options.host.terminalAttach(repo, params.payload, requestAuth),
+            ? options.host.attach(
+                repo,
+                params.payload.runtimeSessionId,
+                params.payload.afterCursor,
+                options.authContext,
+              )
+            : options.host.terminalAttach(repo, params.payload, options.authContext),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
@@ -688,7 +704,10 @@ export function createJsonRpcProtocolServer(options: {
           : "write-prepare",
       );
       try {
-        return reply(method, await options.host.residentCeo(repo, operation, residentCeoParams.payload, requestAuth));
+        return reply(
+          method,
+          await options.host.residentCeo(repo, operation, residentCeoParams.payload, options.authContext),
+        );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }
@@ -703,7 +722,7 @@ export function createJsonRpcProtocolServer(options: {
         return reply(
           method,
           await options.host.read(repo, method, (params.payload as JsonObject | undefined) ?? {}, {
-            ...requestAuth,
+            ...options.authContext,
             connectionSignal: readSignal,
           }),
         );
@@ -717,7 +736,7 @@ export function createJsonRpcProtocolServer(options: {
       try {
         return reply(
           method,
-          parseDaemonActionResult(method, await options.host.spawnRuntime(repo, params.payload, requestAuth)),
+          parseDaemonActionResult(method, await options.host.spawnRuntime(repo, params.payload, options.authContext)),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
@@ -729,7 +748,7 @@ export function createJsonRpcProtocolServer(options: {
       try {
         return reply(
           method,
-          parseDaemonActionResult(method, await options.host.cancelRuntime(repo, params.payload, requestAuth)),
+          parseDaemonActionResult(method, await options.host.cancelRuntime(repo, params.payload, options.authContext)),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
@@ -741,7 +760,7 @@ export function createJsonRpcProtocolServer(options: {
       try {
         return reply(
           method,
-          parseDaemonActionResult(method, await options.host.steerRuntime(repo, params.payload, requestAuth)),
+          parseDaemonActionResult(method, await options.host.steerRuntime(repo, params.payload, options.authContext)),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
@@ -753,7 +772,7 @@ export function createJsonRpcProtocolServer(options: {
       try {
         return reply(
           method,
-          parseDaemonActionResult(method, await options.host.handoffRuntime(repo, params.payload, requestAuth)),
+          parseDaemonActionResult(method, await options.host.handoffRuntime(repo, params.payload, options.authContext)),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
@@ -763,7 +782,7 @@ export function createJsonRpcProtocolServer(options: {
       markDaemonOperationPhase("write-prepare");
       const repo = params.repo.repoId;
       try {
-        return reply(method, await options.host.batchRuntime(repo, params.payload, requestAuth));
+        return reply(method, await options.host.batchRuntime(repo, params.payload, options.authContext));
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }
@@ -771,7 +790,7 @@ export function createJsonRpcProtocolServer(options: {
     if (method === "repo.agentRuntime.sessions.await") {
       const repo = params.repo.repoId;
       try {
-        const settled = await options.host.awaitRuntimeSessions(repo, params.payload, requestAuth);
+        const settled = await options.host.awaitRuntimeSessions(repo, params.payload, options.authContext);
         return reply(method, settled);
       } catch (error) {
         // A parked wait that wakes while this daemon drains re-reads through a RepoCell that close()
@@ -793,7 +812,10 @@ export function createJsonRpcProtocolServer(options: {
       try {
         return reply(
           method,
-          parseDaemonActionResult(method, await options.host.terminalAction(repo, method, params.payload, requestAuth)),
+          parseDaemonActionResult(
+            method,
+            await options.host.terminalAction(repo, method, params.payload, options.authContext),
+          ),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));
@@ -833,10 +855,10 @@ export function createJsonRpcProtocolServer(options: {
     };
     if (action.kind === "preset-run-start" || action.kind === "preset-run-status") {
       markDaemonOperationPhase(action.kind === "preset-run-status" ? "projection-read" : "write-queue");
-      return reply(commandMethod, await options.host.presetRun(repo, action, requestAuth));
+      return reply(commandMethod, await options.host.presetRun(repo, action, options.authContext));
     }
     markDaemonOperationPhase(commandClassForAction(action.kind) === "repo-read" ? "projection-read" : "write-queue");
-    const receipt = await options.host.run(repo, action, requestAuth);
+    const receipt = await options.host.run(repo, action, options.authContext);
     try {
       // Receipt assembly is result validation too: a squad-control result naming another
       // command must answer on this request id, not tear the connection down past the handler.

@@ -129,9 +129,10 @@ test("daemon host migration and observation slice has zero frozen ontology debt"
   const classified = result.classified.filter((row) => scope.test(row.file));
   assert.equal(new Set(classified.map((row) => row.file)).size, 47);
   // dec_89D06D7360CBEC09795F7B12EC/CH4 moves two migration scratch removals to the host I/O port.
-  // task_211789c20aee8c48a40535b9ac adds three registered actions and four policy scopes.
+  // task_211789c20aee8c48a40535b9ac adds three registered actions and four policy scopes;
+  // task_0c21f32136a93ca9edd13b16e5 adds the repo.residentCeo.history limit policy scope (56 -> 57).
   assert.equal(classified.filter((row) => row.category === "action").length, 181);
-  assert.equal(classified.filter((row) => row.category === "policy").length, 56);
+  assert.equal(classified.filter((row) => row.category === "policy").length, 57);
   assertRegistered(classified); // Includes the node-local replica settlement branch.
   assertEmpty(result.findings.filter((row) => scope.test(row.file)));
   for (const [symbol, owner] of [

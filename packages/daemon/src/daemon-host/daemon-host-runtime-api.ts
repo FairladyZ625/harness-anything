@@ -170,7 +170,7 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
   let centerStarting = false;
   const residentCeoInboxWatchers = new Map<string, AbortController>();
   const inFlightResidentCeoWakes = new Map<string, number>();
-  const inFlightResidentCeoWakeWaiters = new Map<string, Set<() => void>>();
+  const inFlightResidentCeoWakeWaiters = new Map<string, (() => void)[]>();
   let residentCeoTasks: Promise<void>[] = [];
   const residentCeoRestoredRepos = new Set<string>();
   const trackResidentCeoTask = (task: Promise<void>): void => {
@@ -185,13 +185,11 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
       return await executeWake();
     } finally {
       const remaining = (inFlightResidentCeoWakes.get(watcherKey) ?? 1) - 1;
-      if (remaining > 0) {
-        inFlightResidentCeoWakes.set(watcherKey, remaining);
-      } else {
-        inFlightResidentCeoWakes.delete(watcherKey);
+      inFlightResidentCeoWakes.set(watcherKey, remaining > 0 ? remaining : 0);
+      if (remaining <= 0) {
         const waiters = inFlightResidentCeoWakeWaiters.get(watcherKey);
-        if (waiters) {
-          inFlightResidentCeoWakeWaiters.delete(watcherKey);
+        if (waiters && waiters.length > 0) {
+          inFlightResidentCeoWakeWaiters.set(watcherKey, []);
           for (const resolve of waiters) resolve();
         }
       }
@@ -200,8 +198,8 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
   const waitForInFlightResidentCeoWake = (watcherKey: string): Promise<void> => {
     if ((inFlightResidentCeoWakes.get(watcherKey) ?? 0) === 0) return Promise.resolve();
     return new Promise<void>((resolve) => {
-      const waiters = inFlightResidentCeoWakeWaiters.get(watcherKey) ?? new Set<() => void>();
-      waiters.add(resolve);
+      const waiters = inFlightResidentCeoWakeWaiters.get(watcherKey) ?? [];
+      waiters.push(resolve);
       inFlightResidentCeoWakeWaiters.set(watcherKey, waiters);
     });
   };

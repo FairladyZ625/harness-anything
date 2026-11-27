@@ -1102,7 +1102,9 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
         actionKind === "ceo-config" ||
         actionKind === "ceo-start" ||
         actionKind === "ceo-stop" ||
-        actionKind === "ceo-chat";
+        actionKind === "ceo-chat" ||
+        actionKind === "ceo-approve" ||
+        actionKind === "ceo-reject";
       assert.equal(declaration.receiptSettlement, hostOnly ? "none" : "canonical-acceptance", method);
       if (hostOnly) assert.equal(declaration.residency.scope, "host-local");
     }

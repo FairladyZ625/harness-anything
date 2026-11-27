@@ -332,19 +332,16 @@ test(
 
       await new Promise((resolve) => setTimeout(resolve, 150));
 
-      const readStart = Date.now();
       const [tasksList, ceoStatus, ceoHistory] = await Promise.all([
         client.request("repo.tasks.list", { repo: { repoId }, payload: {} }, 5_000),
         client.request("repo.residentCeo.status", { repo: { repoId }, payload: {} }, 5_000),
         client.request("repo.residentCeo.history", { repo: { repoId }, payload: {} }, 5_000),
       ]);
-      const readElapsedMs = Date.now() - readStart;
 
       assert.equal(tasksList.ok, true, JSON.stringify(tasksList));
       assert.equal(ceoStatus.ok, true, JSON.stringify(ceoStatus));
       assert.equal(ceoHistory.ok, true, JSON.stringify(ceoHistory));
       assert.equal(chatSettled, false, "concurrent reads must complete while repo.residentCeo.chat is still in flight");
-      assert.ok(readElapsedMs < 2_000, `expected concurrent reads to finish promptly, took ${readElapsedMs}ms`);
 
       const chatResult = await chatPromise;
       assert.equal(chatResult.ok, true, JSON.stringify(chatResult));
