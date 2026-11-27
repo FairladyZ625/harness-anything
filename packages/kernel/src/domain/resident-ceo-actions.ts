@@ -162,6 +162,7 @@ type ParsedResidentCeoTier1Action =
       readonly proposedWorkId: string | null;
       readonly proposedAgentId: string | null;
       readonly proposedTargetNodeId: string | null;
+      readonly proposedSupersedesTaskId: string | null;
       readonly proposedPrompt: string | null;
       readonly rationale: string;
     }
@@ -460,6 +461,7 @@ function parseSingleActionRecord(
       proposedWorkId: optionalEntityId(record.workId) ?? fallback.defaultWorkId,
       proposedAgentId: optionalEntityId(record.agentId) ?? fallback.defaultAgentId,
       proposedTargetNodeId: optionalTargetNodeId(record.targetNodeId),
+      proposedSupersedesTaskId: optionalEntityId(record.supersedesTaskId),
       proposedPrompt: optionalText(record.prompt) ?? fallback.requestedAction,
       rationale,
     };
@@ -580,6 +582,7 @@ export function parseResidentCeoTurnActions(
           proposedWorkId: options.fallback.defaultWorkId,
           proposedAgentId: options.fallback.defaultAgentId,
           proposedTargetNodeId: null,
+          proposedSupersedesTaskId: null,
           proposedPrompt: options.fallback.requestedAction,
           rationale: trimmed || options.fallback.summary,
         },
@@ -674,6 +677,7 @@ export function evaluateResidentCeoOwnerDirectApproval(
     | "proposedWorkId"
     | "proposedAgentId"
     | "proposedTargetNodeId"
+    | "proposedSupersedesTaskId"
     | "targetTaskId"
     | "planContent"
   >,
@@ -704,6 +708,14 @@ export function evaluateResidentCeoOwnerDirectApproval(
     !isValidResidentCeoTargetNodeId(rawTargetNodeId.trim())
   ) {
     return { autoApprove: false, reason: "invalid_target_node_id" };
+  }
+  const rawSupersedesTaskId = proposal.proposedSupersedesTaskId ?? null;
+  if (
+    rawSupersedesTaskId !== null &&
+    rawSupersedesTaskId.trim().length > 0 &&
+    !ENTITY_ID_PATTERN.test(rawSupersedesTaskId.trim())
+  ) {
+    return { autoApprove: false, reason: "invalid_supersedes_task_id" };
   }
   if (actionKind === "promote_and_dispatch") {
     const workId = (proposal.proposedWorkId ?? profile.defaultWorkId ?? "").trim();

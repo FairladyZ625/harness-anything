@@ -216,7 +216,7 @@ export function makeRepoCellCommandRunner(
               repoId: context.input.repoId,
               revision,
               now: context.now(),
-              readTask: (taskId) => context.projection.read(taskId).snapshot.task,
+              readTask: (taskId) => (context.state === "closed" ? null : context.projection.read(taskId).snapshot.task),
               binding: { ...requested.binding, artifactKindResolver },
             });
           const failure = context.failed(actionId, error);
@@ -249,6 +249,7 @@ export function makeRepoCellCommandRunner(
           repoId: context.input.repoId,
           revision,
           now: context.now(),
+          readTask: (taskId) => (context.state === "closed" ? null : context.projection.read(taskId).snapshot.task),
         }).then(async (decision) => {
           if (decision.outcome === "allowed" && action.kind !== "task-review-execution")
             binding = await bindCurrentPersonIdentityWitnesses(
@@ -582,7 +583,13 @@ export function makeRepoCellCommandRunner(
               ),
             ),
           async (error) =>
-            failAction(context, action, binding, error, durable ? await authorizeAtCurrentCut()! : undefined),
+            failAction(
+              context,
+              action,
+              binding,
+              error,
+              durable && !signal?.aborted && context.state !== "closed" ? await authorizeAtCurrentCut()! : undefined,
+            ),
         );
     if (action.kind === "task-dispatch-review") {
       const admission = admitRepoMode(context.mode, command, binding.source);

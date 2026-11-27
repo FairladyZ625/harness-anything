@@ -15,12 +15,14 @@ import { isAgentVersionRead, runAgentVersionRead } from "./agent-version-action.
 import { createHash } from "node:crypto";
 import path from "node:path";
 import {
+  canEdgeSelfCleanHistoricalTask,
   compileExecutionExecutorDeclaration,
   compileTaskLifecycleWrite,
   declaredRelationTriples,
   executionExecutorDeclarationCandidates,
   getExecutableEntityAction,
   lifecycleDocumentPaths,
+  parseDocWriteIntent,
   type AgentRuntimeEventV1,
   requireEntityTypeContract,
   type WriteReceiptDraft as WriteReceipt,
@@ -29,7 +31,7 @@ import { runPresetAction } from "@harness-anything/preset";
 import { compiledArtifactKinds, resolveEntityReadKind } from "./artifact-entity-action.ts";
 import { distillPromotionAction, prepareDistillCandidate, readDistillEntity } from "./distill-actions.ts";
 import { runEntityDocumentRematerialize } from "./entity-document-rematerialize.ts";
-import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
+import { isDocAction, recycleClaims, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { runMigrationImport } from "./migration-import.ts";
 import { assertExecutionExecutorDeclarationEligible } from "./repo-cell-execution-selection.ts";
 import { runLedgerReconcileAction } from "./repo-cell-migration-actions.ts";
@@ -276,8 +278,36 @@ export function executeRepoAction(
   // bypass carried document claims.
   enforceTaskActionStewardshipFence(cell, action, binding);
   if (action.kind === "task-submit") return submitTask(cell, action, binding);
-  if (Array.isArray(action.docChanges))
-    return cell.runTaskCommandWithDocs(action as TaskCommandWithDocsAction, binding);
+  if (Array.isArray(action.docChanges)) {
+    const cleanupCatalogAction =
+      (action.kind === "task-release" || action.kind === "task-archive") &&
+      binding.executionPrincipal === undefined &&
+      typeof action.taskId === "string" &&
+      canEdgeSelfCleanHistoricalTask({
+        action,
+        task: cell.projection.read(action.taskId).snapshot.task,
+        lease: cell.projection.currentLease(action.taskId, cell.now()),
+        actor: binding.actor,
+      });
+    if (cleanupCatalogAction) {
+      if (action.docChanges.length > 0) {
+        const intent = parseDocWriteIntent(
+          {
+            schema: "doc-write-intent/v1",
+            executionId: null,
+            baseLedgerSha: cell.store.currentCut(),
+            changes: action.docChanges,
+          },
+          cell.input.repoId,
+        );
+        recycleClaims(cell.rootDir, intent);
+      }
+      const { docChanges: _droppedDocs, mirrorBaseCut: _droppedBase, ...cleaned } = action;
+      action = cleaned as RepoTaskAction;
+    } else {
+      return cell.runTaskCommandWithDocs(action as TaskCommandWithDocsAction, binding);
+    }
+  }
   if (action.kind === "task-progress-append") return cell.appendProgress(action, binding);
   const actionContract = getExecutableEntityAction(action.kind);
   if (actionContract?.target.kind === "todo" && actionContract.execution) {

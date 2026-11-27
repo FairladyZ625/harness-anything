@@ -158,6 +158,7 @@ export const daemonActionRoutes = Object.freeze([
         title: "string?",
         agentId: "string?",
         targetNodeId: "string?",
+        supersedesTaskId: "string?",
         runtimeInstanceId: "string?",
         model: "string?",
         prompt: "string?",
