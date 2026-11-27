@@ -1253,6 +1253,7 @@ test("read-only dispatch admits sanitized fleet overview and runtime instance li
     ["residentCeo.stop", "repo.residentCeo.stop", { repo: { repoId: p.repoId }, payload: {} }],
     ["residentCeo.status", "repo.residentCeo.status", { repo: { repoId: p.repoId }, payload: {} }],
     ["residentCeo.chat", "repo.residentCeo.chat", { repo: { repoId: p.repoId }, payload: { message: "hi" } }],
+    ["residentCeo.history", "repo.residentCeo.history", { repo: { repoId: p.repoId }, payload: {} }],
     ["residentCeo.proposals", "repo.residentCeo.proposals", { repo: { repoId: p.repoId }, payload: {} }],
     ["residentCeo.approve", "repo.residentCeo.approve", { repo: { repoId: p.repoId }, payload: { proposalId: "p" } }],
     ["residentCeo.reject", "repo.residentCeo.reject", { repo: { repoId: p.repoId }, payload: { proposalId: "p" } }],

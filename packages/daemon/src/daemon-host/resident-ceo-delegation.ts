@@ -8,9 +8,12 @@ import {
   RESIDENT_CEO_MAX_TIER0_ACTIONS_PER_TURN,
   type ResidentCeoActionProposal,
   type ResidentCeoDelegationProposal,
+  type ResidentCeoHistoryEntry,
+  type ResidentCeoHistoryExecutionSummary,
   type ResidentCeoProfile,
   type ResidentCeoPromotedTaskTerminalState,
 } from "@harness-anything/kernel/internal/domain/resident-ceo.ts";
+import type { AgentRuntimeSessionResult } from "./agent-runtime-contract.ts";
 import {
   isPeerDelegationRequest,
   type PeerRequestV1,
@@ -252,7 +255,9 @@ export async function settleResidentCeoPeerTurn(input: {
   readonly wakeId: string;
   readonly response: string;
   readonly acknowledgePeer: (requestId: string, text: string) => Promise<void>;
-  readonly recordProposal: (draft: ResidentCeoProposalDraft) => Promise<unknown>;
+  readonly recordProposal: (
+    draft: ResidentCeoProposalDraft,
+  ) => Promise<{ readonly proposal?: { readonly proposalId?: string } } | unknown>;
   readonly executeTier0Action?: (actionInput: ResidentCeoTier0ActionInput) => Promise<ResidentCeoActionReceipt>;
   readonly recordTier2Rejection?: (rejection: {
     readonly wakeId: string;
@@ -271,7 +276,7 @@ export async function settleResidentCeoPeerTurn(input: {
     readonly detail: string;
     readonly targetRef?: string | null;
   }) => Promise<ResidentCeoActionReceipt>;
-}): Promise<void> {
+}): Promise<string | null> {
   if (effectiveResidentCeoExecutionPolicy(input.profile) === "approval-gated" && input.peerRequest !== null) {
     const isDelegation = isPeerDelegationRequest(input.peerRequest);
     const parsed = parseResidentCeoTurnActions(input.response, {
@@ -286,10 +291,11 @@ export async function settleResidentCeoPeerTurn(input: {
     });
     if (parsed.mode === "advise_only" || parsed.mode === "reply_only") {
       await input.acknowledgePeer(input.peerRequestId, parsed.replyText);
-      return;
+      return null;
     }
     let tier0Count = 0;
     let recordedProposal = false;
+    let firstProposalId: string | null = null;
     let repliedToTrigger = false;
     const notices: string[] = [];
     for (let index = 0; index < parsed.actions.length; index += 1) {
@@ -367,7 +373,7 @@ export async function settleResidentCeoPeerTurn(input: {
         continue;
       }
       const proposalPeerId = index === 0 ? input.peerRequestId : `${input.peerRequestId}:${index}`;
-      await input.recordProposal({
+      const recorded = await input.recordProposal({
         peerRequestId: proposalPeerId,
         fromPersonId: input.peerRequest.from.personId,
         summary: input.peerRequest.summary,
@@ -396,15 +402,20 @@ export async function settleResidentCeoPeerTurn(input: {
         rationale: action.rationale,
         wakeId: input.wakeId,
       });
+      if (firstProposalId === null && recorded !== null && typeof recorded === "object" && "proposal" in recorded) {
+        const recordedProposal = (recorded as { readonly proposal?: { readonly proposalId?: unknown } }).proposal;
+        if (typeof recordedProposal?.proposalId === "string") firstProposalId = recordedProposal.proposalId;
+      }
       recordedProposal = true;
     }
     if (!recordedProposal && !repliedToTrigger) {
       const replyText = parsed.replyText ?? (notices.length > 0 ? notices.join("\n") : input.response);
       await input.acknowledgePeer(input.peerRequestId, replyText);
     }
-    return;
+    return firstProposalId;
   }
   await input.acknowledgePeer(input.peerRequestId, input.response);
+  return null;
 }
 
 export async function syncResidentCeoPromotedTaskOutcomes(input: {
@@ -614,6 +625,38 @@ export function formatResidentCeoProposalsSummary(proposals: readonly ResidentCe
         `${entry.promotedTaskId ? ` · task=${entry.promotedTaskId}` : ""}` +
         `${entry.terminalOutcome ? ` · outcome=${entry.terminalOutcome.taskStatus}` : ""} · ${entry.proposedTitle}`
       );
+    })
+    .join("\n");
+}
+
+export function extractResidentCeoExecutionSummary(
+  session: AgentRuntimeSessionResult,
+  fallback: { readonly runtimeInstanceId: string; readonly model: string },
+): ResidentCeoHistoryExecutionSummary {
+  const metrics = session.session.metrics;
+  return {
+    runtimeInstanceId: session.session.instanceId || fallback.runtimeInstanceId,
+    model: fallback.model,
+    permissionMode: session.session.effectivePermissionMode ?? "read-only",
+    ...(metrics
+      ? {
+          inputTokens: metrics.inputTokens,
+          outputTokens: metrics.outputTokens,
+          totalTokens: metrics.totalTokens,
+          toolCallCount: metrics.toolCallCount,
+        }
+      : {}),
+  };
+}
+
+export function formatResidentCeoHistorySummary(entries: readonly ResidentCeoHistoryEntry[]): string {
+  if (entries.length === 0) return "No resident CEO history entries.";
+  return entries
+    .map((entry) => {
+      const source = entry.fromPersonId ? ` · from=${entry.fromPersonId}` : "";
+      const summary = entry.peerSummary ?? entry.requestText ?? entry.detail ?? entry.responseText ?? "";
+      const preview = summary.replace(/\s+/gu, " ").trim().slice(0, 120);
+      return `${entry.requestedAt} · ${entry.cause} · ${entry.status}${source}${preview ? ` · ${preview}` : ""}`;
     })
     .join("\n");
 }

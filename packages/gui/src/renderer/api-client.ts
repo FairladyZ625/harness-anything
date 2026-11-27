@@ -3,9 +3,50 @@ import type * as DomainStatus from "../api/renderer-dto.ts";
 import { daemonControlPhaseWords } from "../api/renderer-dto.ts";
 import { repoCellStateWords } from "../api/renderer-dto.ts";
 import { repoRegistrationStateWords } from "../api/renderer-dto.ts";
-
-type ResidentCeoProfileStatus = "stopped" | "running";
-type ResidentCeoWakeStatus = "running" | "succeeded" | "failed";
+import {
+  readResidentCeoHistoryReceipt,
+  readResidentCeoProposalDecisionReceipt,
+  readResidentCeoProposalsReceipt,
+  readResidentCeoReceipt,
+  readResidentCeoStatusReceipt,
+  type ResidentCeoApproveProposalInput,
+  type ResidentCeoConfigureInput,
+  type ResidentCeoHistoryQuery,
+  type ResidentCeoHistoryReceipt,
+  type ResidentCeoProposalDecisionReceipt,
+  type ResidentCeoProposalsReceipt,
+  type ResidentCeoProposalStatus,
+  type ResidentCeoReceipt,
+  type ResidentCeoRejectProposalInput,
+} from "./api-client-resident-ceo.ts";
+export {
+  isResidentCeoHistoryEntry,
+  isResidentCeoProfile,
+  isResidentCeoProposal,
+  type ResidentCeoActionReceiptRead,
+  type ResidentCeoApprovalGateConfigRead,
+  type ResidentCeoApprovalGateMode,
+  type ResidentCeoApprovalMode,
+  type ResidentCeoApproveProposalInput,
+  type ResidentCeoConfigureInput,
+  type ResidentCeoDelegationProposalRead,
+  type ResidentCeoExecutionPolicy,
+  type ResidentCeoGateVerdictRead,
+  type ResidentCeoHistoryEntryRead,
+  type ResidentCeoHistoryExecutionSummaryRead,
+  type ResidentCeoHistoryQuery,
+  type ResidentCeoHistoryReceipt,
+  type ResidentCeoProfileRead,
+  type ResidentCeoProfileStatus,
+  type ResidentCeoProposalDecisionReceipt,
+  type ResidentCeoProposalsReceipt,
+  type ResidentCeoProposalStatus,
+  type ResidentCeoReceipt,
+  type ResidentCeoRejectProposalInput,
+  type ResidentCeoWakeCause,
+  type ResidentCeoWakeReceiptRead,
+  type ResidentCeoWakeStatus,
+} from "./api-client-resident-ceo.ts";
 
 import type {
   DaemonGuiReadPayloadMap,
@@ -218,70 +259,6 @@ export type SettingsUpdateInput = RepoScope &
   };
 
 export type RepoScope = { readonly repoId: string };
-interface ResidentCeoActionProposalRead {
-  readonly proposalId: string;
-  readonly peerRequestId: string;
-  readonly fromPersonId: string;
-  readonly summary: string;
-  readonly actionKind?:
-    | "promote_and_dispatch"
-    | "start_and_dispatch_existing"
-    | "archive_or_cancel_unleased"
-    | "doc_sync_plan";
-  readonly sourceChannel?: "peer-request" | "human-chat";
-  readonly targetTaskId?: string | null;
-  readonly cleanupMode?: "archive" | "cancel" | null;
-  readonly proposedTitle: string;
-  readonly proposedWorkId: string | null;
-  readonly proposedAgentId: string | null;
-  readonly proposedTargetNodeId?: string | null;
-  readonly status: string;
-  readonly approvalMode: string | null;
-  readonly promotedTaskId: string | null;
-  readonly dispatchRuntimeSessionId: string | null;
-  readonly dispatchError: string | null;
-  readonly createdAt: string;
-}
-interface ResidentCeoActionReceiptRead {
-  readonly tier: "tier0" | "tier1" | "tier2";
-  readonly actionKind: string;
-  readonly outcome: string;
-  readonly approvalMode: string | null;
-  readonly targetRef: string | null;
-  readonly resultRef: string | null;
-  readonly proposalId: string | null;
-  readonly requestId?: string | null;
-  readonly taskId?: string | null;
-  readonly runtimeSessionId?: string | null;
-  readonly errorCode: string | null;
-  readonly detail: string;
-}
-export interface ResidentCeoProfileRead {
-  readonly schema: "resident-ceo-profile/v1";
-  readonly principalPersonId: string;
-  readonly runtimeInstanceId: string;
-  readonly model: string;
-  readonly heartbeatIntervalSec: number;
-  readonly persistentSessionId: string | null;
-  readonly status: ResidentCeoProfileStatus;
-  readonly lastWake: {
-    readonly wakeId: string;
-    readonly cause: "heartbeat" | "peer-request" | "human-chat";
-    readonly requestedAt: string;
-    readonly completedAt: string | null;
-    readonly status: ResidentCeoWakeStatus;
-    readonly runtimeSessionId: string | null;
-    readonly detail: string | null;
-  } | null;
-  readonly proposals?: readonly ResidentCeoActionProposalRead[];
-  readonly updatedAt: string;
-}
-export interface ResidentCeoReceipt {
-  readonly ok: true;
-  readonly profile: ResidentCeoProfileRead | null;
-  readonly response?: string;
-  readonly actionReceipts?: readonly ResidentCeoActionReceiptRead[];
-}
 export type ObserveTailRequest = RepoScope & ObserveTailPayload;
 export interface SystemRepoRow {
   readonly repoId: string;
@@ -374,18 +351,9 @@ export type {
 
 export const harnessClient = {
   async getResidentCeo(payload: RepoScope): Promise<ResidentCeoReceipt> {
-    const result = await invoke("repo.residentCeo.status", payload);
-    if (!result || result.ok !== true || (result.profile !== null && !isResidentCeoProfile(result.profile)))
-      throw new Error(localErrorHint(result, "Resident CEO status returned an invalid result."));
-    return { ...result, profile: result.profile } as unknown as ResidentCeoReceipt;
+    return readResidentCeoStatusReceipt(await invoke("repo.residentCeo.status", payload));
   },
-  async configureResidentCeo(
-    payload: RepoScope & {
-      readonly runtimeInstanceId: string;
-      readonly model: string;
-      readonly heartbeatIntervalSec: number;
-    },
-  ): Promise<ResidentCeoReceipt> {
+  async configureResidentCeo(payload: ResidentCeoConfigureInput): Promise<ResidentCeoReceipt> {
     return readResidentCeoReceipt(await invoke("repo.residentCeo.config", payload));
   },
   async startResidentCeo(payload: RepoScope): Promise<ResidentCeoReceipt> {
@@ -396,6 +364,24 @@ export const harnessClient = {
   },
   async chatResidentCeo(payload: RepoScope & { readonly message: string }): Promise<ResidentCeoReceipt> {
     return readResidentCeoReceipt(await invoke("repo.residentCeo.chat", payload));
+  },
+  async getResidentCeoHistory(payload: ResidentCeoHistoryQuery): Promise<ResidentCeoHistoryReceipt> {
+    return readResidentCeoHistoryReceipt(await invoke("repo.residentCeo.history", payload));
+  },
+  async listResidentCeoProposals(
+    payload: RepoScope & { readonly status?: ResidentCeoProposalStatus },
+  ): Promise<ResidentCeoProposalsReceipt> {
+    return readResidentCeoProposalsReceipt(await invoke("repo.residentCeo.proposals", payload));
+  },
+  async approveResidentCeoProposal(
+    payload: ResidentCeoApproveProposalInput,
+  ): Promise<ResidentCeoProposalDecisionReceipt> {
+    return readResidentCeoProposalDecisionReceipt(await invoke("repo.residentCeo.approve", payload));
+  },
+  async rejectResidentCeoProposal(
+    payload: ResidentCeoRejectProposalInput,
+  ): Promise<ResidentCeoProposalDecisionReceipt> {
+    return readResidentCeoProposalDecisionReceipt(await invoke("repo.residentCeo.reject", payload));
   },
   async getHomeOverview(): Promise<DaemonHomeOverviewResult> {
     return (await invoke("daemon.gui.home.read", {})) as DaemonHomeOverviewResult;
@@ -995,30 +981,6 @@ function isSystemStatusSuccess(value: unknown): value is SystemStatusSuccess {
         (repoRegistrationStateWords as readonly string[]).includes(String(repo.registrationState)) &&
         (repoCellStateWords as readonly string[]).includes(String(repo.cellState)),
     )
-  );
-}
-function readResidentCeoReceipt(value: unknown): ResidentCeoReceipt {
-  if (
-    !isRendererRecord(value) ||
-    value.ok !== true ||
-    !isResidentCeoProfile(value.profile) ||
-    (value.response !== undefined && typeof value.response !== "string")
-  )
-    throw new Error(localErrorHint(value, "Resident CEO command returned an invalid result."));
-  return value as unknown as ResidentCeoReceipt;
-}
-function isResidentCeoProfile(value: unknown): value is ResidentCeoProfileRead {
-  return (
-    isRendererRecord(value) &&
-    value.schema === "resident-ceo-profile/v1" &&
-    typeof value.principalPersonId === "string" &&
-    typeof value.runtimeInstanceId === "string" &&
-    typeof value.model === "string" &&
-    Number.isSafeInteger(value.heartbeatIntervalSec) &&
-    (value.persistentSessionId === null || typeof value.persistentSessionId === "string") &&
-    (value.status === "running" || value.status === "stopped") &&
-    (value.lastWake === null || isRendererRecord(value.lastWake)) &&
-    typeof value.updatedAt === "string"
   );
 }
 function isDaemonControlReceipt(value: unknown): value is DaemonControlReceipt {

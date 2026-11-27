@@ -39,6 +39,7 @@ import {
   effectiveResidentCeoExecutionPolicy,
   isResidentCeoApprovalGateMode,
   isResidentCeoExecutionPolicy,
+  isResidentCeoWakeCause,
   type ResidentCeoProfile,
   type ResidentCeoProposalStatus,
 } from "@harness-anything/kernel/internal/domain/resident-ceo.ts";
@@ -87,6 +88,8 @@ import { openResidentCeoProfileStore } from "./resident-ceo-profile-store.ts";
 import { buildResidentCeoHumanChatPrompt, settleResidentCeoHumanChatTurn } from "./resident-ceo-action-executor.ts";
 import {
   buildResidentCeoPeerPrompt,
+  extractResidentCeoExecutionSummary,
+  formatResidentCeoHistorySummary,
   formatResidentCeoProposalsSummary,
   lookupOpenPeerRequest,
   makeResidentCeoApprovalGate,
@@ -168,6 +171,7 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
   let centerStarting = false;
   const residentCeoInboxWatchers = new Map<string, AbortController>();
   const inFlightResidentCeoWakes = new Map<string, number>();
+  const inFlightResidentCeoWakeWaiters = new Map<string, (() => void)[]>();
   let residentCeoTasks: Promise<void>[] = [];
   const residentCeoRestoredRepos = new Set<string>();
   const trackResidentCeoTask = (task: Promise<void>): void => {
@@ -183,14 +187,29 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
     } finally {
       const remaining = (inFlightResidentCeoWakes.get(watcherKey) ?? 1) - 1;
       inFlightResidentCeoWakes.set(watcherKey, remaining > 0 ? remaining : 0);
+      if (remaining <= 0) {
+        const waiters = inFlightResidentCeoWakeWaiters.get(watcherKey);
+        if (waiters && waiters.length > 0) {
+          inFlightResidentCeoWakeWaiters.set(watcherKey, []);
+          for (const resolve of waiters) resolve();
+        }
+      }
     }
+  };
+  const waitForInFlightResidentCeoWake = (watcherKey: string): Promise<void> => {
+    if ((inFlightResidentCeoWakes.get(watcherKey) ?? 0) === 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const waiters = inFlightResidentCeoWakeWaiters.get(watcherKey) ?? [];
+      waiters.push(resolve);
+      inFlightResidentCeoWakeWaiters.set(watcherKey, waiters);
+    });
   };
   const residentCeoProfiles = (repoId: string, auth: DaemonAuthenticationContext) =>
     openResidentCeoProfileStore({
       key: repoId,
       readSerialized: async () => {
-        const result = await context.host.read(repoId, "repo.settings.read", {}, auth);
-        return result.settings.residentCeoProfilesJson;
+        const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
+        return readLocalState(cell.status().rootDir).value.residentCeoProfilesJson;
       },
       writeSerialized: async (value) => {
         if (context.closeSignal.aborted || context.closing)
@@ -429,10 +448,15 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
                 );
               const response =
                 session.result?.text?.trim() || "The request was received. No response text was produced.";
+              const execution = extractResidentCeoExecutionSummary(session, {
+                runtimeInstanceId: request.runtimeInstanceId,
+                model: request.model,
+              });
+              let proposalId: string | null = null;
               if (request.peerRequestId !== undefined) {
                 const currentProfile = await profiles.read(request.principalPersonId);
                 if (currentProfile !== null) {
-                  await settleResidentCeoPeerTurn({
+                  proposalId = await settleResidentCeoPeerTurn({
                     profile: currentProfile,
                     peerRequest:
                       activePeerRequest?.requestId === request.peerRequestId
@@ -454,7 +478,7 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
                 } else {
                   await acknowledgeResidentCeoPeer(repoId, request.peerRequestId, auth, boundPeerReplyText(response));
                 }
-                return { response, persistentSessionId: session.session.providerSessionId };
+                return { response, persistentSessionId: session.session.providerSessionId, proposalId, execution };
               }
               if (request.cause === "human-chat") {
                 const currentProfile = await profiles.read(request.principalPersonId);
@@ -475,14 +499,24 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
                         service.recordDeniedAction(request.principalPersonId, denied, repoId),
                     },
                   });
+                  const chatProposalId =
+                    settledChat.actionReceipts.find((entry) => typeof entry.proposalId === "string")?.proposalId ??
+                    null;
                   return {
                     response: settledChat.response,
                     persistentSessionId: session.session.providerSessionId,
+                    proposalId: chatProposalId,
+                    execution,
                     ...(settledChat.actionReceipts.length > 0 ? { actionReceipts: settledChat.actionReceipts } : {}),
                   };
                 }
               }
-              return { response, persistentSessionId: session.session.providerSessionId };
+              return {
+                response,
+                persistentSessionId: session.session.providerSessionId,
+                proposalId,
+                execution,
+              };
             },
           };
         },
@@ -576,13 +610,15 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
     }
     if (settled.settlement === null) return false;
     const service = residentCeoService(repoId, auth);
+    const settledResponse = settled.result?.text?.trim() || "No response text was produced.";
+    let proposalId: string | null = null;
     if (settled.settlement.outcome === "succeeded" && wake.peerRequestId !== undefined) {
-      await settleResidentCeoPeerTurn({
+      proposalId = await settleResidentCeoPeerTurn({
         profile,
         peerRequest: await lookupOpenPeerRequest(context.host, repoId, wake.peerRequestId, auth),
         peerRequestId: wake.peerRequestId,
         wakeId: wake.wakeId,
-        response: settled.result?.text?.trim() || "No response text was produced.",
+        response: settledResponse,
         acknowledgePeer: (reqId, text) => acknowledgeResidentCeoPeer(repoId, reqId, auth, boundPeerReplyText(text)),
         recordProposal: (draft) => service.recordProposal(principalPersonId, draft, repoId),
         executeTier0Action: (actionInput) => service.executeTier0Action(principalPersonId, actionInput, repoId),
@@ -595,6 +631,12 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
       succeeded: settled.settlement.outcome === "succeeded",
       persistentSessionId: settled.session.providerSessionId,
       detail: settled.settlement.reason,
+      responseText: settled.settlement.outcome === "succeeded" ? settledResponse : null,
+      proposalId,
+      execution: extractResidentCeoExecutionSummary(settled, {
+        runtimeInstanceId: profile.runtimeInstanceId,
+        model: profile.model,
+      }),
     });
     return true;
   };
@@ -635,6 +677,10 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
                   "Resident CEO requires its principal's local session.",
                 );
               signal.throwIfAborted();
+              if ((inFlightResidentCeoWakes.get(watcherKey) ?? 0) > 0) {
+                await raceLifetime(waitForInFlightResidentCeoWake(watcherKey), signal);
+                continue;
+              }
               if (profile.lastWake?.status === "running") {
                 const reconciled = await reconcileRunningResidentCeoWake(repoId, principalPersonId, profile, auth, {
                   waitForSettlement: true,
@@ -689,6 +735,11 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
                     buildResidentCeoPeerPrompt(profile, request),
                     request.requestId,
                     repoId,
+                    {
+                      fromPersonId: request.from.personId,
+                      peerSummary: request.summary,
+                      requestText: request.structuredBody.claim || request.summary,
+                    },
                   ),
                 );
                 if (result.response !== null) continue;
@@ -711,6 +762,9 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
                 // Lightweight heartbeat check completed above with zero open peer requests:
                 // advance the next heartbeat schedule without launching an LLM runtime.
                 nextHeartbeat = nowMs + intervalMs;
+                await residentCeoService(repoId, auth)
+                  .recordHeartbeatCheck(principalPersonId, "Inbox checked: no open peer requests.", repoId)
+                  .catch(consumeKnownError);
               }
               const waitMs = Math.max(1, Math.min(25_000, nextHeartbeat - currentNowMs()));
               const started = Date.now();
@@ -796,7 +850,7 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
       context.localOnly(auth);
       context.requireHostMode(repoId, commandDescriptorForAction(`ceo-${operation}`), auth);
       await context.attemptHostRecovery(repoId);
-      guardCenterRelocation(repoId, operation !== "status" && operation !== "proposals");
+      guardCenterRelocation(repoId, operation !== "status" && operation !== "proposals" && operation !== "history");
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       const session = await context.oidc.requireSession(cell.status().rootDir),
         principalPersonId = session.personId;
@@ -829,6 +883,28 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
       if (saved?.repoId !== undefined && saved.repoId !== repoId)
         throw context.hostCodedError("invalid_field", "Open the repository configured for this resident CEO.");
       const service = residentCeoService(repoId, auth);
+      if (operation === "history") {
+        const cause = payload.cause;
+        if (cause !== undefined && !isResidentCeoWakeCause(cause))
+          throw context.hostCodedError("invalid_field", "cause must be heartbeat, peer-request, or human-chat.");
+        const limit = payload.limit;
+        if (limit !== undefined && (!Number.isSafeInteger(limit) || Number(limit) < 1))
+          throw context.hostCodedError("invalid_field", "limit must be a positive integer.");
+        const history = saved
+          ? await service.listHistory(
+              principalPersonId,
+              {
+                ...(cause === undefined ? {} : { cause }),
+                ...(limit === undefined ? {} : { limit: Number(limit) }),
+              },
+              repoId,
+            )
+          : [];
+        return {
+          ...receipt(saved, formatResidentCeoHistorySummary(history)),
+          history: history as unknown as JsonObject[],
+        };
+      }
       if (operation === "proposals") {
         const statusFilter =
           typeof payload.status === "string" && payload.status.trim().length > 0
@@ -902,8 +978,12 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
           model,
           heartbeatIntervalSec: Number(payload.heartbeatIntervalSec),
           ...(executionPolicy === undefined ? {} : { executionPolicy }),
-          ...(typeof payload.defaultWorkId === "string" ? { defaultWorkId: payload.defaultWorkId } : {}),
-          ...(typeof payload.defaultAgentId === "string" ? { defaultAgentId: payload.defaultAgentId } : {}),
+          ...(payload.defaultWorkId === null || typeof payload.defaultWorkId === "string"
+            ? { defaultWorkId: payload.defaultWorkId }
+            : {}),
+          ...(payload.defaultAgentId === null || typeof payload.defaultAgentId === "string"
+            ? { defaultAgentId: payload.defaultAgentId }
+            : {}),
           ...(autoApproveSenders === undefined ? {} : { autoApproveSenders }),
           ...(approvalGate === undefined ? {} : { approvalGate }),
         });
@@ -969,7 +1049,7 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
         await reconcileRunningResidentCeoWake(repoId, principalPersonId, saved, auth, { waitForSettlement: false });
       const chatPrompt = saved ? buildResidentCeoHumanChatPrompt(saved, message) : message;
       const result = await runTrackedResidentCeoWake(residentCeoWatcherKey(repoId, principalPersonId), () =>
-        service.wake(principalPersonId, "human-chat", chatPrompt, undefined, repoId),
+        service.wake(principalPersonId, "human-chat", chatPrompt, undefined, repoId, { requestText: message }),
       );
       const actionReceipts = "actionReceipts" in result ? result.actionReceipts : undefined;
       return {

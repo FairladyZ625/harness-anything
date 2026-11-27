@@ -1217,10 +1217,12 @@
           "reads": [
             "command:ceo-status",
             "method:repo.residentCeo.status",
+            "command:ceo-history",
+            "method:repo.residentCeo.history",
             "command:ceo-proposals",
             "method:repo.residentCeo.proposals"
           ],
-          "reason": "Reads Resident CEO profiles and bounded proposals from the RepoCell local-settings JSON map and selects the current principal's profile (resident-ceo-profile-store.ts); this is host-local configuration, not canonical event, runtime, dispatch, output or relation history."
+          "reason": "Reads Resident CEO profiles, bounded conversation history, and bounded proposals from the RepoCell local-settings JSON map and selects the current principal's profile (resident-ceo-profile-store.ts); this is host-local configuration, not canonical event, runtime, dispatch, output or relation history."
         }
       ]
     },

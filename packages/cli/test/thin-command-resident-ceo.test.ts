@@ -81,6 +81,12 @@ test("resident CEO Phase 2 CLI parses policy config, proposals, approve, and rej
   assert.equal(proposals.command.method, "repo.residentCeo.proposals");
   assert.deepEqual(proposals.command.action, { kind: "ceo-proposals", status: "pending_approval" });
 
+  const history = parseThinCommand(["ceo", "history", "--limit", "25", "--cause", "peer-request"]);
+  assert.equal(history.ok, true);
+  if (!history.ok) return;
+  assert.equal(history.command.method, "repo.residentCeo.history");
+  assert.deepEqual(history.command.action, { kind: "ceo-history", limit: 25, cause: "peer-request" });
+
   const approved = parseThinCommand([
     "ceo",
     "approve",

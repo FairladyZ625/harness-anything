@@ -43,6 +43,7 @@ import {
   residentCeoApprovalGateModeWords,
   residentCeoExecutionPolicyWords,
   residentCeoProposalStatusWords,
+  residentCeoWakeCauseWords,
 } from "./daemon-protocol-vocabulary.ts";
 
 const slotInput = cliInput(
@@ -654,6 +655,31 @@ const residentCeoProtocolCommands = Object.freeze([
     payloadFields: [],
     inputs: [
       cliInput("--message", "single", true, { code: "invalid_field" }, { field: "message", pathKind: "non-path" }),
+    ],
+  }),
+  defineRepoReadCommand({
+    id: "ceo-history",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    path: ["ceo", "history"],
+    summary: "Read bounded persisted resident CEO conversation, peer-request, and heartbeat history.",
+    method: "repo.residentCeo.history",
+    payloadFields: [],
+    inputs: [
+      cliInput(
+        "--limit",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "limit", pathKind: "non-path", projection: "number", regex: "^[1-9][0-9]*$" },
+      ),
+      cliInput(
+        "--cause",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "cause", pathKind: "non-path", enum: residentCeoWakeCauseWords },
+      ),
     ],
   }),
   defineRepoReadCommand({
@@ -1454,60 +1480,6 @@ export const daemonProtocolMethods = Object.freeze([
   },
 ] as const);
 
-const residentCeoDelegationMethods = Object.freeze([
-  {
-    id: "ceo-proposals",
-    hostAuthority: "own-session",
-    phase: "ResidentCeo",
-    method: "repo.residentCeo.proposals",
-    actionKind: "ceo-proposals",
-    requiresRepo: true,
-    commandClass: "repo-read",
-    params: shape({
-      repo: shape({ repoId: "string" }),
-      payload: shape({ status: optionalEnum(residentCeoProposalStatusWords) }),
-    }),
-  },
-  {
-    id: "ceo-approve",
-    hostAuthority: "own-session",
-    phase: "ResidentCeo",
-    method: "repo.residentCeo.approve",
-    actionKind: "ceo-approve",
-    requiresRepo: true,
-    commandClass: "admin",
-    params: shape({
-      repo: shape({ repoId: "string" }),
-      payload: shape({
-        proposalId: "string",
-        workId: "string?",
-        title: "string?",
-        agentId: "string?",
-        targetNodeId: "string?",
-        runtimeInstanceId: "string?",
-        model: "string?",
-        prompt: "string?",
-      }),
-    }),
-  },
-  {
-    id: "ceo-reject",
-    hostAuthority: "own-session",
-    phase: "ResidentCeo",
-    method: "repo.residentCeo.reject",
-    actionKind: "ceo-reject",
-    requiresRepo: true,
-    commandClass: "admin",
-    params: shape({
-      repo: shape({ repoId: "string" }),
-      payload: shape({
-        proposalId: "string",
-        reason: "string",
-      }),
-    }),
-  },
-] as const);
-
 /* Runtime instance method descriptors live in the browser-safe protocol graph. */
 export { interactiveRpcMethods, providerMethods, runtimeInstanceAuthMethods, runtimeInstanceMethods };
 
@@ -1581,7 +1553,6 @@ export const fleetProtocolMethods = Object.freeze([
 
 export const daemonOwnedRpcMethods = Object.freeze([
   ...daemonProtocolMethods,
-  ...residentCeoDelegationMethods,
   ...runtimeInstanceMethods,
   ...providerMethods,
   ...runtimeInstanceAuthMethods,

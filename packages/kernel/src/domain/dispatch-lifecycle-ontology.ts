@@ -342,7 +342,22 @@ export const daemonResidentCeoPolicySources = [
     "Resident CEO peer request lookup uses the bounded 20-item page limit.",
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#settleResidentCeoPeerTurn:befe2d4b8a5a9d4f5d86c2511f1d28df",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/daemon-host-runtime-api.ts#createDaemonHostRuntimeApi.residentCeo:aef06d760255c24353dbf1eb0e7fbd62",
+    "residentCeoHistory",
+    "Resident CEO history RPC enforces a positive integer limit when provided.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-action-routes.ts#daemonActionRoutes.params.payload.limit:01756949446e0e6666f8f2734b5d34fc",
+    "residentCeoHistory",
+    "Resident CEO history RPC declares an optional numeric limit parameter.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-resident-ceo.ts#isValidResidentCeoProfileValue:7d58a8aae3b613cceececf6795dbff1a",
+    "residentCeoExecutionPolicy",
+    "Daemon Resident CEO wire validator checks optional Phase 2/3 executionPolicy field type.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#settleResidentCeoPeerTurn:285f8ee79f09c5a371a9c3343225dd10",
     "residentCeoDelegation",
     "Resident CEO records structured proposals instead of advisory replies only under approval-gated policy.",
   ],
@@ -620,6 +635,21 @@ export const daemonResidentCeoPolicySources = [
     "policy:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.recordTier2Rejection.tier:1259b205335b0f5297b1885b49e23ae2",
     "residentCeoTieredActions",
     "Resident CEO returns denied Tier 2 action receipts.",
+  ],
+  [
+    "policy:packages/gui:packages/gui/src/renderer/api-client-resident-ceo.ts#isResidentCeoProfile:7d58a8aae3b613cceececf6795dbff1a",
+    "residentCeoExecutionPolicy",
+    "GUI Resident CEO wire guard tolerates omitted Phase 2/3 executionPolicy while checking string type when present.",
+  ],
+  [
+    "policy:packages/gui:packages/gui/src/renderer/views/ResidentCeoView.tsx#ResidentCeoView.historyQuery.queryFn.limit:281836eca24c2eb78d50f8542399ca4d",
+    "residentCeoHistory",
+    "GUI Resident CEO cockpit requests the bounded 100-entry persisted conversation timeline.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo.ts#listResidentCeoHistoryEntries.limit:eba8fd443e16bbaec961dd9f8bfe43c9",
+    "residentCeoHistory",
+    "Resident CEO history projection clamps positive integer limits to the bounded 100-entry retention ceiling.",
   ],
   [
     "policy:packages/kernel:packages/kernel/src/domain/resident-ceo.ts#assertResidentCeoExecutionAllowed:5901726fc470828d319870e7e7bcc4d9",

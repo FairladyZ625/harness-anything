@@ -57,6 +57,14 @@
         "order": 6
       }
     ],
+    "ceo-approve": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.approveResidentCeoProposal:3fd2c020da476ea84dd5c0066cf3d594",
+        "route": "ceo-approve",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      }
+    ],
     "ceo-chat": [
       {
         "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.chatResidentCeo:0f1e602c0d9447527bb1c7748ef191a0",
@@ -69,6 +77,14 @@
       {
         "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.configureResidentCeo:55485421110997325bd7affb84a0058e",
         "route": "ceo-config",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      }
+    ],
+    "ceo-reject": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.rejectResidentCeoProposal:106acb1a7ef7aeb19b90d1c1ee676274",
+        "route": "ceo-reject",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       }
@@ -1834,8 +1850,14 @@
         "order": 193
       },
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getResidentCeo.result:dae0ed4f2def70b54b0fa509d99cc37b",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getResidentCeo:dae0ed4f2def70b54b0fa509d99cc37b",
         "route": "ceo-status",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getResidentCeoHistory:d96b0ef0c40b88cd5992697f853aaf2a",
+        "route": "ceo-history",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
@@ -1950,6 +1972,12 @@
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke",
         "order": 197
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.listResidentCeoProposals:182152627f4ad7ffa0c5f2413c5ac20a",
+        "route": "ceo-proposals",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
         "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.rereadCatalog:0b7a597bab54caf43aadc7cc820c5244",

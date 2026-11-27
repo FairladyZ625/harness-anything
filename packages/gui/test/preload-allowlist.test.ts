@@ -285,14 +285,14 @@ test("preload exposes only the approved API methods", () => {
   // for the Living Dossier GUI tab's incremental refresh.
   // dec_166C5D2EAB57F8BCA3F15107E2/CH2,CH4 (task_b75af18a8ce517d88ee1cb2bd9): adds 6 channel/peer GUI facets
   // (repo.channel.list/deliver/send, repo.peer.inbox/reply/promote) (70 -> 76 / 69 -> 75).
-  // Resident CEO adds five owner-scoped management and conversation routes (76 -> 81).
-  assert.equal(editingFacets.length, 81);
+  // Resident CEO adds nine owner-scoped management, history, proposal, and conversation routes (76 -> 85).
+  assert.equal(editingFacets.length, 85);
   assert.equal(preloadAllowlist.includes("repo.vertical.declaration.read"), true);
   assert.equal(preloadAllowlist.includes("repo.dossier.synthesize"), true);
   // entity.update / entity.archive / entity.delete plus vertical kind upsert / publish-schema / retire
   // are explicit GUI facets. Todo contributes eight GUI actions from the repository todo task.
-  // Channel and peer workbench routes add six actions (69 -> 75) and Resident CEO adds five closed RPC routes (75 -> 80).
-  assert.equal(daemonActionRoutes.length, 80);
+  // Channel and peer workbench routes add six actions (69 -> 75) and Resident CEO adds nine closed RPC routes (75 -> 84).
+  assert.equal(daemonActionRoutes.length, 84);
   assert.equal(daemonActionRoutes.find(({ method }) => method === "repo.task.create")?.actionKind, "task-create");
   assert.equal(
     daemonActionRoutes.some(({ method }) => method === "repo.entity.delete"),

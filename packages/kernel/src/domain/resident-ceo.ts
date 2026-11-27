@@ -15,8 +15,13 @@ export const RESIDENT_CEO_PROFILE_SCHEMA = "resident-ceo-profile/v1" as const;
 export const RESIDENT_CEO_MIN_HEARTBEAT_INTERVAL_SEC = 30;
 export const RESIDENT_CEO_MAX_HEARTBEAT_INTERVAL_SEC = 86_400;
 export const RESIDENT_CEO_MAX_PROPOSALS = 50;
+export const RESIDENT_CEO_MAX_HISTORY = 100;
+export const RESIDENT_CEO_MAX_HISTORY_REQUEST_CHARS = 4_000;
+export const RESIDENT_CEO_MAX_HISTORY_RESPONSE_CHARS = 16_000;
+export const RESIDENT_CEO_MAX_HISTORY_DETAIL_CHARS = 2_000;
 export const RESIDENT_CEO_DEFAULT_GATE_MIN_CONFIDENCE = 0.85;
 export const RESIDENT_CEO_GATE_ABSTAIN_OPTION_ID = "insufficient_information" as const;
+export const residentCeoWakeCauses = ["heartbeat", "peer-request", "human-chat"] as const;
 export const residentCeoProfileStatuses = ["stopped", "running"] as const;
 export const residentCeoWakeStatuses = ["running", "succeeded", "failed"] as const;
 export const residentCeoExecutionPolicies = ["advisory-only", "approval-gated"] as const;
@@ -29,7 +34,7 @@ export const residentCeoGateOptionIds = [
   RESIDENT_CEO_GATE_ABSTAIN_OPTION_ID,
 ] as const;
 
-export type ResidentCeoWakeCause = "heartbeat" | "peer-request" | "human-chat";
+export type ResidentCeoWakeCause = (typeof residentCeoWakeCauses)[number];
 export type ResidentCeoProfileStatus = (typeof residentCeoProfileStatuses)[number];
 export type ResidentCeoWakeStatus = (typeof residentCeoWakeStatuses)[number];
 export type ResidentCeoExecutionPolicy = (typeof residentCeoExecutionPolicies)[number];
@@ -85,6 +90,33 @@ export interface ResidentCeoWakeReceipt {
   readonly runtimeSessionId: string | null;
   readonly peerRequestId?: string;
   readonly detail: string | null;
+}
+
+export interface ResidentCeoHistoryExecutionSummary {
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  readonly totalTokens?: number;
+  readonly toolCallCount?: number;
+  readonly model?: string;
+  readonly runtimeInstanceId?: string;
+  readonly permissionMode?: string | null;
+}
+
+export interface ResidentCeoHistoryEntry {
+  readonly wakeId: string;
+  readonly cause: ResidentCeoWakeCause;
+  readonly requestedAt: string;
+  readonly completedAt: string | null;
+  readonly status: ResidentCeoWakeStatus;
+  readonly runtimeSessionId: string | null;
+  readonly peerRequestId?: string | null;
+  readonly fromPersonId?: string | null;
+  readonly peerSummary?: string | null;
+  readonly requestText: string | null;
+  readonly responseText: string | null;
+  readonly detail: string | null;
+  readonly proposalId?: string | null;
+  readonly execution?: ResidentCeoHistoryExecutionSummary | null;
 }
 
 export interface ResidentCeoProposalTerminalOutcome {
@@ -143,6 +175,7 @@ export interface ResidentCeoProfile {
   readonly lastWake: ResidentCeoWakeReceipt | null;
   readonly proposals?: readonly ResidentCeoDelegationProposal[];
   readonly actionAuditLog?: readonly ResidentCeoActionAuditEntry[];
+  readonly history?: readonly ResidentCeoHistoryEntry[];
   readonly updatedAt: string;
 }
 
@@ -205,6 +238,10 @@ function normalizeAutoApproveSenders(senders: readonly string[] | undefined): re
     if (!normalized.includes(trimmed)) normalized.push(trimmed);
   }
   return Object.freeze(normalized);
+}
+
+export function isResidentCeoWakeCause(value: unknown): value is ResidentCeoWakeCause {
+  return typeof value === "string" && (residentCeoWakeCauses as readonly string[]).includes(value);
 }
 
 export function isResidentCeoExecutionPolicy(value: unknown): value is ResidentCeoExecutionPolicy {
@@ -729,4 +766,87 @@ export function recordResidentCeoProposalTerminalOutcome(
   }
   if (current.terminalOutcome !== null) return profile;
   return upsertResidentCeoProposal(profile, { ...current, terminalOutcome: outcome }, outcome.reportedAt);
+}
+
+function boundHistoryText(value: string | null | undefined, maxChars: number): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  return trimmed.length <= maxChars ? trimmed : `${trimmed.slice(0, maxChars - 1)}…`;
+}
+
+function normalizeHistoryEntry(entry: ResidentCeoHistoryEntry): ResidentCeoHistoryEntry {
+  return {
+    wakeId: entry.wakeId,
+    cause: entry.cause,
+    requestedAt: entry.requestedAt,
+    completedAt: entry.completedAt,
+    status: entry.status,
+    runtimeSessionId: entry.runtimeSessionId,
+    ...(entry.peerRequestId === undefined ? {} : { peerRequestId: entry.peerRequestId }),
+    ...(entry.fromPersonId === undefined ? {} : { fromPersonId: entry.fromPersonId }),
+    ...(entry.peerSummary === undefined
+      ? {}
+      : { peerSummary: boundHistoryText(entry.peerSummary, RESIDENT_CEO_MAX_HISTORY_DETAIL_CHARS) }),
+    requestText: boundHistoryText(entry.requestText, RESIDENT_CEO_MAX_HISTORY_REQUEST_CHARS),
+    responseText: boundHistoryText(entry.responseText, RESIDENT_CEO_MAX_HISTORY_RESPONSE_CHARS),
+    detail: boundHistoryText(entry.detail, RESIDENT_CEO_MAX_HISTORY_DETAIL_CHARS),
+    ...(entry.proposalId === undefined ? {} : { proposalId: entry.proposalId }),
+    ...(entry.execution === undefined ? {} : { execution: entry.execution }),
+  };
+}
+
+export function upsertResidentCeoHistoryEntry(
+  profile: ResidentCeoProfile,
+  entry: ResidentCeoHistoryEntry,
+  updatedAt: string,
+): ResidentCeoProfile {
+  const normalized = normalizeHistoryEntry(entry);
+  const existing = profile.history ?? [];
+  const next = existing.some((item) => item.wakeId === normalized.wakeId)
+    ? existing.map((item) => (item.wakeId === normalized.wakeId ? normalized : item))
+    : [...existing, normalized];
+  const bounded = next.length > RESIDENT_CEO_MAX_HISTORY ? next.slice(-RESIDENT_CEO_MAX_HISTORY) : next;
+  return {
+    ...profile,
+    history: bounded,
+    updatedAt,
+  };
+}
+
+export function listResidentCeoHistoryEntries(
+  profile: Pick<ResidentCeoProfile, "history" | "lastWake" | "model" | "runtimeInstanceId">,
+  filter?: { readonly limit?: number; readonly cause?: ResidentCeoWakeCause },
+): readonly ResidentCeoHistoryEntry[] {
+  const source: readonly ResidentCeoHistoryEntry[] =
+    profile.history && profile.history.length > 0
+      ? profile.history
+      : profile.lastWake !== null
+        ? [
+            {
+              wakeId: profile.lastWake.wakeId,
+              cause: profile.lastWake.cause,
+              requestedAt: profile.lastWake.requestedAt,
+              completedAt: profile.lastWake.completedAt,
+              status: profile.lastWake.status,
+              runtimeSessionId: profile.lastWake.runtimeSessionId,
+              ...(profile.lastWake.peerRequestId === undefined
+                ? {}
+                : { peerRequestId: profile.lastWake.peerRequestId }),
+              requestText: null,
+              responseText: null,
+              detail: profile.lastWake.detail,
+              execution: {
+                model: profile.model,
+                runtimeInstanceId: profile.runtimeInstanceId,
+              },
+            },
+          ]
+        : [];
+  const filtered = filter?.cause ? source.filter((entry) => entry.cause === filter.cause) : source;
+  const limit =
+    filter?.limit !== undefined && Number.isSafeInteger(filter.limit) && filter.limit >= 1
+      ? Math.min(filter.limit, RESIDENT_CEO_MAX_HISTORY)
+      : RESIDENT_CEO_MAX_HISTORY;
+  return filtered.length > limit ? filtered.slice(-limit) : filtered;
 }
