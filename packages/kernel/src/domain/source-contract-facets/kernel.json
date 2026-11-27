@@ -357,6 +357,90 @@
           }
         ],
         "order": 10
+      },
+      {
+        "id": "kernel/src/domain/kb-document-bundle.ts#KbDocumentBundleV1.validateKbAssetRefV1",
+        "symbol": "packages/kernel/src/domain/kb-document-bundle.ts#validateKbAssetRefV1",
+        "explain": "KbDocumentBundleV1: Sidecar asset pointer validator.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/kb-document-bundle.ts#validateKbAssetRefV1:ebbe336e5078593962756d572ca50844",
+            "route": "packages/kernel/src/domain/kb-document-bundle.ts#validateKbAssetRefV1"
+          }
+        ],
+        "order": 28
+      },
+      {
+        "id": "kernel/src/domain/kb-document-bundle.ts#KbDocumentBundleV1.validateKbDocumentManifestV1",
+        "symbol": "packages/kernel/src/domain/kb-document-bundle.ts#validateKbDocumentManifestV1",
+        "explain": "KbDocumentBundleV1: Document manifest shape validator.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/kb-document-bundle.ts#validateKbDocumentManifestV1:ca726a265119a8f15b9fdf8b159ee515",
+            "route": "packages/kernel/src/domain/kb-document-bundle.ts#validateKbDocumentManifestV1"
+          }
+        ],
+        "order": 25
+      },
+      {
+        "id": "kernel/src/domain/kb-document-bundle.ts#KbDocumentBundleV1.validateKbSourceRefV1",
+        "symbol": "packages/kernel/src/domain/kb-document-bundle.ts#validateKbSourceRefV1",
+        "explain": "KbDocumentBundleV1: Immutable source content reference validator.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/kb-document-bundle.ts#validateKbSourceRefV1:6f0de9cd90ae64c6237f69ec961c0b68",
+            "route": "packages/kernel/src/domain/kb-document-bundle.ts#validateKbSourceRefV1"
+          }
+        ],
+        "order": 26
+      },
+      {
+        "id": "kernel/src/domain/kb-document-bundle.ts#KbDocumentBundleV1.validateKbViewRefV1",
+        "symbol": "packages/kernel/src/domain/kb-document-bundle.ts#validateKbViewRefV1",
+        "explain": "KbDocumentBundleV1: Derived Markdown view pointer validator.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/kb-document-bundle.ts#validateKbViewRefV1:22128c8ece3e26dd16df3618ff80c0e7",
+            "route": "packages/kernel/src/domain/kb-document-bundle.ts#validateKbViewRefV1"
+          }
+        ],
+        "order": 27
+      },
+      {
+        "id": "kernel/src/domain/kb-document-bundle.ts#KbDocumentBundleV1.validateOutlineEntry",
+        "symbol": "packages/kernel/src/domain/kb-document-bundle.ts#validateOutlineEntry",
+        "explain": "KbDocumentBundleV1: Deterministic Markdown outline entry field validator.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/kb-document-bundle.ts#validateOutlineEntry:22d01f1e311f3a47b21f3b45fa098e75",
+            "route": "packages/kernel/src/domain/kb-document-bundle.ts#validateOutlineEntry"
+          }
+        ],
+        "order": 23
+      },
+      {
+        "id": "kernel/src/domain/kb-document-bundle.ts#KbDocumentBundleV1.validateRelationEntry",
+        "symbol": "packages/kernel/src/domain/kb-document-bundle.ts#validateRelationEntry",
+        "explain": "KbDocumentBundleV1: Explicit KB relation edge field validator.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/kb-document-bundle.ts#validateRelationEntry:fedec3351554f1bee72181e228af44fb",
+            "route": "packages/kernel/src/domain/kb-document-bundle.ts#validateRelationEntry"
+          }
+        ],
+        "order": 24
+      },
+      {
+        "id": "kernel/src/domain/kb-document-event.ts#KbDocumentEventV1.validateKbDocumentEventFields",
+        "symbol": "packages/kernel/src/domain/kb-document-event.ts#validateKbDocumentEventFields",
+        "explain": "KbDocumentEventV1: Strict/historical canonical kb-document-event/v1 field decoder.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/kb-document-event.ts#validateKbDocumentEventFields:d7af7a9a117f6306edb665b382d951cb",
+            "route": "packages/kernel/src/domain/kb-document-event.ts#validateKbDocumentEventFields"
+          }
+        ],
+        "order": 29
       }
     ],
     "judgments": [

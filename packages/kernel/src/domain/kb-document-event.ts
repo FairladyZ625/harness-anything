@@ -361,84 +361,12 @@ export const kbDocumentJudgments = [
     output: "readonly string[] validation issues",
     failureCodes: ["invalid_field"],
     explain: "Validate kb-document-bundle/v1 manifests, outlines, relations, source/view refs, and asset refs.",
-    consumers: ["packages/kernel/src/domain/kb-document-event.ts", "packages/daemon/src/daemon-host/local-kb-store.ts"],
-    sources: [
-      {
-        candidateId:
-          "judgment:packages/kernel:packages/kernel/src/domain/kb-document-bundle.ts#validateOutlineEntry:22d01f1e311f3a47b21f3b45fa098e75",
-        route: "validateOutlineEntry",
-      },
-      {
-        candidateId:
-          "judgment:packages/kernel:packages/kernel/src/domain/kb-document-bundle.ts#validateRelationEntry:fedec3351554f1bee72181e228af44fb",
-        route: "validateRelationEntry",
-      },
-      {
-        candidateId:
-          "judgment:packages/kernel:packages/kernel/src/domain/kb-document-bundle.ts#validateKbDocumentManifestV1:ca726a265119a8f15b9fdf8b159ee515",
-        route: "validateKbDocumentManifestV1",
-      },
-      {
-        candidateId:
-          "judgment:packages/kernel:packages/kernel/src/domain/kb-document-bundle.ts#validateKbSourceRefV1:6f0de9cd90ae64c6237f69ec961c0b68",
-        route: "validateKbSourceRefV1",
-      },
-      {
-        candidateId:
-          "judgment:packages/kernel:packages/kernel/src/domain/kb-document-bundle.ts#validateKbViewRefV1:22128c8ece3e26dd16df3618ff80c0e7",
-        route: "validateKbViewRefV1",
-      },
-      {
-        candidateId:
-          "judgment:packages/kernel:packages/kernel/src/domain/kb-document-bundle.ts#validateKbAssetRefV1:ebbe336e5078593962756d572ca50844",
-        route: "validateKbAssetRefV1",
-      },
-      {
-        candidateId:
-          "judgment:packages/kernel:packages/kernel/src/domain/kb-document-bundle.ts#validateKbDocumentBundleV1:2b96258d327854a2e2e3b1a5e669b4bd",
-        route: "validateKbDocumentBundleV1",
-      },
-    ],
-  },
-  {
-    id: "kb-document-event-validation",
-    symbol: "packages/kernel/src/domain/kb-document-event.ts#validateCurrentKbDocumentEvent",
-    inputs: ["unknown kb-document-event/v1 event"],
-    output: "readonly string[] validation issues",
-    failureCodes: ["invalid_field"],
-    explain: "Validate canonical kb-document-event/v1 envelopes and payloads before admission or replay.",
-    consumers: ["packages/kernel/src/domain/doc-sync-canonical-events.ts"],
-    sources: [
-      {
-        candidateId:
-          "judgment:packages/kernel:packages/kernel/src/domain/kb-document-event.ts#validateKbDocumentEventFields:d7af7a9a117f6306edb665b382d951cb",
-        route: "validateKbDocumentEventFields",
-      },
-    ],
-  },
-  {
-    id: "kb-local-mount-containment",
-    symbol: "packages/kernel/src/domain/kb-document-bundle.ts#tryNormalizeRelativePosixPath",
-    inputs: ["mount root path and candidate relative or filesystem path"],
-    output: "canonical relative POSIX path or containment error",
-    failureCodes: ["kb_path_escape"],
-    explain: "Enforce symlink and path-traversal containment inside host-local KB bundles and external mounts.",
     consumers: ["packages/daemon/src/daemon-host/local-kb-store.ts"],
     sources: [
       {
         candidateId:
-          "judgment:packages/daemon:packages/daemon/src/daemon-host/local-kb-store.ts#assertNotSymlink:8115a20cae081ea8725bc303f660039f",
-        route: "local-kb-store",
-      },
-      {
-        candidateId:
-          "judgment:packages/daemon:packages/daemon/src/daemon-host/local-kb-store.ts#isPathInsideRoot:95857113947379b838c2fdd41e5711fd",
-        route: "local-kb-store",
-      },
-      {
-        candidateId:
-          "judgment:packages/daemon:packages/daemon/src/daemon-host/local-kb-store.ts#assertNoSymlinkSegments:bd676de909fedf49d2561a12aa1ced85",
-        route: "local-kb-store",
+          "judgment:packages/kernel:packages/kernel/src/domain/kb-document-bundle.ts#validateKbDocumentBundleV1:2b96258d327854a2e2e3b1a5e669b4bd",
+        route: "validateKbDocumentBundleV1",
       },
     ],
   },
