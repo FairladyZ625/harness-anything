@@ -521,4 +521,69 @@ describe("resident CEO cockpit view", () => {
       gateMinConfidence: 0.9,
     });
   });
+
+  it("clarifies zero-token empty-inbox checks (30–86400s) and instance/model scope in en-US and zh-CN", async () => {
+    const { container } = await mountCockpit();
+
+    const heartbeatMeta = container.querySelector('[data-testid="resident-ceo-heartbeat-meta"]');
+    expect(heartbeatMeta?.textContent).toContain("Inbox check 300s (0 tokens idle)");
+    expect(heartbeatMeta?.getAttribute("title")).toContain("programmatic only");
+    expect(heartbeatMeta?.getAttribute("title")).toContain("zero token usage");
+    expect(heartbeatMeta?.getAttribute("title")).toContain("30–86400");
+
+    const instanceModel = container.querySelector('[data-testid="resident-ceo-instance-model"]');
+    expect(instanceModel?.getAttribute("title")).toContain("Resident CEO's own wakes");
+    expect(instanceModel?.getAttribute("title")).toContain("local delegations");
+
+    const heartbeatFilter = container.querySelector('[data-testid="resident-ceo-filter-heartbeat"]');
+    expect(heartbeatFilter?.textContent).toContain("Inbox checks");
+    expect(heartbeatFilter?.getAttribute("data-tip")).toContain("zero token usage");
+
+    const openBtn = container.querySelector('[data-testid="resident-ceo-open-config"]') as HTMLButtonElement;
+    await act(async () => {
+      openBtn.click();
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    });
+
+    const modelScopeHint = container.querySelector('[data-testid="resident-ceo-config-model-scope-hint"]');
+    expect(modelScopeHint?.textContent).toContain("Resident CEO's own wakes");
+    expect(modelScopeHint?.textContent).toContain("default instance and model for local delegations");
+
+    const heartbeatHint = container.querySelector('[data-testid="resident-ceo-config-heartbeat-hint"]');
+    expect(heartbeatHint?.textContent).toContain("programmatic only");
+    expect(heartbeatHint?.textContent).toContain("no model call");
+    expect(heartbeatHint?.textContent).toContain("zero token usage");
+    expect(heartbeatHint?.textContent).toContain("30–86400");
+
+    try {
+      setActiveLocale("zh-CN");
+      const { container: zhContainer } = await mountCockpit();
+
+      const zhHeartbeatMeta = zhContainer.querySelector('[data-testid="resident-ceo-heartbeat-meta"]');
+      expect(zhHeartbeatMeta?.textContent).toContain("信箱巡检 300s（无新消息 0 消耗）");
+      expect(zhHeartbeatMeta?.getAttribute("title")).toContain("纯程序检查");
+      expect(zhHeartbeatMeta?.getAttribute("title")).toContain("零 token 消耗");
+      expect(zhHeartbeatMeta?.getAttribute("title")).toContain("30–86400 秒");
+
+      const zhFilter = zhContainer.querySelector('[data-testid="resident-ceo-filter-heartbeat"]');
+      expect(zhFilter?.textContent).toContain("信箱巡检");
+
+      const zhOpenBtn = zhContainer.querySelector('[data-testid="resident-ceo-open-config"]') as HTMLButtonElement;
+      await act(async () => {
+        zhOpenBtn.click();
+        await new Promise((resolve) => setTimeout(resolve, 15));
+      });
+
+      const zhModelScopeHint = zhContainer.querySelector('[data-testid="resident-ceo-config-model-scope-hint"]');
+      expect(zhModelScopeHint?.textContent).toContain("用于常驻 CEO 自身唤醒");
+      expect(zhModelScopeHint?.textContent).toContain("本地委派未显式覆盖时的默认实例与模型");
+
+      const zhHeartbeatHint = zhContainer.querySelector('[data-testid="resident-ceo-config-heartbeat-hint"]');
+      expect(zhHeartbeatHint?.textContent).toContain("空信箱巡检为纯程序检查");
+      expect(zhHeartbeatHint?.textContent).toContain("无新消息时不调模型、零 token 消耗");
+      expect(zhHeartbeatHint?.textContent).toContain("30–86400 秒");
+    } finally {
+      setActiveLocale("en-US");
+    }
+  });
 });
