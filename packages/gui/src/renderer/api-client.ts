@@ -218,6 +218,44 @@ export type SettingsUpdateInput = RepoScope &
   };
 
 export type RepoScope = { readonly repoId: string };
+interface ResidentCeoActionProposalRead {
+  readonly proposalId: string;
+  readonly peerRequestId: string;
+  readonly fromPersonId: string;
+  readonly summary: string;
+  readonly actionKind?:
+    | "promote_and_dispatch"
+    | "start_and_dispatch_existing"
+    | "archive_or_cancel_unleased"
+    | "doc_sync_plan";
+  readonly sourceChannel?: "peer-request" | "human-chat";
+  readonly targetTaskId?: string | null;
+  readonly cleanupMode?: "archive" | "cancel" | null;
+  readonly proposedTitle: string;
+  readonly proposedWorkId: string | null;
+  readonly proposedAgentId: string | null;
+  readonly proposedTargetNodeId?: string | null;
+  readonly status: string;
+  readonly approvalMode: string | null;
+  readonly promotedTaskId: string | null;
+  readonly dispatchRuntimeSessionId: string | null;
+  readonly dispatchError: string | null;
+  readonly createdAt: string;
+}
+interface ResidentCeoActionReceiptRead {
+  readonly tier: "tier0" | "tier1" | "tier2";
+  readonly actionKind: string;
+  readonly outcome: string;
+  readonly approvalMode: string | null;
+  readonly targetRef: string | null;
+  readonly resultRef: string | null;
+  readonly proposalId: string | null;
+  readonly requestId?: string | null;
+  readonly taskId?: string | null;
+  readonly runtimeSessionId?: string | null;
+  readonly errorCode: string | null;
+  readonly detail: string;
+}
 export interface ResidentCeoProfileRead {
   readonly schema: "resident-ceo-profile/v1";
   readonly principalPersonId: string;
@@ -235,12 +273,14 @@ export interface ResidentCeoProfileRead {
     readonly runtimeSessionId: string | null;
     readonly detail: string | null;
   } | null;
+  readonly proposals?: readonly ResidentCeoActionProposalRead[];
   readonly updatedAt: string;
 }
 export interface ResidentCeoReceipt {
   readonly ok: true;
   readonly profile: ResidentCeoProfileRead | null;
   readonly response?: string;
+  readonly actionReceipts?: readonly ResidentCeoActionReceiptRead[];
 }
 export type ObserveTailRequest = RepoScope & ObserveTailPayload;
 export interface SystemRepoRow {

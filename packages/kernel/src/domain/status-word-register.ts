@@ -49,6 +49,29 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     }[word],
     divergence: "entity-scoped" as const,
   })),
+  ...(["executed", "proposed", "denied", "failed"] as const).map((word) => ({
+    word,
+    entity: "RuntimeSession" as const,
+    field: "resident CEO action audit outcome",
+    meaning: {
+      executed: "A resident CEO Tier 0 or Tier 1 action was executed by the daemon-side typed executor.",
+      proposed: "A resident CEO Tier 1 action was recorded as a pending proposal awaiting human approval.",
+      denied: "A resident CEO action was fail-closed denied by tier, trust-channel, rate-limit, or lease guards.",
+      failed: "An authorized resident CEO action failed during daemon-side execution.",
+    }[word],
+    divergence: "entity-scoped" as const,
+  })),
+  ...(["answered", "done", "rejected"] as const).map((word) => ({
+    word,
+    entity: "RuntimeSession" as const,
+    field: "resident CEO peer reply outcome",
+    meaning: {
+      answered: "A resident CEO Tier 0 peer_reply answered a PeerRequest with a claim and next action.",
+      done: "A resident CEO Tier 0 peer_reply marked a PeerRequest done.",
+      rejected: "A resident CEO Tier 0 peer_reply rejected a PeerRequest with an explicit reason.",
+    }[word],
+    divergence: "entity-scoped" as const,
+  })),
   ...gateRunStatusWordRegister,
   ...dispatchStatusWordRegister,
   ...rbacBackupStatuses.map((word) => ({

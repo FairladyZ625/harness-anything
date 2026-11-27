@@ -10,6 +10,42 @@
     ],
     "ceo-approve": [
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#makeResidentCeoExtendedActionMethods.archiveOrCancelUnleased.archived:e20ac7f1152c29d480108f55e16803b8",
+        "route": "ceo-approve"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#makeResidentCeoExtendedActionMethods.archiveOrCancelUnleased.cancelled:406e4c66becb15b2c4f71a0b43762e23",
+        "route": "ceo-approve"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#makeResidentCeoExtendedActionMethods.archiveOrCancelUnleased.released:f26a9405b3c945c73ec8e4965a77d38f",
+        "route": "ceo-approve"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#makeResidentCeoExtendedActionMethods.archiveOrCancelUnleased.shown:70ca165c4795462b000d9cd0aee84709",
+        "route": "ceo-approve"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#makeResidentCeoExtendedActionMethods.createTask.receipt:7abdc4debe73e4162c9561b424f56a2f",
+        "route": "ceo-approve"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#makeResidentCeoExtendedActionMethods.startExistingTask.shown:70ca165c4795462b000d9cd0aee84709",
+        "route": "ceo-approve"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#makeResidentCeoExtendedActionMethods.startExistingTask.started:30852e29a2d9d015eaf2ef674a67bfa5",
+        "route": "ceo-approve"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#makeResidentCeoExtendedActionMethods.syncTaskPlan.shown:70ca165c4795462b000d9cd0aee84709",
+        "route": "ceo-approve"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#makeResidentCeoExtendedActionMethods.syncTaskPlan.submitted:ec4bfedfa5c617ea0f2f4d1ee1c2876c",
+        "route": "ceo-approve"
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#makeResidentCeoDelegationExecutor.assignToNode.assigned:4e7754ae9425e4b1955f51d49c121a1b",
         "route": "ceo-approve"
       },
@@ -49,6 +85,14 @@
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-runtime-api.ts#createDaemonHostRuntimeApi.watchResidentCeoInbox:5d93495c314b2642dad4340b4b7b0bb6",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#makeResidentCeoExtendedActionMethods.peerAsk.receipt:07cd9c76730d2e8376da5f7d57c73cac",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#makeResidentCeoExtendedActionMethods.peerReply.receipt:9b6f528ac14044c90d61101d6202111f",
         "route": "ceo-config"
       },
       {

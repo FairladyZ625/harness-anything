@@ -84,6 +84,7 @@ import {
 import { makeResidentCeoService } from "@harness-anything/application/internal/commands/resident-ceo.ts";
 import type { PeerRequestV1 } from "@harness-anything/kernel/internal/domain/peer-collaboration.ts";
 import { openResidentCeoProfileStore } from "./resident-ceo-profile-store.ts";
+import { buildResidentCeoHumanChatPrompt, settleResidentCeoHumanChatTurn } from "./resident-ceo-action-executor.ts";
 import {
   buildResidentCeoPeerPrompt,
   formatResidentCeoProposalsSummary,
@@ -385,6 +386,8 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
           host: context.host,
           codedError: context.hostCodedError,
           resolveLocalNodeId: () => runtimeNodeId(repoId),
+          resolveRepoRoot: () => context.cells.get(repoId)?.status().rootDir ?? null,
+          now: context.now,
         },
         repoId,
         auth,
@@ -441,9 +444,42 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
                     acknowledgePeer: (reqId, text) =>
                       acknowledgeResidentCeoPeer(repoId, reqId, auth, boundPeerReplyText(text)),
                     recordProposal: (draft) => service.recordProposal(request.principalPersonId, draft, repoId),
+                    executeTier0Action: (actionInput) =>
+                      service.executeTier0Action(request.principalPersonId, actionInput, repoId),
+                    recordTier2Rejection: (rejection) =>
+                      service.recordTier2Rejection(request.principalPersonId, rejection, repoId),
+                    recordDeniedAction: (denied) =>
+                      service.recordDeniedAction(request.principalPersonId, denied, repoId),
                   });
                 } else {
                   await acknowledgeResidentCeoPeer(repoId, request.peerRequestId, auth, boundPeerReplyText(response));
+                }
+                return { response, persistentSessionId: session.session.providerSessionId };
+              }
+              if (request.cause === "human-chat") {
+                const currentProfile = await profiles.read(request.principalPersonId);
+                if (currentProfile !== null) {
+                  const settledChat = await settleResidentCeoHumanChatTurn({
+                    profile: currentProfile,
+                    principalPersonId: request.principalPersonId,
+                    wakeId: request.wakeId,
+                    userMessage: request.message,
+                    response,
+                    service: {
+                      executeTier0Action: (actionInput) =>
+                        service.executeTier0Action(request.principalPersonId, actionInput, repoId),
+                      recordProposal: (draft) => service.recordProposal(request.principalPersonId, draft, repoId),
+                      recordTier2Rejection: (rejection) =>
+                        service.recordTier2Rejection(request.principalPersonId, rejection, repoId),
+                      recordDeniedAction: (denied) =>
+                        service.recordDeniedAction(request.principalPersonId, denied, repoId),
+                    },
+                  });
+                  return {
+                    response: settledChat.response,
+                    persistentSessionId: session.session.providerSessionId,
+                    ...(settledChat.actionReceipts.length > 0 ? { actionReceipts: settledChat.actionReceipts } : {}),
+                  };
                 }
               }
               return { response, persistentSessionId: session.session.providerSessionId };
@@ -549,6 +585,9 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
         response: settled.result?.text?.trim() || "No response text was produced.",
         acknowledgePeer: (reqId, text) => acknowledgeResidentCeoPeer(repoId, reqId, auth, boundPeerReplyText(text)),
         recordProposal: (draft) => service.recordProposal(principalPersonId, draft, repoId),
+        executeTier0Action: (actionInput) => service.executeTier0Action(principalPersonId, actionInput, repoId),
+        recordTier2Rejection: (rejection) => service.recordTier2Rejection(principalPersonId, rejection, repoId),
+        recordDeniedAction: (denied) => service.recordDeniedAction(principalPersonId, denied, repoId),
       });
     }
     await service.reconcileWake(principalPersonId, wake.wakeId, {
@@ -928,10 +967,18 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
       if (!message) throw context.hostCodedError("invalid_field", "A chat message is required.");
       if (saved?.status === "running" && saved.lastWake?.status === "running")
         await reconcileRunningResidentCeoWake(repoId, principalPersonId, saved, auth, { waitForSettlement: false });
+      const chatPrompt = saved ? buildResidentCeoHumanChatPrompt(saved, message) : message;
       const result = await runTrackedResidentCeoWake(residentCeoWatcherKey(repoId, principalPersonId), () =>
-        service.wake(principalPersonId, "human-chat", message, undefined, repoId),
+        service.wake(principalPersonId, "human-chat", chatPrompt, undefined, repoId),
       );
-      return { ...receipt(result.profile, result.response ?? ""), response: result.response };
+      const actionReceipts = "actionReceipts" in result ? result.actionReceipts : undefined;
+      return {
+        ...receipt(result.profile, result.response ?? ""),
+        response: result.response,
+        ...(actionReceipts && actionReceipts.length > 0
+          ? { actionReceipts: actionReceipts as unknown as JsonObject[] }
+          : {}),
+      };
     },
     attach: async (repoId, runtimeSessionId, afterCursor, auth) => {
       context.requireHostMode(repoId, repoReadCommandTopology, auth);

@@ -2,19 +2,26 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  appendResidentCeoActionAudit,
   assertResidentCeoExecutionAllowed,
   assertResidentCeoPrincipal,
+  classifyResidentCeoAction,
   createResidentCeoProfile,
   effectiveResidentCeoApprovalGate,
   effectiveResidentCeoExecutionPolicy,
+  effectiveResidentCeoProposalActionKind,
   evaluateResidentCeoAutoApproval,
   evaluateResidentCeoGateDecision,
+  evaluateResidentCeoOwnerDirectApproval,
+  evaluateResidentCeoTier0Access,
   isValidResidentCeoTargetNodeId,
   parseResidentCeoDelegationDecision,
+  parseResidentCeoTurnActions,
   recordResidentCeoProposalGateVerdict,
   recordResidentCeoProposalTerminalOutcome,
   RESIDENT_CEO_DEFAULT_GATE_MIN_CONFIDENCE,
   RESIDENT_CEO_GATE_ABSTAIN_OPTION_ID,
+  RESIDENT_CEO_MAX_ACTION_AUDIT_ENTRIES,
   RESIDENT_CEO_MAX_PROPOSALS,
   ResidentCeoProfileError,
   residentCeoWakeDue,
@@ -563,4 +570,192 @@ test("evaluateResidentCeoGateDecision enforces deterministic guards, abstain han
   });
   assert.equal(invalidTargetNodeGate.allowAutoPromote, false);
   assert.equal(invalidTargetNodeGate.verdict.fallbackReason, "invalid_target_node_id");
+});
+
+test("tiered action classifier and turn parser cover Tier 0, Tier 1, Tier 2 fail-closed, and plain human-chat replies", () => {
+  assert.deepEqual(classifyResidentCeoAction("peer.ask"), { kind: "tier0", actionKind: "peer_ask" });
+  assert.deepEqual(classifyResidentCeoAction("peer_reply"), { kind: "tier0", actionKind: "peer_reply" });
+  assert.deepEqual(classifyResidentCeoAction("runtime.steer"), { kind: "tier0", actionKind: "runtime_steer" });
+  assert.deepEqual(classifyResidentCeoAction("propose_task"), { kind: "tier1", actionKind: "promote_and_dispatch" });
+  assert.deepEqual(classifyResidentCeoAction("start_and_dispatch_existing"), {
+    kind: "tier1",
+    actionKind: "start_and_dispatch_existing",
+  });
+  assert.deepEqual(classifyResidentCeoAction("archive_or_cancel_unleased"), {
+    kind: "tier1",
+    actionKind: "archive_or_cancel_unleased",
+  });
+  assert.deepEqual(classifyResidentCeoAction("doc_sync_plan"), { kind: "tier1", actionKind: "doc_sync_plan" });
+
+  for (const forbidden of [
+    "review-consent",
+    "review_consent",
+    "task.complete",
+    "task_complete",
+    "force-takeover",
+    "merge_pr",
+    "modify-ci-gate",
+  ]) {
+    const classified = classifyResidentCeoAction(forbidden);
+    assert.equal(classified.kind, "tier2", `expected ${forbidden} to classify as tier2`);
+  }
+
+  const fallback = {
+    summary: "Check status",
+    defaultWorkId: "task_work_1",
+    defaultAgentId: "neon",
+    requestedAction: "Check status",
+  };
+
+  // Plain human-chat stays reply_only (no synthetic task proposals).
+  const plainChat = parseResidentCeoTurnActions("All builds look green right now.", {
+    channel: "human-chat",
+    fallback,
+  });
+  assert.deepEqual(plainChat, {
+    mode: "reply_only",
+    replyText: "All builds look green right now.",
+    actions: [],
+  });
+
+  // Multi-action envelope with Tier 0, Tier 1, and forbidden Tier 2.
+  const multi = parseResidentCeoTurnActions(
+    JSON.stringify({
+      reply: "Executing requested actions.",
+      actions: [
+        { action: "peer_ask", toPersonId: "person_zeyu", summary: "Check PR 1B progress" },
+        { action: "start_and_dispatch_existing", taskId: "task_pr1b", agentId: "sol", targetNodeId: "mac-pro" },
+        { action: "archive_or_cancel_unleased", taskId: "task_old", cleanupMode: "cancel", rationale: "Merged" },
+        { action: "doc_sync_plan", taskId: "task_pr1b", planContent: "# Plan\n\nUpdated." },
+        { action: "review-consent", taskId: "task_pr1b" },
+      ],
+    }),
+    { channel: "human-chat", fallback },
+  );
+  assert.equal(multi.mode, "actions");
+  if (multi.mode === "actions") {
+    assert.equal(multi.replyText, "Executing requested actions.");
+    assert.equal(multi.actions.length, 5);
+    assert.equal(multi.actions[0]?.tier, "tier0");
+    assert.equal(multi.actions[1]?.tier, "tier1");
+    assert.equal(multi.actions[2]?.tier, "tier1");
+    assert.equal(multi.actions[3]?.tier, "tier1");
+    assert.equal(multi.actions[4]?.tier, "tier2");
+  }
+
+  // Missing required fields fail closed into rejected action.
+  const badSteer = parseResidentCeoTurnActions(
+    JSON.stringify({ action: "runtime_steer", runtimeSessionId: "rs_1", dispatchId: "disp_1", prompt: "Both ids" }),
+    { channel: "human-chat", fallback },
+  );
+  assert.equal(badSteer.mode, "actions");
+  if (badSteer.mode === "actions") {
+    assert.equal(badSteer.actions[0]?.tier, "rejected");
+  }
+});
+
+test("dual-track trust evaluators enforce owner-direct on human-chat, whitelist on peer-request Tier 0, and bounded audit log", () => {
+  const gated = createResidentCeoProfile(
+    {
+      principalPersonId: "person_owner",
+      runtimeInstanceId: "runtime_local",
+      model: "model-a",
+      heartbeatIntervalSec: 60,
+      executionPolicy: "approval-gated",
+      defaultWorkId: "task_work_default",
+      defaultAgentId: "neon",
+      autoApproveSenders: ["person_zeyu"],
+    },
+    "2026-11-27T00:00:00.000Z",
+  );
+
+  // Tier 0: human-chat owner-direct allowed; advisory-only blocked; peer-request requires allowlist target
+  assert.deepEqual(
+    evaluateResidentCeoTier0Access(gated, {
+      channel: "human-chat",
+      actorPersonId: "person_owner",
+      actionKind: "peer_ask",
+      targetPersonId: "person_anyone",
+    }),
+    { allowed: true, approvalMode: "owner-direct" },
+  );
+  assert.equal(
+    evaluateResidentCeoTier0Access(profile, {
+      channel: "human-chat",
+      actorPersonId: "person_owner",
+      actionKind: "peer_ask",
+      targetPersonId: "person_zeyu",
+    }).allowed,
+    false,
+  );
+  assert.equal(
+    evaluateResidentCeoTier0Access(gated, {
+      channel: "peer-request",
+      actorPersonId: "person_stranger",
+      actionKind: "peer_ask",
+      targetPersonId: "person_stranger",
+    }).allowed,
+    false,
+  );
+  assert.deepEqual(
+    evaluateResidentCeoTier0Access(gated, {
+      channel: "peer-request",
+      actorPersonId: "person_stranger",
+      actionKind: "peer_ask",
+      targetPersonId: "person_zeyu",
+    }),
+    { allowed: true, approvalMode: "allowlist-auto" },
+  );
+
+  // Tier 1 owner-direct: only human-chat from principal; never peer-request
+  assert.equal(effectiveResidentCeoProposalActionKind({}), "promote_and_dispatch");
+  assert.deepEqual(
+    evaluateResidentCeoOwnerDirectApproval(gated, {
+      actionKind: "start_and_dispatch_existing",
+      sourceChannel: "human-chat",
+      fromPersonId: "person_owner",
+      proposedWorkId: null,
+      proposedAgentId: "neon",
+      proposedTargetNodeId: null,
+      targetTaskId: "task_existing_1",
+      planContent: null,
+    }),
+    { autoApprove: true, approvalMode: "owner-direct", workId: "task_work_default" },
+  );
+  assert.equal(
+    evaluateResidentCeoOwnerDirectApproval(gated, {
+      actionKind: "start_and_dispatch_existing",
+      sourceChannel: "peer-request",
+      fromPersonId: "person_owner",
+      proposedWorkId: null,
+      proposedAgentId: "neon",
+      proposedTargetNodeId: null,
+      targetTaskId: "task_existing_1",
+      planContent: null,
+    }).autoApprove,
+    false,
+  );
+
+  // Audit log caps at RESIDENT_CEO_MAX_ACTION_AUDIT_ENTRIES
+  let audited = gated;
+  for (let i = 0; i < RESIDENT_CEO_MAX_ACTION_AUDIT_ENTRIES + 15; i += 1) {
+    audited = appendResidentCeoActionAudit(audited, {
+      auditId: `aud_${i}`,
+      wakeId: `wake_${i}`,
+      channel: "human-chat",
+      tier: "tier0",
+      actionKind: "peer_ask",
+      outcome: "executed",
+      approvalMode: "owner-direct",
+      actorPersonId: "person_owner",
+      targetRef: "person/person_zeyu",
+      resultRef: `peer/peer_${i}`,
+      proposalId: null,
+      errorCode: null,
+      detail: `entry ${i}`,
+      recordedAt: "2026-11-27T00:00:01.000Z",
+    });
+  }
+  assert.equal(audited.actionAuditLog?.length, RESIDENT_CEO_MAX_ACTION_AUDIT_ENTRIES);
+  assert.equal(audited.actionAuditLog?.[0]?.auditId, "aud_15");
 });

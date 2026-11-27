@@ -1,3 +1,16 @@
+import {
+  effectiveResidentCeoExecutionPolicy,
+  effectiveResidentCeoProposalActionKind,
+  isResidentCeoTier1ActionKind,
+  isValidResidentCeoTargetNodeId,
+  type ResidentCeoActionAuditEntry,
+  type ResidentCeoCleanupMode,
+  type ResidentCeoProposalSourceChannel,
+  type ResidentCeoTier1ActionKind,
+} from "./resident-ceo-actions.ts";
+
+export * from "./resident-ceo-actions.ts";
+
 export const RESIDENT_CEO_PROFILE_SCHEMA = "resident-ceo-profile/v1" as const;
 export const RESIDENT_CEO_MIN_HEARTBEAT_INTERVAL_SEC = 30;
 export const RESIDENT_CEO_MAX_HEARTBEAT_INTERVAL_SEC = 86_400;
@@ -8,7 +21,7 @@ export const residentCeoProfileStatuses = ["stopped", "running"] as const;
 export const residentCeoWakeStatuses = ["running", "succeeded", "failed"] as const;
 export const residentCeoExecutionPolicies = ["advisory-only", "approval-gated"] as const;
 export const residentCeoProposalStatuses = ["pending_approval", "promoted", "rejected", "failed"] as const;
-export const residentCeoApprovalModes = ["manual", "allowlist-auto", "decider-auto"] as const;
+export const residentCeoApprovalModes = ["manual", "allowlist-auto", "decider-auto", "owner-direct"] as const;
 export const residentCeoApprovalGateModes = ["off", "secondary-guard", "auto-promote"] as const;
 export const residentCeoGateOptionIds = [
   "approve_low_risk",
@@ -85,6 +98,11 @@ export interface ResidentCeoDelegationProposal {
   readonly peerRequestId: string;
   readonly fromPersonId: string;
   readonly summary: string;
+  readonly actionKind?: ResidentCeoTier1ActionKind;
+  readonly sourceChannel?: ResidentCeoProposalSourceChannel;
+  readonly targetTaskId?: string | null;
+  readonly cleanupMode?: ResidentCeoCleanupMode | null;
+  readonly planContent?: string | null;
   readonly proposedTitle: string;
   readonly proposedWorkId: string | null;
   readonly proposedAgentId: string | null;
@@ -106,6 +124,8 @@ export interface ResidentCeoDelegationProposal {
   readonly terminalOutcome: ResidentCeoProposalTerminalOutcome | null;
 }
 
+export type ResidentCeoActionProposal = ResidentCeoDelegationProposal;
+
 export interface ResidentCeoProfile {
   readonly schema: typeof RESIDENT_CEO_PROFILE_SCHEMA;
   readonly principalPersonId: string;
@@ -122,6 +142,7 @@ export interface ResidentCeoProfile {
   readonly status: ResidentCeoProfileStatus;
   readonly lastWake: ResidentCeoWakeReceipt | null;
   readonly proposals?: readonly ResidentCeoDelegationProposal[];
+  readonly actionAuditLog?: readonly ResidentCeoActionAuditEntry[];
   readonly updatedAt: string;
 }
 
@@ -144,7 +165,13 @@ export type ResidentCeoErrorCode =
   | "resident_ceo_principal_mismatch"
   | "resident_ceo_advisory_only"
   | "resident_ceo_proposal_not_found"
-  | "resident_ceo_proposal_transition_invalid";
+  | "resident_ceo_proposal_transition_invalid"
+  | "resident_ceo_tier2_forbidden"
+  | "resident_ceo_tier0_target_denied"
+  | "resident_ceo_tier0_limit_exceeded"
+  | "resident_ceo_active_lease_blocked"
+  | "resident_ceo_foreign_lease_blocked"
+  | "resident_ceo_task_not_planned";
 
 export class ResidentCeoProfileError extends Error {
   readonly code: ResidentCeoErrorCode;
@@ -157,11 +184,6 @@ export class ResidentCeoProfileError extends Error {
 }
 
 const ENTITY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
-const TARGET_NODE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
-
-export function isValidResidentCeoTargetNodeId(value: string): boolean {
-  return TARGET_NODE_ID_PATTERN.test(value) && !value.includes("..");
-}
 
 function normalizeOptionalEntityId(value: string | null | undefined, label: string): string | null | undefined {
   if (value === undefined) return undefined;
@@ -187,12 +209,6 @@ function normalizeAutoApproveSenders(senders: readonly string[] | undefined): re
 
 export function isResidentCeoExecutionPolicy(value: unknown): value is ResidentCeoExecutionPolicy {
   return typeof value === "string" && (residentCeoExecutionPolicies as readonly string[]).includes(value);
-}
-
-export function effectiveResidentCeoExecutionPolicy(
-  profile: Pick<ResidentCeoProfile, "executionPolicy">,
-): ResidentCeoExecutionPolicy {
-  return profile.executionPolicy ?? "advisory-only";
 }
 
 export function assertResidentCeoExecutionAllowed(
@@ -258,13 +274,27 @@ export function effectiveResidentCeoApprovalGate(profile: Pick<ResidentCeoProfil
 
 export function evaluateResidentCeoAutoApproval(
   profile: Pick<ResidentCeoProfile, "executionPolicy" | "autoApproveSenders" | "defaultWorkId">,
-  proposal: Pick<ResidentCeoDelegationProposal, "fromPersonId" | "proposedWorkId">,
+  proposal: Pick<
+    ResidentCeoDelegationProposal,
+    "fromPersonId" | "proposedWorkId" | "actionKind" | "targetTaskId" | "planContent"
+  >,
 ): { readonly autoApprove: true; readonly workId: string } | { readonly autoApprove: false } {
   if (effectiveResidentCeoExecutionPolicy(profile) !== "approval-gated") return { autoApprove: false };
   const allowlist = profile.autoApproveSenders ?? [];
   if (!allowlist.includes(proposal.fromPersonId)) return { autoApprove: false };
-  const workId = proposal.proposedWorkId ?? profile.defaultWorkId ?? null;
-  if (workId === null || workId.trim().length === 0) return { autoApprove: false };
+  const actionKind = effectiveResidentCeoProposalActionKind(proposal);
+  if (!isResidentCeoTier1ActionKind(actionKind)) return { autoApprove: false };
+  if (actionKind === "promote_and_dispatch") {
+    const workId = proposal.proposedWorkId ?? profile.defaultWorkId ?? null;
+    if (workId === null || workId.trim().length === 0) return { autoApprove: false };
+    return { autoApprove: true, workId };
+  }
+  const targetTaskId = proposal.targetTaskId?.trim() ?? "";
+  if (targetTaskId.length === 0 || !ENTITY_ID_PATTERN.test(targetTaskId)) return { autoApprove: false };
+  if (actionKind === "doc_sync_plan" && (!proposal.planContent || proposal.planContent.trim().length === 0)) {
+    return { autoApprove: false };
+  }
+  const workId = (proposal.proposedWorkId ?? profile.defaultWorkId ?? "").trim();
   return { autoApprove: true, workId };
 }
 
@@ -281,7 +311,13 @@ export function checkResidentCeoGatePreconditions(
   >,
   proposal: Pick<
     ResidentCeoDelegationProposal,
-    "fromPersonId" | "proposedWorkId" | "proposedAgentId" | "proposedTargetNodeId"
+    | "fromPersonId"
+    | "proposedWorkId"
+    | "proposedAgentId"
+    | "proposedTargetNodeId"
+    | "actionKind"
+    | "targetTaskId"
+    | "planContent"
   >,
 ): { readonly ok: true; readonly workId: string } | { readonly ok: false; readonly reason: string } {
   const gate = effectiveResidentCeoApprovalGate(profile);
@@ -291,10 +327,8 @@ export function checkResidentCeoGatePreconditions(
   if (!isValidGateMinConfidence(gate.minConfidence)) return { ok: false, reason: "invalid_min_confidence" };
   if (gate.mode === "secondary-guard" && !(profile.autoApproveSenders ?? []).includes(proposal.fromPersonId))
     return { ok: false, reason: "sender_not_allowlisted" };
-  const rawWorkId = proposal.proposedWorkId ?? profile.defaultWorkId ?? null;
-  const workId = rawWorkId?.trim() ?? "";
-  if (workId.length === 0) return { ok: false, reason: "missing_work_id" };
-  if (!ENTITY_ID_PATTERN.test(workId)) return { ok: false, reason: "invalid_work_id" };
+  const actionKind = effectiveResidentCeoProposalActionKind(proposal);
+  if (!isResidentCeoTier1ActionKind(actionKind)) return { ok: false, reason: "forbidden_action_kind" };
   const rawAgentId = proposal.proposedAgentId ?? profile.defaultAgentId ?? null;
   if (rawAgentId !== null && rawAgentId.trim().length > 0 && !ENTITY_ID_PATTERN.test(rawAgentId.trim()))
     return { ok: false, reason: "invalid_agent_id" };
@@ -305,6 +339,23 @@ export function checkResidentCeoGatePreconditions(
     !isValidResidentCeoTargetNodeId(rawTargetNodeId.trim())
   )
     return { ok: false, reason: "invalid_target_node_id" };
+  if (actionKind === "promote_and_dispatch") {
+    const rawWorkId = proposal.proposedWorkId ?? profile.defaultWorkId ?? null;
+    const workId = rawWorkId?.trim() ?? "";
+    if (workId.length === 0) return { ok: false, reason: "missing_work_id" };
+    if (!ENTITY_ID_PATTERN.test(workId)) return { ok: false, reason: "invalid_work_id" };
+    return { ok: true, workId };
+  }
+  const targetTaskId = proposal.targetTaskId?.trim() ?? "";
+  if (targetTaskId.length === 0 || !ENTITY_ID_PATTERN.test(targetTaskId)) {
+    return { ok: false, reason: "missing_or_invalid_target_task_id" };
+  }
+  if (actionKind === "doc_sync_plan" && (!proposal.planContent || proposal.planContent.trim().length === 0)) {
+    return { ok: false, reason: "missing_plan_content" };
+  }
+  const rawWorkId = proposal.proposedWorkId ?? profile.defaultWorkId ?? null;
+  const workId = rawWorkId?.trim() ?? "";
+  if (workId.length > 0 && !ENTITY_ID_PATTERN.test(workId)) return { ok: false, reason: "invalid_work_id" };
   return { ok: true, workId };
 }
 
@@ -315,7 +366,13 @@ export function evaluateResidentCeoGateDecision(input: {
   >;
   readonly proposal: Pick<
     ResidentCeoDelegationProposal,
-    "fromPersonId" | "proposedWorkId" | "proposedAgentId" | "proposedTargetNodeId"
+    | "fromPersonId"
+    | "proposedWorkId"
+    | "proposedAgentId"
+    | "proposedTargetNodeId"
+    | "actionKind"
+    | "targetTaskId"
+    | "planContent"
   >;
   readonly observation: ResidentCeoGateObservation;
 }): ResidentCeoGateEvaluation {
@@ -580,8 +637,8 @@ export function transitionResidentCeoProposal(
         readonly approvalMode: ResidentCeoApprovalMode;
         readonly decidedAt: string;
         readonly decidedByPersonId: string;
-        readonly promotedTaskId: string;
-        readonly proposedWorkId: string;
+        readonly promotedTaskId: string | null;
+        readonly proposedWorkId: string | null;
         readonly proposedTitle: string;
         readonly proposedAgentId: string | null;
         readonly proposedTargetNodeId?: string | null;

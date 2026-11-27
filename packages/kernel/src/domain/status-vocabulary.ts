@@ -110,7 +110,13 @@ import {
 } from "./dispatch-lifecycle.ts";
 import { inboxStatusVocabularies } from "./status-word-register-inbox.ts";
 import { centerSwitchoverFenceStates, centerSwitchoverPhases } from "./center-switchover.ts";
-import { residentCeoProfileStatuses, residentCeoProposalStatuses, residentCeoWakeStatuses } from "./resident-ceo.ts";
+import {
+  residentCeoActionAuditOutcomes,
+  residentCeoPeerReplyOutcomes,
+  residentCeoProfileStatuses,
+  residentCeoProposalStatuses,
+  residentCeoWakeStatuses,
+} from "./resident-ceo.ts";
 
 export { statusWordRegister } from "./status-word-register.ts";
 export { rbacBackupStatuses };
@@ -142,6 +148,22 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     module: "packages/kernel/src/domain/resident-ceo.ts",
     anchor: "residentCeoProposalStatuses",
     words: residentCeoProposalStatuses,
+  },
+  {
+    id: "resident-ceo.action-audit-outcome",
+    entity: "RuntimeSession",
+    field: "resident CEO action audit outcome",
+    module: "packages/kernel/src/domain/resident-ceo-actions.ts",
+    anchor: "residentCeoActionAuditOutcomes",
+    words: residentCeoActionAuditOutcomes,
+  },
+  {
+    id: "resident-ceo.peer-reply-outcome",
+    entity: "RuntimeSession",
+    field: "resident CEO peer reply outcome",
+    module: "packages/kernel/src/domain/resident-ceo-actions.ts",
+    anchor: "residentCeoPeerReplyOutcomes",
+    words: residentCeoPeerReplyOutcomes,
   },
   {
     id: "resident-ceo.promoted-task-terminal-state",

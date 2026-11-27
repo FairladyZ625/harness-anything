@@ -332,7 +332,7 @@ export const daemonResidentCeoPolicySources = [
     "Resident CEO event reads use the bounded page limit.",
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#buildResidentCeoPeerPrompt:f163311e978b7d2b0c19db1134f16bf4",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#buildResidentCeoPeerPrompt:c75aceabcfdeab4c1e4b12ccddad13e2",
     "residentCeoDelegation",
     "Resident CEO emits structured delegation proposal prompts only under approval-gated policy.",
   ],
@@ -342,9 +342,284 @@ export const daemonResidentCeoPolicySources = [
     "Resident CEO peer request lookup uses the bounded 20-item page limit.",
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#settleResidentCeoPeerTurn:44252584b03de738d0bcc2dbf4f42395",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#settleResidentCeoPeerTurn:befe2d4b8a5a9d4f5d86c2511f1d28df",
     "residentCeoDelegation",
     "Resident CEO records structured proposals instead of advisory replies only under approval-gated policy.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#settleResidentCeoPeerTurn.tier0Count:662083f8cc10560db44035f318683c64",
+    "residentCeoTieredActions",
+    "Resident CEO tracks per-turn Tier 0 action executions against the hard cap on peer turns.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#settleResidentCeoPeerTurn:2b5ebce2fe09c33c9eb2d0af61de0af8",
+    "residentCeoTieredActions",
+    "Resident CEO fail-closed rejects Tier 2 actions on peer turns.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#settleResidentCeoPeerTurn:56c8f36ee12dc2478a8bdadd4df6b216",
+    "residentCeoTieredActions",
+    "Resident CEO records denied audit entries for invalid structured actions on peer turns.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#settleResidentCeoPeerTurn.tier:4f64871c217fe3773f0cccfe18e74d2c",
+    "residentCeoTieredActions",
+    "Resident CEO tags invalid action denials with their tier on peer turns.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#settleResidentCeoPeerTurn:5deb79f6578f85fc307e20504bfc33e4",
+    "residentCeoTieredActions",
+    "Resident CEO routes Tier 0 actions through per-turn rate limits and allowlist checks on peer turns.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#settleResidentCeoPeerTurn.tier:459db4af512dfcab4c9e974898d14656",
+    "residentCeoTieredActions",
+    "Resident CEO tags Tier 0 rate-limit denials on peer turns.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#extractTaskSnapshot.lease:0a0a2e5514a35793c372e35ea1e68f33",
+    "residentCeoTieredActions",
+    "Resident CEO extracts task lease snapshots from task-show receipts for secondary lease checks.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#buildResidentCeoHumanChatPrompt:6f49431f9231c1341f98f63ea5e4bd7f",
+    "residentCeoTieredActions",
+    "Resident CEO emits structured Tier 0/1 action prompt guidance on human-chat only under approval-gated policy.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#makeResidentCeoExtendedActionMethods.archiveOrCancelUnleased:fd4526595dbdea06736277c8b13b0925",
+    "residentCeoTieredActions",
+    "Resident CEO verifies expired own-lease release succeeded before cancelling an unleased task.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#settleResidentCeoHumanChatTurn:1578209e8b1792b0f850666545372d90",
+    "residentCeoTieredActions",
+    "Resident CEO executes declarative actions on human-chat only under approval-gated policy.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#settleResidentCeoHumanChatTurn.tier0Count:662083f8cc10560db44035f318683c64",
+    "residentCeoTieredActions",
+    "Resident CEO enforces the per-turn Tier 0 action cap on human-chat turns.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#settleResidentCeoHumanChatTurn:782b5de21488e2cd114b9d05e727d105",
+    "residentCeoTieredActions",
+    "Resident CEO fail-closed rejects Tier 2 actions even on owner human-chat turns.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#settleResidentCeoHumanChatTurn:f863e0fe5c19205977c33d6117a277fd",
+    "residentCeoTieredActions",
+    "Resident CEO records denied audit entries for invalid structured actions on human-chat turns.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#settleResidentCeoHumanChatTurn.tier:4f64871c217fe3773f0cccfe18e74d2c",
+    "residentCeoTieredActions",
+    "Resident CEO tags invalid action denials with their tier on human-chat turns.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#settleResidentCeoHumanChatTurn:e58b94d39ff84b0874d0e9a612f92456",
+    "residentCeoTieredActions",
+    "Resident CEO routes Tier 0 actions through the per-turn cap and owner-direct executor on human-chat.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#settleResidentCeoHumanChatTurn.tier:459db4af512dfcab4c9e974898d14656",
+    "residentCeoTieredActions",
+    "Resident CEO tags Tier 0 rate-limit denials on human-chat turns.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-action-executor.ts#settleResidentCeoHumanChatTurn.tier:4f64871c217fe3773f0cccfe18e74d2c:2",
+    "residentCeoTieredActions",
+    "Resident CEO tags Tier 1 action receipts on human-chat turns.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#RESIDENT_CEO_MAX_TIER0_ACTIONS_PER_TURN:2d6f17bd9be6ce4989efb5b7cead0c3e",
+    "residentCeoTieredActions",
+    "Resident CEO caps Tier 0 collaborative actions at 3 per wake turn.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#evaluateResidentCeoLeaseBlock.hasOwnExpiredLease:d20d7aef825ad8e820b95ba24f3e082a",
+    "residentCeoTieredActions",
+    "Resident CEO allows cleanup when no lease or a released lease is present.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#evaluateResidentCeoLeaseBlock:b17dc7397ee2edc13e814315375b63ad",
+    "residentCeoTieredActions",
+    "Resident CEO treats null or released task leases as unblocking.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#evaluateResidentCeoLeaseBlock.expiresMs:e716a230031c441ad80da702d3a59f51",
+    "residentCeoTieredActions",
+    "Resident CEO parses lease expiration timestamps when checking active leases.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#evaluateResidentCeoLeaseBlock:d0db6c39c4eb27d1e1bbd1ab92d374f9",
+    "residentCeoTieredActions",
+    "Resident CEO blocks Tier 1 cleanup or startup whenever an unexpired held or reserving lease exists.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#evaluateResidentCeoLeaseBlock.holderPersonId:a8a04919db3307cfce9f7dc438d53dfe",
+    "residentCeoTieredActions",
+    "Resident CEO inspects lease principal ownership before permitting expired-lease cleanup.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#rejectedAction.tier:8c76679046418eb45b8a3b94eb52ce06",
+    "residentCeoTieredActions",
+    "Resident CEO marks malformed or unknown actions as rejected during turn parsing.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#parseSingleActionRecord.tier:1259b205335b0f5297b1885b49e23ae2",
+    "residentCeoTieredActions",
+    "Resident CEO classifies forbidden Tier 2 actions explicitly during turn parsing.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#parseSingleActionRecord.tier:459db4af512dfcab4c9e974898d14656",
+    "residentCeoTieredActions",
+    "Resident CEO classifies peer_ask as a Tier 0 collaborative action.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#parseSingleActionRecord:cee881fcd7a997505002b5104b8544f1",
+    "residentCeoTieredActions",
+    "Resident CEO requires a non-empty claim for answered Tier 0 peer_reply actions.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#parseSingleActionRecord.tier:459db4af512dfcab4c9e974898d14656:2",
+    "residentCeoTieredActions",
+    "Resident CEO classifies peer_reply as a Tier 0 collaborative action.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#parseSingleActionRecord.tier:459db4af512dfcab4c9e974898d14656:3",
+    "residentCeoTieredActions",
+    "Resident CEO classifies runtime_steer as a Tier 0 collaborative action.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#parseSingleActionRecord.tier:4f64871c217fe3773f0cccfe18e74d2c",
+    "residentCeoTieredActions",
+    "Resident CEO classifies promote_and_dispatch as a Tier 1 reversible action.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#parseSingleActionRecord.tier:4f64871c217fe3773f0cccfe18e74d2c:2",
+    "residentCeoTieredActions",
+    "Resident CEO classifies start_and_dispatch_existing as a Tier 1 reversible action.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#parseSingleActionRecord.tier:4f64871c217fe3773f0cccfe18e74d2c:3",
+    "residentCeoTieredActions",
+    "Resident CEO classifies archive_or_cancel_unleased as a Tier 1 reversible action.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#parseSingleActionRecord.tier:4f64871c217fe3773f0cccfe18e74d2c:4",
+    "residentCeoTieredActions",
+    "Resident CEO classifies doc_sync_plan as a Tier 1 reversible action.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#parseResidentCeoTurnActions.tier:8c76679046418eb45b8a3b94eb52ce06",
+    "residentCeoTieredActions",
+    "Resident CEO rejects non-object entries inside a structured actions array.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#parseResidentCeoTurnActions.actions.tier:4f64871c217fe3773f0cccfe18e74d2c",
+    "residentCeoTieredActions",
+    "Resident CEO falls back to a Tier 1 promote_and_dispatch proposal on unstructured peer delegations.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#denyTier0Access.allowed:f0ce3ef598574b1ebe708af042563f87",
+    "residentCeoTieredActions",
+    "Resident CEO denies Tier 0 collaborative actions when policy or allowlist guards fail.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#allowTier0Access.allowed:d3583fbbe4fa23918ff42c68ae84c60d",
+    "residentCeoTieredActions",
+    "Resident CEO permits Tier 0 collaborative actions under owner-direct or allowlist-auto trust.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#evaluateResidentCeoTier0Access:19855867423f330d1ca220cd98324480",
+    "residentCeoTieredActions",
+    "Resident CEO Tier 0 access evaluation requires explicit approval-gated execution policy.",
+  ],
+  [
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo-actions.ts#evaluateResidentCeoOwnerDirectApproval:df45cef069b39bc125b23b2ad3fb8fe5",
+    "residentCeoTieredActions",
+    "Resident CEO owner-direct fastpath requires explicit approval-gated execution policy.",
+  ],
+  [
+    "policy:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.approveProposal.deniedAudit.tier:4f64871c217fe3773f0cccfe18e74d2c",
+    "residentCeoTieredActions",
+    "Resident CEO audits denied Tier 1 proposal executions.",
+  ],
+  [
+    "policy:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.approveProposal.audit.tier:4f64871c217fe3773f0cccfe18e74d2c",
+    "residentCeoTieredActions",
+    "Resident CEO audits executed Tier 1 proposals.",
+  ],
+  [
+    "policy:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.executeTier0Action.targetRef:c8316d69885b12ef0661c6a0b15c78cf",
+    "residentCeoTieredActions",
+    "Resident CEO resolves target reference for Tier 0 peer_reply actions.",
+  ],
+  [
+    "policy:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.executeTier0Action.targetRef:d12620a91c5b7e2f64738948a90f5b9b",
+    "residentCeoTieredActions",
+    "Resident CEO resolves target reference for Tier 0 peer_ask actions.",
+  ],
+  [
+    "policy:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.executeTier0Action.access.targetPersonId:b3206c53266cebc593887f21debfa29d",
+    "residentCeoTieredActions",
+    "Resident CEO passes destination person id when checking Tier 0 peer_ask access.",
+  ],
+  [
+    "policy:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.executeTier0Action.access.targetPeerRequestId:5524cb1f618a3e99a731280ad9625ace",
+    "residentCeoTieredActions",
+    "Resident CEO passes destination request id when checking Tier 0 peer_reply access.",
+  ],
+  [
+    "policy:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.executeTier0Action.deniedAudit.tier:459db4af512dfcab4c9e974898d14656",
+    "residentCeoTieredActions",
+    "Resident CEO audits denied Tier 0 collaborative actions.",
+  ],
+  [
+    "policy:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.executeTier0Action.tier:459db4af512dfcab4c9e974898d14656",
+    "residentCeoTieredActions",
+    "Resident CEO returns denied Tier 0 action receipts.",
+  ],
+  [
+    "policy:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.executeTier0Action:95755ebb14263349ad1fde64298fab01",
+    "residentCeoTieredActions",
+    "Resident CEO dispatches authorized Tier 0 peer_ask executions.",
+  ],
+  [
+    "policy:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.executeTier0Action:9289f228928e626b998fdc62e322335b",
+    "residentCeoTieredActions",
+    "Resident CEO dispatches authorized Tier 0 peer_reply executions.",
+  ],
+  [
+    "policy:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.executeTier0Action.failedAudit.tier:459db4af512dfcab4c9e974898d14656",
+    "residentCeoTieredActions",
+    "Resident CEO audits failed Tier 0 collaborative action executions.",
+  ],
+  [
+    "policy:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.executeTier0Action.tier:459db4af512dfcab4c9e974898d14656:2",
+    "residentCeoTieredActions",
+    "Resident CEO returns failed Tier 0 action receipts.",
+  ],
+  [
+    "policy:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.executeTier0Action.successAudit.tier:459db4af512dfcab4c9e974898d14656",
+    "residentCeoTieredActions",
+    "Resident CEO audits succeeded Tier 0 collaborative action executions.",
+  ],
+  [
+    "policy:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.executeTier0Action.tier:459db4af512dfcab4c9e974898d14656:3",
+    "residentCeoTieredActions",
+    "Resident CEO returns succeeded Tier 0 action receipts.",
+  ],
+  [
+    "policy:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.recordTier2Rejection.audit.tier:1259b205335b0f5297b1885b49e23ae2",
+    "residentCeoTieredActions",
+    "Resident CEO audits fail-closed Tier 2 action rejections.",
+  ],
+  [
+    "policy:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.recordTier2Rejection.tier:1259b205335b0f5297b1885b49e23ae2",
+    "residentCeoTieredActions",
+    "Resident CEO returns denied Tier 2 action receipts.",
   ],
   [
     "policy:packages/kernel:packages/kernel/src/domain/resident-ceo.ts#assertResidentCeoExecutionAllowed:5901726fc470828d319870e7e7bcc4d9",
