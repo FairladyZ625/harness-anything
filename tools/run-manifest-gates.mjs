@@ -609,8 +609,7 @@ async function main(argv) {
   readTestQuarantine(repoRoot);
   if (shouldSkipTestQuarantine(options.workflowJob, process.env)) process.env.HARNESS_TEST_QUARANTINE = "skip";
   if (options.shard !== null) process.env.HARNESS_TEST_SHARD = String(options.shard);
-  if (options.workflowJob === "integration-shard" || options.workflowJob === "windows-integration-shard")
-    process.env.HARNESS_TEST_TIER = "integration";
+  if (options.workflowJob === "integration-shard") process.env.HARNESS_TEST_TIER = "integration";
   else if (options.workflowJob === "gui-build") process.env.HARNESS_TEST_TIER = "gui";
   else if (options.workflowJob) process.env.HARNESS_TEST_TIER ||= "contract";
   const plan = buildManifestGatePlan(manifest, options);

@@ -328,11 +328,11 @@ test("manifest gate runner executes gates declared for non-pull-request workflow
         id: "test-integration",
         command: "npm run test:integration",
         shardable: true,
-        executionSurfaces: { rewriteCi: { pullRequestJobs: [], nonPullRequestJobs: ["windows-integration-shard"] } },
+        executionSurfaces: { rewriteCi: { pullRequestJobs: [], nonPullRequestJobs: ["nightly-integration-shard"] } },
       },
     ],
   };
-  const options = parseManifestGateArgs(["--workflow-job", "windows-integration-shard", "--shard", "4"]);
+  const options = parseManifestGateArgs(["--workflow-job", "nightly-integration-shard", "--shard", "4"]);
   options.eventName = "schedule";
 
   assert.deepEqual(buildManifestGatePlan(manifest, options), [
@@ -346,11 +346,11 @@ test("manifest gate runner fails when a workflow job selects zero gates on the f
       {
         id: "test-integration",
         command: "npm run test:integration",
-        executionSurfaces: { rewriteCi: { pullRequestJobs: [], nonPullRequestJobs: ["windows-integration-shard"] } },
+        executionSurfaces: { rewriteCi: { pullRequestJobs: [], nonPullRequestJobs: ["nightly-integration-shard"] } },
       },
     ],
   };
-  const options = parseManifestGateArgs(["--workflow-job", "windows-integration-shard"]);
+  const options = parseManifestGateArgs(["--workflow-job", "nightly-integration-shard"]);
   options.eventName = "pull_request";
 
   assert.throws(
@@ -358,7 +358,7 @@ test("manifest gate runner fails when a workflow job selects zero gates on the f
     (error) => {
       assert.match(
         error.message,
-        /workflow job "windows-integration-shard" selected 0 gates for event "pull_request"/u,
+        /workflow job "nightly-integration-shard" selected 0 gates for event "pull_request"/u,
       );
       assert.match(error.message, /declared only in nonPullRequestJobs/u);
       return true;
@@ -700,7 +700,7 @@ test("test quarantine skips pull-request L0 jobs", () => {
   assert.equal(shouldSkipTestQuarantine("integration-shard", { GITHUB_EVENT_NAME: "pull_request" }), true);
   assert.equal(shouldSkipTestQuarantine("integration-shard", { GITHUB_EVENT_NAME: "schedule" }), false);
   assert.equal(
-    shouldSkipTestQuarantine("windows-integration-shard", {
+    shouldSkipTestQuarantine("platform-smoke-windows", {
       GITHUB_EVENT_NAME: "pull_request",
       GITHUB_HEAD_REF: "feature/x",
     }),

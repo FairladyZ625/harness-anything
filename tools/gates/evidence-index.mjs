@@ -54,6 +54,7 @@ export const EVIDENCE_INDEX = Object.freeze({
     "task_6dc29e76828cbad9820bf6a2f7",
     "task_6e3a253ed79c2c458543c7d3d7",
     "task_799ca104a7af7b18432b2ded54",
+    "task_8dcc04f9af4d409c083fda162b",
     "task_90599b2e80d7db778e96419a2f",
     "task_94cac93e5083d72bb45f5f9577",
     "task_aceaabaedfedcf9cb062ccf883",
@@ -74,6 +75,8 @@ export const EVIDENCE_INDEX = Object.freeze({
     "dec_7E44897ECDCAEF2B92EC66A260",
     "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
     "dec_13FF6AEF3598AF34DC8F4A0558",
+    // Verified in_effect at Windows gate convergence dispatch (task_8dcc04f9af4d409c083fda162b), 2026-11-27.
+    "dec_24E62D650F4905663399CB335A",
     "dec_25B3C380F6FB9D4D4A1E27921E",
     "dec_2BF45FF7E52020380F5F35CE2D",
     // Verified in_effect at GUI-FDE dispatch (task_862f6fb553d8de3736cdbcf27d), 2026-11-22.

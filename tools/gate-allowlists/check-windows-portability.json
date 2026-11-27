@@ -132,6 +132,89 @@
         "ref": "task_60653ee4139523060fac49b667",
         "reason": "Pre-existing legacy unguarded-posix-mode-assertion occurrence(s) frozen at baseline; zero growth allowed."
       }
-    ]
+    ],
+    "unguardedPosixShellExec": [
+      {
+        "path": "packages/daemon/test/doctor-health.contract.test.ts",
+        "count": 1,
+        "ref": "task_8dcc04f9af4d409c083fda162b",
+        "reason": "Pre-existing legacy unguarded-posix-shell-exec occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "tools/helm-chart-runtime.test.mjs",
+        "count": 22,
+        "ref": "task_8dcc04f9af4d409c083fda162b",
+        "reason": "Pre-existing legacy unguarded-posix-shell-exec occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "tools/install-source.test.mjs",
+        "count": 1,
+        "ref": "task_8dcc04f9af4d409c083fda162b",
+        "reason": "Pre-existing legacy unguarded-posix-shell-exec occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "tools/measure-gui-read-baseline.mjs",
+        "count": 1,
+        "ref": "task_8dcc04f9af4d409c083fda162b",
+        "reason": "Pre-existing legacy unguarded-posix-shell-exec occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "tools/stress/entity-v2-scale.fixture.mjs",
+        "count": 1,
+        "ref": "task_8dcc04f9af4d409c083fda162b",
+        "reason": "Pre-existing legacy unguarded-posix-shell-exec occurrence(s) frozen at baseline; zero growth allowed."
+      }
+    ],
+    "unguardedSigkillSignalAssertion": [
+      {
+        "path": "packages/daemon/test/managed-rbac-shutdown.integration.test.ts",
+        "count": 1,
+        "ref": "task_8dcc04f9af4d409c083fda162b",
+        "reason": "Pre-existing legacy unguarded-sigkill-signal-assertion occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "tools/stress/campaign.integration.test.mjs",
+        "count": 1,
+        "ref": "task_8dcc04f9af4d409c083fda162b",
+        "reason": "Pre-existing legacy unguarded-sigkill-signal-assertion occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "tools/stress/daemon/mixed-history-scenario.mjs",
+        "count": 1,
+        "ref": "task_8dcc04f9af4d409c083fda162b",
+        "reason": "Pre-existing legacy unguarded-sigkill-signal-assertion occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "tools/stress/daemon/registry-runtime-scenarios.mjs",
+        "count": 1,
+        "ref": "task_8dcc04f9af4d409c083fda162b",
+        "reason": "Pre-existing legacy unguarded-sigkill-signal-assertion occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "tools/stress/daemon/writer-projection-scenarios.mjs",
+        "count": 2,
+        "ref": "task_8dcc04f9af4d409c083fda162b",
+        "reason": "Pre-existing legacy unguarded-sigkill-signal-assertion occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "tools/stress/fleet/scale-runner.mjs",
+        "count": 1,
+        "ref": "task_8dcc04f9af4d409c083fda162b",
+        "reason": "Pre-existing legacy unguarded-sigkill-signal-assertion occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "tools/stress/fleet/upload-process.mjs",
+        "count": 1,
+        "ref": "task_8dcc04f9af4d409c083fda162b",
+        "reason": "Pre-existing legacy unguarded-sigkill-signal-assertion occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "tools/stress/storage-matrix.integration.test.mjs",
+        "count": 1,
+        "ref": "task_8dcc04f9af4d409c083fda162b",
+        "reason": "Pre-existing legacy unguarded-sigkill-signal-assertion occurrence(s) frozen at baseline; zero growth allowed."
+      }
+    ],
+    "forbiddenPowershellCimProbe": []
   }
 }
