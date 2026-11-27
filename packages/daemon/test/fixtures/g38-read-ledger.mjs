@@ -20,6 +20,7 @@ import {
 } from "@harness-anything/kernel";
 import { decodeVerticalDefinition } from "@harness-anything/kernel/schemas";
 import { compileDossierSynthesis } from "@harness-anything/kernel/internal/domain/dossier-synthesis-event.ts";
+import { compileKbDocumentUpserted } from "@harness-anything/kernel/internal/domain/kb-document-event.ts";
 import { canonicalEventWritePlan } from "../../../storage/src/store/task-event-store.ts";
 import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 import { eventAt, docBundle } from "../../../storage/test/store/task-event-store.fixtures.ts";
@@ -35,6 +36,7 @@ export const READ_ACTIVE_SESSION_ID = "history-active";
 export const READ_HISTORY_BATCH_SIZE = 100;
 export const READ_SESSION_ID = "runtime-query-session";
 export const READ_DOCUMENT = `tasks/${READ_TASK_ID}-g38/artifacts/selected.md`;
+export const READ_KB_DOC_ID = "doc_g38_read";
 export const READ_DOSSIER_SLOT = {
   id: "project-context",
   path: "context.md",
@@ -242,6 +244,29 @@ export async function seedReadLedger({ append, beginHistory = () => {} }, dimens
         occurredAt: "2026-11-04T00:00:00.000Z",
       }),
     );
+
+  await add(
+    compileKbDocumentUpserted({
+      eventId: "read-kb-doc",
+      opId: "read-kb-doc",
+      workspaceRevision: next,
+      actor: created.actor,
+      source: "local",
+      occurredAt: "2026-11-04T00:00:00.000Z",
+      docId: READ_KB_DOC_ID,
+      documentRevision: 1,
+      manifest: {
+        title: "G38 KB Reference",
+        aliases: ["g38-kb"],
+        summary: "Bounded KB read fixture.",
+        domain: "architecture",
+        tags: ["g38"],
+        status: "active",
+        relations: [],
+      },
+      viewMarkdown: "# Overview\n\nBounded KB read fixture.\n\n## Details\n\nExact chapter text.\n",
+    }),
+  );
 
   const historyTask = eventAt(next);
   historyTask.taskId = HISTORY_OUTPUT_TASK_ID;

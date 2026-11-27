@@ -4,6 +4,7 @@ import { forwardingIntentForAction } from "./fleet/forwarding-intent.ts";
 import { materializeFleetEdgeDocuments, reconcileFleetNodeMaterialization } from "./fleet-edge-materialization.ts";
 import { runFleetEdgeRepositoryRead } from "./fleet-edge-task.ts";
 import { runEdgeAgentScopeAction } from "./edge-agent-scope-adapter.ts";
+import { runEdgeLocalKbAction } from "./kb-action.ts";
 import { edgeReplicaDoctor } from "./edge-replica-doctor.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
@@ -925,6 +926,27 @@ export function createDaemonHostRepositoryApi(
               }),
           });
           if (edgeScopeReceipt !== null) return edgeScopeReceipt;
+        } catch (error) {
+          return context.rejectHostAction(
+            action,
+            context.code(error),
+            context.daemonErrorMessage(error),
+            context.diagnosticForError?.(error),
+            extractCenterMoved(error),
+          );
+        }
+      }
+      if (action.kind === "kb-mount" || action.kind === "kb-put") {
+        try {
+          const edgeKbReceipt = await runEdgeLocalKbAction({
+            userRoot: relocationUserRoot,
+            repoId,
+            action: action as RepoTaskAction,
+            auth,
+            now: context.now,
+            codedError: context.hostCodedError,
+          });
+          if (edgeKbReceipt !== null) return edgeKbReceipt;
         } catch (error) {
           return context.rejectHostAction(
             action,

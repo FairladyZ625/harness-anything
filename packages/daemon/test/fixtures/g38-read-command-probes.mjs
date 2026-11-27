@@ -5,7 +5,7 @@ import {
   allDaemonProtocolMethods,
   actionForDaemonMethod,
 } from "../../src/daemon-host/protocol/daemon-protocol-commands.ts";
-import { READ_DOCUMENT, READ_DONE_TASK_ID, READ_TASK_ID } from "./g38-read-ledger.mjs";
+import { READ_DOCUMENT, READ_DONE_TASK_ID, READ_KB_DOC_ID, READ_TASK_ID } from "./g38-read-ledger.mjs";
 
 const agentVersion = ({ projection }) => ({
   agentId: "g38-agent",
@@ -49,6 +49,9 @@ const selectors = {
   "doc-status": { paths: [READ_DOCUMENT] },
   "doc-sync-dry-run": { paths: [READ_DOCUMENT] },
   "doc-show": { path: READ_DOCUMENT },
+  "kb-catalog": { scope: "shared", limit: 1 },
+  "kb-outline": { docId: READ_KB_DOC_ID, scope: "shared" },
+  "kb-read": { docId: READ_KB_DOC_ID, scope: "shared", section: "Details" },
   "fact-type-list": {},
   "fact-show": { factId: "F-11111111" },
   "decision-validate": { decisionId: "dec_E2" },

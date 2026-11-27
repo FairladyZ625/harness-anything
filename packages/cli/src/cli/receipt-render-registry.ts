@@ -27,6 +27,7 @@ import {
   renderScheduleShow,
 } from "./thin-command-schedule.ts";
 import { renderTodoList } from "./thin-command-todo.ts";
+import { renderKbCatalog, renderKbMount, renderKbOutline, renderKbPut, renderKbRead } from "./thin-command-kb.ts";
 
 export interface RenderedCliReceipt {
   readonly stream: "stdout" | "stderr";
@@ -81,6 +82,11 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
   ["schedule-show", renderScheduleReceipt],
   ["schedule-runs", renderScheduleReceipt],
   ["todo-list", renderTodoList],
+  ["kb-catalog", (receipt) => renderKbCatalog(receipt, parseEvidence(receipt))],
+  ["kb-outline", (receipt) => renderKbOutline(receipt, parseEvidence(receipt))],
+  ["kb-read", (receipt) => renderKbRead(receipt, parseEvidence(receipt))],
+  ["kb-put", (receipt) => renderKbPut(receipt, parseEvidence(receipt))],
+  ["kb-mount", (receipt) => renderKbMount(receipt, parseEvidence(receipt))],
   ["squad-list", renderSquadListReceipt],
   ["agent-list", renderAgentListReceipt],
   ["squad-status", renderSquadStatusReceipt],

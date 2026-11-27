@@ -33,6 +33,7 @@ import { inboxJudgments, inboxPolicies } from "./inbox.ts";
 import { todoSchema } from "./todo.ts";
 import { createTodoActionCatalog } from "./todo-action-contract.ts";
 import { createPeerActionCatalog, peerJudgments, peerPolicies } from "./peer-collaboration.ts";
+import { kbDocumentJudgments, kbDocumentPolicies } from "./kb-document-event.ts";
 import { channelV1Schema, createChannelActionCatalog, channelJudgments, channelPolicies } from "./channel-adapter.ts";
 import {
   AGENT_DECLARATION_V1_SCHEMA,
@@ -991,6 +992,13 @@ const documentActionCatalog = Object.freeze({
         "doc-conflict-overwrite-center",
         "Resolve a local doc conflict by publishing the local scratch copy over the center document.",
       ),
+      declaredStreamAction(
+        "document",
+        documentIdentity,
+        "kb-put",
+        "kb-put",
+        "Write or update a versioned kb-document-bundle/v1 in local-private or center-shared scope.",
+      ),
     ]),
   }),
   migrationActionCatalog = Object.freeze({
@@ -1692,7 +1700,8 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     entityStore: null,
     authoring: null,
     sdkExposure: noSdkExposure,
-    policies: [documentClaimPolicy, documentSyncRoutingPolicy, dossierSynthesisPolicy],
+    judgments: [...kbDocumentJudgments],
+    policies: [documentClaimPolicy, documentSyncRoutingPolicy, dossierSynthesisPolicy, ...kbDocumentPolicies],
   },
   {
     kind: "migration",

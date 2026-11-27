@@ -115,6 +115,42 @@
         "order": 18
       },
       {
+        "id": "daemon/src/local-kb-store.ts#assertNoSymlinkSegments",
+        "symbol": "packages/daemon/src/daemon-host/local-kb-store.ts#assertNoSymlinkSegments",
+        "explain": "Host-local KB segment-by-segment symlink traversal guard for external mount reads and writes.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/local-kb-store.ts#assertNoSymlinkSegments:bd676de909fedf49d2561a12aa1ced85",
+            "route": "packages/daemon/src/daemon-host/local-kb-store.ts#assertNoSymlinkSegments"
+          }
+        ],
+        "order": 22
+      },
+      {
+        "id": "daemon/src/local-kb-store.ts#assertNotSymlink",
+        "symbol": "packages/daemon/src/daemon-host/local-kb-store.ts#assertNotSymlink",
+        "explain": "Host-local KB filesystem guard rejecting symbolic links inside managed bundles and mounted directories.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/local-kb-store.ts#assertNotSymlink:8115a20cae081ea8725bc303f660039f",
+            "route": "packages/daemon/src/daemon-host/local-kb-store.ts#assertNotSymlink"
+          }
+        ],
+        "order": 20
+      },
+      {
+        "id": "daemon/src/local-kb-store.ts#isPathInsideRoot",
+        "symbol": "packages/daemon/src/daemon-host/local-kb-store.ts#isPathInsideRoot",
+        "explain": "Host-local KB filesystem containment check preventing external mount directory escapes across POSIX and Windows paths.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/local-kb-store.ts#isPathInsideRoot:95857113947379b838c2fdd41e5711fd",
+            "route": "packages/daemon/src/daemon-host/local-kb-store.ts#isPathInsideRoot"
+          }
+        ],
+        "order": 21
+      },
+      {
         "id": "daemon/src/protocol/artifacts-contract.ts#validateArtifactsList",
         "symbol": "packages/daemon/src/daemon-host/protocol/artifacts-contract.ts#validateArtifactsList",
         "explain": "Thin-protocol wire-response validator for `repo.artifacts.list` envelopes, artifact rows and cursor pagination without importing the kernel barrel; Artifact locator rules stay in kernel/application.",

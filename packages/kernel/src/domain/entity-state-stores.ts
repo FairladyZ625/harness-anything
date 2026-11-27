@@ -4,6 +4,7 @@ import type { EntityKind } from "./base-entity.ts";
 import { scheduleEventTypes } from "./schedule.ts";
 import { taskEventTypes as canonicalTaskEventTypes } from "./task-lifecycle-event.ts";
 import { peerRequestEventTypes } from "./peer-collaboration.ts";
+import { kbDocumentEventTypes } from "./kb-document-event.ts";
 
 export type StateStoreRole = "authority" | "replica" | "projection" | "spool" | "operational";
 export type StateStoreResidency = "canonical" | "runtime-local" | "host-local";
@@ -178,6 +179,8 @@ const taskProjectionTables = Object.freeze(
     "inbox_cursor",
     "peer_request",
     "peer_request_cursor",
+    "kb_document",
+    "kb_document_cursor",
     "fact",
     "fact_fts",
     "fact_domain_type",
@@ -1030,6 +1033,13 @@ const storesByKind: Readonly<Record<string, readonly StateStoreDeclaration[]>> =
       "document.entity-events",
       "entity-document-event/v1",
       "packages/kernel/src/domain/entity-document-event.ts",
+    ),
+    canonical(
+      "document.kb-events",
+      "kb-document-event/v1",
+      "packages/kernel/src/domain/kb-document-event.ts",
+      ["kb-document.status"],
+      kbDocumentEventTypes,
     ),
   ],
   migration: [

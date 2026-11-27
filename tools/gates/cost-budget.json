@@ -456,6 +456,10 @@
           "reason": "fact unarchive reads one fact and compiles one event; it has no collection input."
         },
         {
+          "actions": ["kb-put"],
+          "reason": "KB document upsert compiles one Document Bundle and appends one kb_document_upserted event; it does not enumerate repository history or a KB document collection."
+        },
+        {
           "actions": ["migrate-import"],
           "reason": "migration import is a declared-only ingress for one import request; imported member counts are outside this canonical event writer."
         },
@@ -798,6 +802,15 @@
         },
         "command:doc-sync-dry-run": {
           "measurements": ["cli-doc-sync-dry-run"]
+        },
+        "command:kb-catalog": {
+          "measurements": ["cli-kb-catalog"]
+        },
+        "command:kb-outline": {
+          "measurements": ["cli-kb-outline"]
+        },
+        "command:kb-read": {
+          "measurements": ["cli-kb-read"]
         },
         "command:dossier-context": {
           "measurements": ["dossier-context"]

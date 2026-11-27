@@ -343,6 +343,7 @@ export default Object.freeze({
     "Fleet-Collab",
     "LivingDossier",
     "ResidentCeo",
+    "KB-S1",
   ]),
   commands: daemonOwnedProtocolCommands,
   methods: daemonOwnedRpcMethods,

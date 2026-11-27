@@ -242,6 +242,7 @@ test("peer collaboration: multi-window routing, Tier-A L0/L1/L2 fences, OIDC bin
       bobBinding,
     );
     assert.equal(l2Draft.outcome, "applied", JSON.stringify(l2Draft));
+    await waitForFixturePublication(cell, l2Draft.opId, bobBinding);
 
     // 3. End-to-end ha peer handoff -> git bundle blob + ContinuationPacket -> watch wakeup -> promote
     writeFileSync(path.join(rootDir, "wip-feature.txt"), "halfway through peer handoff\n", "utf8");

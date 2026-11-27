@@ -99,6 +99,7 @@ import { domainStatuses } from "./lifecycle-status.ts";
 import { rbacBackupStatuses, statusWordRegister } from "./status-word-register.ts";
 import { authoredDocumentStatusVocabularies } from "./status-word-register-authored-document.ts";
 import { peerRequestStates } from "./peer-collaboration.ts";
+import { kbDocumentStatuses } from "./kb-document-bundle.ts";
 import { channelDeliveryStatuses } from "./channel-adapter.ts";
 import {
   dispatchAttemptPhases,
@@ -125,6 +126,15 @@ export type { RbacBackupStatus } from "./status-word-register.ts";
 
 export const statusVocabularies: readonly StatusVocabulary[] = [
   ...consumerStatusVocabularies,
+  {
+    id: "kb-document.status",
+    entity: "AuthoredDocument",
+    field: "kb document status",
+    module: "packages/kernel/src/domain/kb-document-bundle.ts",
+    anchor: "kbDocumentStatuses",
+    words: kbDocumentStatuses,
+    ownerStore: "document.kb-events",
+  },
   {
     id: "resident-ceo.profile-status",
     entity: "RuntimeSession",

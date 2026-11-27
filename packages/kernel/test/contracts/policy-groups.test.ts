@@ -62,7 +62,8 @@ test("runtime declarations have one Base tier and scope; technical actions creat
   // task_211789c20aee8c48a40535b9ac (dec_166C5D2EAB57F8BCA3F15107E2/CH1,CH4): resident CEO config/start/stop/chat (193 -> 197).
   // task_119c1adc483dac7f320354417a (dec_mrbm7oli): resident CEO Phase 2 approve/reject (197 -> 199).
   // task_72457562bfa00acb8aa018d482 (dec_A7A88E2079CA1DE548234A6CC3): Commander PR 1 runtime-report (199 -> 200).
-  assert.equal(actionDeclarations.length, 200);
+  // task_0cb0602df0442361e46ff018e9 (dec_D75C5F36D3E0C4D2346D4B3961): KB S1 kb-put & kb-mount (200 -> 202).
+  assert.equal(actionDeclarations.length, 202);
   assert.equal(actionDeclarations.find(({ kind }) => kind === "access-password-change")?.socketOwnerAuthority, false);
   assert.equal(actionDeclarations.find(({ kind }) => kind === "migrate-storage")?.policyTier, "admin");
   assert.equal(actionDeclarations.find(({ kind }) => kind === "daemon-node-auto-claim")?.policyTier, "admin");

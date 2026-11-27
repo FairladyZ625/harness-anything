@@ -3122,6 +3122,13 @@
         "order": 1302
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/local-kb-store.ts#removeLocalKbBundle:7014a92362be58754bbe654dbb58c947",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove",
+        "order": 1303
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/observe-jsonl-tail.ts#tailError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
         "route": "daemon-local-state",
         "role": "support",

@@ -9,6 +9,8 @@ import { projectDispatchLifecycleEvent } from "./dispatch-lifecycle-projection.t
 import { projectInboxEvent } from "./inbox-projection.ts";
 import { projectPeerRequestEvent } from "./inbox-projection.ts";
 import { isPeerRequestEvent } from "@harness-anything/kernel/internal/domain/peer-collaboration.ts";
+import { projectKbDocumentEvent } from "./kb-document-projection.ts";
+import { isKbDocumentEvent } from "@harness-anything/kernel/internal/domain/kb-document-event.ts";
 import { upsertPresetSnapshot } from "./rebuildable-task-projection-preset-snapshots.ts";
 import {
   normalizeHistoricalEvent,
@@ -238,8 +240,9 @@ function applyEventProjection(
   projectDispatchLifecycleEvent(db, event);
   projectInboxEvent(db, event);
   projectPeerRequestEvent(db, event);
+  projectKbDocumentEvent(db, event);
   projectArtifactEntityState(db, event);
-  if (isPeerRequestEvent(event)) {
+  if (isPeerRequestEvent(event) || isKbDocumentEvent(event)) {
     insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
     return;
   }

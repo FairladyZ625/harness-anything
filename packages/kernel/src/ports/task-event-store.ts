@@ -194,6 +194,7 @@ export function canonicalEventEntityRefs(event: PersistedCanonicalEventV1): read
       add("task", source.taskId);
       add("decision", source.decisionId);
       add("fact", source.factId);
+      add("document", source.docId);
       add("execution", source.executionId);
       add("schedule", source.scheduleId);
       add(source.entityKind, source.entityId);

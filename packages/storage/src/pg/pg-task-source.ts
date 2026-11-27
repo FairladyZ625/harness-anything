@@ -15,6 +15,7 @@ import { pgRuntimeDispatchQueries, type PgRuntimeDispatchQueries } from "./pg-ru
 import { pgDispatchLifecycleQueries, type PgDispatchLifecycleQueries } from "./pg-dispatch-lifecycle.ts";
 import { pgInboxQueries } from "./pg-inbox.ts";
 import { pgPeerRequestQueries } from "./pg-peer-request.ts";
+import { pgKbDocumentQueries, type PgKbDocumentQueries } from "./pg-kb-document.ts";
 import type { Pool } from "pg";
 import { pgEventQueries, readCutInTransaction } from "./pg-event-queries.ts";
 import { decodePageCursor, encodePageCursor } from "../projection/iso-timestamp-sql.ts";
@@ -70,6 +71,7 @@ export interface PgProjectionCut {
 export interface PgTaskProjectionSource
   extends PgRuntimeDispatchQueries,
     PgDispatchLifecycleQueries,
+    PgKbDocumentQueries,
     PgTaskIndexQueries,
     PgRelationPortQueries,
     PgTaskEventQueries,
@@ -302,6 +304,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     ...pgDispatchLifecycleQueries(options),
     ...pgInboxQueries(options),
     ...pgPeerRequestQueries(options),
+    ...pgKbDocumentQueries(options),
     ...pgTaskIndexQueries(options, { read, list }, now),
     ...pgRelationPortQueries(options),
     ...pgTaskEventQueries(options),

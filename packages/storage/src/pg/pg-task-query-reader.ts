@@ -91,6 +91,7 @@ export interface PgTaskQueryReader {
   readonly backfillDispatchLifecycle: () => number;
   readonly backfillInbox: () => number;
   readonly backfillPeerRequests: () => number;
+  readonly backfillKbDocuments: () => number;
   readonly maintainRelationCycleAuditPage: () => PgRelationCycleRefreshPage;
   readonly writerEpoch: (request: PgEpochRequest) => WriterEpochLease | number | null;
   readonly replication: (operation: "head" | "page" | "slots", payload?: unknown) => unknown;
@@ -240,6 +241,7 @@ export function createPgTaskQueryReader(
       | "dispatch-lifecycle-backfill"
       | "inbox-backfill"
       | "peer-request-backfill"
+      | "kb-document-backfill"
       | "relation-cycle-maintenance"
       | "epoch"
       | "replication",
@@ -355,6 +357,10 @@ export function createPgTaskQueryReader(
     backfillPeerRequests: () => {
       if (activeSession) throw new Error("peer request backfill cannot run inside a projection read session");
       return request("peer-request-backfill");
+    },
+    backfillKbDocuments: () => {
+      if (activeSession) throw new Error("kb document backfill cannot run inside a projection read session");
+      return request("kb-document-backfill");
     },
     maintainRelationCycleAuditPage: () => {
       if (activeSession) throw new Error("relation cycle maintenance cannot run inside a projection read session");

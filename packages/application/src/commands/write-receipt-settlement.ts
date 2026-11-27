@@ -69,6 +69,8 @@ export async function settleWriteReceipt(
     return settleHostLocalReceipt(action, receipt);
   if (action.kind === "agent-delete" && receipt.proof?.durable === true && receipt.proof?.canonicalVisible === false)
     return settleHostLocalReceipt(action, receipt);
+  if (action.kind === "kb-put" && receipt.proof?.durable === true && receipt.proof?.canonicalVisible === false)
+    return settleHostLocalReceipt(action, receipt);
   // A locale-only settings update writes this machine's preference file, never the ledger.
   const localSettingsOnly =
     action.kind === "settings-update" &&
