@@ -829,7 +829,7 @@ test("doc show --raw writes the document body verbatim and keeps decorated outpu
                     versionWarning: {
                       centerBuildCommit: "center-build",
                       localBuildCommit: "edge-build",
-                      upgradeCommand: "git pull --ff-only, then build CLI and daemon",
+                      upgradeCommand: "ha edge upgrade",
                     },
                   };
                 })();

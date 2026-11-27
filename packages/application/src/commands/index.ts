@@ -28,6 +28,7 @@ export * from "./channel-action.ts";
 export * from "./kb-write.ts";
 export * from "./entity-action-catalog-executor.ts";
 export * from "./resident-ceo.ts";
+export * from "./runtime-report-action.ts";
 
 export { composeDurableActionEnvelope } from "../durable-action-envelope.ts";
 export {

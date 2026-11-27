@@ -828,7 +828,8 @@ partitionedTest(
       .filter((source) => source.role === "client" && isNonMainGui(source.candidateId)).length;
     assert.equal(expectedGuiClientCount, 263);
     // dec_89D06D7360CBEC09795F7B12EC/CH3. The transport keeps a typed host-local cancellation port.
-    assert.equal((localState.ontology.sources ?? []).filter((source) => isNonMainGui(source.candidateId)).length, 113);
+    // task_4b278f23905b1cb00ab2c6d2fd adds 4 host-local edge-upgrade callsites (113 -> 117).
+    assert.equal((localState.ontology.sources ?? []).filter((source) => isNonMainGui(source.candidateId)).length, 117);
 
     const guiAcceptClient = decisionAccept.ontology.sources.find(
       (source) =>
@@ -897,7 +898,7 @@ partitionedTest(
       nonMainGuiRows.filter((row) => !row.ok),
       [],
     );
-    assert.equal(nonMainGuiRows.filter((row) => row.kind === "daemon-local-state").length, 113);
+    assert.equal(nonMainGuiRows.filter((row) => row.kind === "daemon-local-state").length, 117);
     assert.deepEqual(nonMainGuiRows.find((row) => row.id === guiReviewCallback.candidateId)?.clientRoutes, [
       "decision.dispatchReview",
       "decision.overrideReview",

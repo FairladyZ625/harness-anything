@@ -16,12 +16,14 @@ import { isAgentVersionRead, runAgentVersionRead } from "./agent-version-action.
 import { createHash } from "node:crypto";
 import path from "node:path";
 import {
+  canEdgeSelfCleanHistoricalTask,
   compileExecutionExecutorDeclaration,
   compileTaskLifecycleWrite,
   declaredRelationTriples,
   executionExecutorDeclarationCandidates,
   getExecutableEntityAction,
   lifecycleDocumentPaths,
+  parseDocWriteIntent,
   type AgentRuntimeEventV1,
   requireEntityTypeContract,
   type WriteReceiptDraft as WriteReceipt,
@@ -30,7 +32,7 @@ import { runPresetAction } from "@harness-anything/preset";
 import { compiledArtifactKinds, resolveEntityReadKind } from "./artifact-entity-action.ts";
 import { distillPromotionAction, prepareDistillCandidate, readDistillEntity } from "./distill-actions.ts";
 import { runEntityDocumentRematerialize } from "./entity-document-rematerialize.ts";
-import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
+import { isDocAction, recycleClaims, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { runMigrationImport } from "./migration-import.ts";
 import { assertExecutionExecutorDeclarationEligible } from "./repo-cell-execution-selection.ts";
 import { runLedgerReconcileAction } from "./repo-cell-migration-actions.ts";
@@ -49,6 +51,7 @@ import { projectedTaskWriteRefusal } from "./projection-readiness.ts";
 import { applyTaskWorktreeLifecycle, taskWorktreeInput } from "./task-worktree.ts";
 import { runEntityPinAction } from "@harness-anything/application/internal/commands/entity-pin-action.ts";
 import { runIncidentDismissAction } from "./runtime-incident-dismiss-action.ts";
+import { runRuntimeCollectAction, runRuntimeReportAction } from "./runtime-report-collect-action.ts";
 import { readWork } from "@harness-anything/application/internal/queries/work-read.ts";
 import { runAssignmentMigrationAction } from "@harness-anything/application/internal/commands/assignment-migration-action.ts";
 import { readVerticalKindAction } from "./vertical-kind-read.ts";
@@ -186,6 +189,8 @@ export function executeRepoAction(
   if (action.kind === "ledger-reconcile") return runLedgerReconcileAction(cell, action, binding);
   if (action.kind === "entity-pin" || action.kind === "entity-unpin") return runEntityPinAction(cell, action, binding);
   if (action.kind === "runtime-incident-dismiss") return runIncidentDismissAction(cell, action, binding);
+  if (action.kind === "runtime-report") return runRuntimeReportAction(cell, action, binding);
+  if (action.kind === "runtime-collect") return runRuntimeCollectAction(cell, action, binding);
   if (action.kind === "receipt-show") {
     const opId = String(action.opId ?? "");
     return cell.receiptForOperation(opId, binding);
@@ -275,8 +280,36 @@ export function executeRepoAction(
   // bypass carried document claims.
   enforceTaskActionStewardshipFence(cell, action, binding);
   if (action.kind === "task-submit") return submitTask(cell, action, binding);
-  if (Array.isArray(action.docChanges))
-    return cell.runTaskCommandWithDocs(action as TaskCommandWithDocsAction, binding);
+  if (Array.isArray(action.docChanges)) {
+    const cleanupCatalogAction =
+      (action.kind === "task-release" || action.kind === "task-archive") &&
+      binding.executionPrincipal === undefined &&
+      typeof action.taskId === "string" &&
+      canEdgeSelfCleanHistoricalTask({
+        action,
+        task: cell.projection.read(action.taskId).snapshot.task,
+        lease: cell.projection.currentLease(action.taskId, cell.now()),
+        actor: binding.actor,
+      });
+    if (cleanupCatalogAction) {
+      if (action.docChanges.length > 0) {
+        const intent = parseDocWriteIntent(
+          {
+            schema: "doc-write-intent/v1",
+            executionId: null,
+            baseLedgerSha: cell.store.currentCut(),
+            changes: action.docChanges,
+          },
+          cell.input.repoId,
+        );
+        recycleClaims(cell.rootDir, intent);
+      }
+      const { docChanges: _droppedDocs, mirrorBaseCut: _droppedBase, ...cleaned } = action;
+      action = cleaned as RepoTaskAction;
+    } else {
+      return cell.runTaskCommandWithDocs(action as TaskCommandWithDocsAction, binding);
+    }
+  }
   if (action.kind === "task-progress-append") return cell.appendProgress(action, binding);
   const actionContract = getExecutableEntityAction(action.kind);
   if (actionContract?.target.kind === "todo" && actionContract.execution) {
@@ -542,10 +575,14 @@ async function runTaskEscalation(
       : [],
     recommendation = typeof action.recommendation === "string" ? action.recommendation.trim() : "",
     reason = typeof action.reason === "string" ? action.reason.trim() : "";
-  if (principal?.role !== "implementation" || principal.taskId !== taskId || !dispatchId)
+  if (
+    (principal?.role !== "implementation" && principal?.role !== "coordinator") ||
+    principal.taskId !== taskId ||
+    !dispatchId
+  )
     throw cell.cellCodedError(
       "execution_credential_rejected",
-      "Escalation requires the implementation credential for this task dispatch.",
+      "Escalation requires the implementation or coordinator credential for this task dispatch.",
     );
   const expectedDispatch = /^dispatch_[a-f0-9]{24}$/u.test(dispatchId);
   if (!expectedDispatch)

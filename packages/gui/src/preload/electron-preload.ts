@@ -28,6 +28,7 @@ import type { DaemonStreamMethod } from "@harness-anything/daemon/protocol";
 import { accessAdminPreloadApi, fleetAdminFromAccess } from "./access-admin-preload.ts";
 import { centerSettingsPreloadApi } from "./center-settings-preload.ts";
 import { edgeJoinEntryPreloadApi } from "./edge-join-entry-preload.ts";
+import { edgeUpgradePreloadApi } from "./edge-upgrade-preload.ts";
 import {
   FIRST_RUN_BOOTSTRAP_CHANNEL,
   FIRST_RUN_CHOOSE_CHANNEL,
@@ -216,6 +217,11 @@ const exposedHarnessApi = {
   // 边缘节点加入向导(task_0499bcc75d0f):join/poll/progress 与协议激活推送,主进程收窄见
   // main/edge-join-entry-ipc.ts。
   edgeJoin: edgeJoinEntryPreloadApi(invoke, (channel, listener) => {
+    const subscription = (_event: Electron.IpcRendererEvent, payload: unknown) => listener(payload);
+    ipcRenderer.on(channel, subscription);
+    return () => ipcRenderer.removeListener(channel, subscription);
+  }),
+  edgeUpgrade: edgeUpgradePreloadApi(invoke, (channel, listener) => {
     const subscription = (_event: Electron.IpcRendererEvent, payload: unknown) => listener(payload);
     ipcRenderer.on(channel, subscription);
     return () => ipcRenderer.removeListener(channel, subscription);

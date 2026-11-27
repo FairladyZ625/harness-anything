@@ -43,7 +43,7 @@
         "explain": "doctorInvocation: Document command invocation syntax checking for doctor diagnostics.",
         "sources": [
           {
-            "candidateId": "judgment:packages/cli:packages/cli/src/cli/thin-command-doctor.ts#validateInvocation:eeb6dbded09ffd88896f755a8a545fbc",
+            "candidateId": "judgment:packages/cli:packages/cli/src/cli/thin-command-doctor.ts#validateInvocation:5a79aad9dde057b827cb6f451ea6a6ca",
             "route": "packages/cli/src/cli/thin-command-doctor.ts#validateInvocation"
           }
         ],

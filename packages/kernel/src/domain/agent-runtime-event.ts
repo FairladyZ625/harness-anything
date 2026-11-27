@@ -100,3 +100,26 @@ export function compileInboxFailedEvent(input: {
     payload: input.payload,
   };
 }
+
+/** Construct a canonical `inbox_item_dropped_stale` event inside the declared runtime-session aggregate owner. */
+export function compileInboxDroppedStaleEvent(input: {
+  readonly eventId: string;
+  readonly workspaceRevision: number;
+  readonly opId: string;
+  readonly actor: ActorIdentity;
+  readonly source: AgentRuntimeEventV1["source"];
+  readonly occurredAt: string;
+  readonly payload: InboxEventPayloads["inbox_item_dropped_stale"];
+}): Extract<AgentRuntimeEventV1, { readonly type: "inbox_item_dropped_stale" }> {
+  return {
+    schema: "agent-runtime-event/v1",
+    eventId: input.eventId,
+    workspaceRevision: input.workspaceRevision,
+    opId: input.opId,
+    type: "inbox_item_dropped_stale",
+    actor: input.actor,
+    source: input.source,
+    occurredAt: input.occurredAt,
+    payload: input.payload,
+  };
+}

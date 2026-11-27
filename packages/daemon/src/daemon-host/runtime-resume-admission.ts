@@ -31,7 +31,9 @@ import {
   checkoutTaskWorktree,
   openTaskWorktreeBinding,
   presetSnapshotReader,
+  resolveManagedReviewWorktreePath,
   taskWorkspaceView,
+  verifyReviewCheckout,
   type TaskWorktreeCheckout,
 } from "./task-worktree.ts";
 import { noWorktreeSetup, worktreeSetupFailure } from "./worktree-setup.ts";
@@ -610,4 +612,44 @@ export async function assertBareProviderSessionResumeIdentity(request: {
     skillSnapshotDigest: request.skillSnapshotDigest,
   });
   if (!verdict.ok) throw runtimeSpawnError(verdict.code, verdict.message);
+}
+
+/** Ensure a fallback reviewer attempt executes inside its pinned managed review worktree. */
+export async function ensureFallbackReviewWorktree(
+  input: RuntimeSpawnerInput,
+  params: {
+    readonly role?: string | null;
+    readonly taskId?: string | null;
+    readonly executionId?: string | null;
+    readonly reviewTarget?: unknown;
+    readonly cwd: string;
+    readonly dispatchKey: string;
+    readonly trustedManagedCwd?: TrustedManagedCwdKind | null;
+  },
+  resolvePinnedCommit: (
+    payload: JsonObject,
+    snapshot: ReturnType<TaskProjection["read"]>["snapshot"],
+  ) => string | null | undefined,
+): Promise<TaskWorktreeCheckout | null> {
+  if (params.role !== "reviewer" || !params.taskId || input.remote) return null;
+  const worktreePayload: JsonObject = {
+      role: params.role,
+      taskId: params.taskId,
+      ...(params.executionId ? { executionId: params.executionId } : {}),
+      ...(params.reviewTarget ? { reviewTarget: params.reviewTarget as JsonObject } : {}),
+      dispatchKey: params.dispatchKey,
+    },
+    pinnedCommit = resolvePinnedCommit(
+      worktreePayload,
+      requireCurrentTaskProjection(requiredRuntimeProjection(input), params.taskId, "runtime.run").snapshot,
+    );
+  if (existsSync(params.cwd)) {
+    if (
+      typeof pinnedCommit === "string" &&
+      (params.trustedManagedCwd === "worktree" || resolveManagedReviewWorktreePath(input.rootDir, params.cwd) !== null)
+    )
+      await verifyReviewCheckout(params.cwd, pinnedCommit);
+    return null;
+  }
+  return prepareDispatchWorktree(input, worktreePayload, projectedWorktreeBinding(input), pinnedCommit);
 }

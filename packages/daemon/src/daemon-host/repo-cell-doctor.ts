@@ -526,6 +526,6 @@ export function fleetVersionDoctorCheck(warnings: readonly string[]): DoctorChec
         status: "warn",
         count: incompatible.length,
         summary: incompatible.join(" | "),
-        next: "Run git pull --ff-only, then build CLI and daemon on the center and edge, then reconnect the Fleet session.",
+        next: "Run ha edge upgrade on the edge node (and update the center if behind), then reconnect the Fleet session.",
       };
 }

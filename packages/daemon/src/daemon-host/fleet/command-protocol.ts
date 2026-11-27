@@ -268,7 +268,7 @@ export type FleetFrameV1 =
       "fleet.doc.result/v1",
       {
         inReplyTo: string;
-        outcome: "applied" | "pending" | "no_changes" | "op_rejected" | "indeterminate";
+        outcome: "applied" | "queued" | "pending" | "no_changes" | "op_rejected" | "indeterminate";
         opId: string;
         revision: number | null;
         replicationSequence: number | null;
@@ -319,7 +319,7 @@ export type FleetFrameV1 =
       {
         inReplyTo: string;
         opId: string;
-        outcome: "applied" | "pending" | "no_changes" | "op_rejected" | "indeterminate";
+        outcome: "applied" | "queued" | "pending" | "no_changes" | "op_rejected" | "indeterminate";
         revision: number | null;
         /** Center replication head after this command; applied edge writes wait until it is local. */
         replicationSequence: number | null;

@@ -243,6 +243,9 @@
         "relation-relate": {
           "measurements": ["relation-relate:ledger-events", "relation-relate:owner-relations"]
         },
+        "runtime-report": {
+          "measurements": ["runtime-report:report-history"]
+        },
         "decision-reckon": {
           "measurements": ["decision-reckon:ledger-events"]
         },
@@ -861,6 +864,9 @@
         },
         "command:relation-triples": {
           "measurements": ["cli-relation-triples"]
+        },
+        "command:runtime-collect": {
+          "measurements": ["cli-runtime-collect", "runtime-collect-since-history"]
         },
         "command:runtime-sessions-await": {
           "measurements": ["runtime-await"]

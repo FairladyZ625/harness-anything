@@ -136,6 +136,7 @@ export const actionExecutionClasses: Readonly<Record<string, ActionExecutionClas
     ["runtime-instance-logout", "repo-write"],
     ["runtime-instance-show", "admin"],
     ["runtime-instance-update", "admin"],
+    ["runtime-report", "repo-write"],
     ["runtime-run", "repo-write"],
     ["runtime-spawn", "repo-write"],
     ["runtime-steer", "repo-write"],

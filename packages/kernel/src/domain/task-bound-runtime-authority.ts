@@ -1,7 +1,9 @@
 import { stableStringify } from "../integrity/stable-hash.ts";
 import type { RuntimeSession } from "./agent-runtime.ts";
-import { isSameExecution } from "./actor-domain-services.ts";
+import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
 import type { LeaseV1 } from "./execution.ts";
+import { decideReadableTaskLease } from "./task-lease-policy.ts";
+import type { TaskV2 } from "./task.ts";
 import type { ActorIdentity, WriteSource } from "./write-chain.contract.ts";
 import type { TaskLifecycleSnapshot } from "./task-lifecycle-contract-internal-types.ts";
 
@@ -82,4 +84,40 @@ export function isSubmittedExecutionCutOpen(snapshot: TaskLifecycleSnapshot, exe
     current = snapshot.executions.find((candidate) => candidate.executionId === executionId);
   if (!task || (task.status !== "submitted" && task.status !== "in_review")) return false;
   return task.currentNode === "review" && current?.state === "submitted" && current.submission !== null;
+}
+
+/**
+ * Historical task cleanup/disposition commands that an authenticated principal may execute on
+ * their own unleased or expired-orphaned task without holding an active lease. Explicitly
+ * excludes `task-review-consent` and ordinary review-gated `task-complete`.
+ */
+export function isHistoricalTaskCleanupAction(action: {
+  readonly kind: string;
+  readonly status?: unknown;
+  readonly resolvedBy?: unknown;
+}): boolean {
+  if (action.kind === "task-release" || action.kind === "task-archive") return true;
+  if (action.kind === "task-transition") return action.status === "cancelled";
+  if (action.kind === "task-complete")
+    return typeof action.resolvedBy === "string" && action.resolvedBy.trim().length > 0;
+  return false;
+}
+
+/**
+ * Pure domain eligibility for an edge principal self-cleaning their own historical task when
+ * no live unexpired lease exists (`lease === null` or an expired `orphaned` lease belonging
+ * to the same principal). Active `held`/`reserving` leases, foreign tasks, foreign orphaned
+ * leases, and `task-review-consent` always return false.
+ */
+export function canEdgeSelfCleanHistoricalTask(input: {
+  readonly action: { readonly kind: string; readonly status?: unknown; readonly resolvedBy?: unknown };
+  readonly task: Pick<TaskV2, "createdBy"> | null;
+  readonly lease: LeaseV1 | null;
+  readonly actor: ActorIdentity;
+}): boolean {
+  if (!isHistoricalTaskCleanupAction(input.action)) return false;
+  if (input.task === null || !isSamePerson(input.task.createdBy, input.actor)) return false;
+  const activeLease = decideReadableTaskLease(input.lease);
+  if (activeLease === null) return true;
+  return activeLease.phase === "orphaned" && isSamePerson(activeLease.actor, input.actor);
 }

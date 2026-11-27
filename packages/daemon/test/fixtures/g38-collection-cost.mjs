@@ -941,4 +941,245 @@ export const COLLECTION_PROBES = Object.freeze({
       return { size, counts: result.counts["task-create"] };
     },
   },
+  // F-B8F72105: runtime-report must remain O(1) as prior reports accumulate on the same task
+  // (no full-file progress.md read/re-render/hash/rewrite and no history scan).
+  "runtime-report:report-history": {
+    action: "runtime-report",
+    dimension: "report-history",
+    growth: "constant",
+    async run(rootDir, size) {
+      const [
+        { runRuntimeReportCommand },
+        {
+          applyTransition,
+          canonicalEventWritePlan,
+          normalizeTaskLifecycleCommand,
+          REPLAY_TASK_GRAPH,
+          sha256Text,
+          stableStringify,
+          taskBootstrapWritePlan,
+          taskLifecycleWritePlan,
+        },
+        { emptyTaskLifecycleSnapshot },
+        { compileInboxEnqueuedEvent },
+        fixtures,
+        { withTempStore },
+      ] = await Promise.all([
+        load(rootDir, "packages/application/src/commands/runtime-report-action.ts"),
+        load(rootDir, "packages/kernel/src/index.ts"),
+        load(rootDir, "packages/kernel/src/domain/task-lifecycle.contract.ts"),
+        load(rootDir, "packages/kernel/src/domain/agent-runtime-event.ts"),
+        load(rootDir, "packages/storage/test/store/relation-graph-projection.fixtures.ts"),
+        load(rootDir, "packages/storage/test/store/helpers.ts"),
+      ]);
+      return withTempStore((storeRoot) => {
+        const fixture = fixtures.projectionFixture(storeRoot);
+        const actor = { principal: { personId: "person-g38" }, executor: null };
+        const binding = { actor, source: "local" };
+        let revision = 0;
+        const append = (event, plan) => {
+          fixture.appendEvent(event);
+          fixture.projection.apply(event, plan);
+        };
+        const workTask = fixtures.taskCreated(++revision, "task_report_work");
+        workTask.payload.task.taskClass = "work";
+        workTask.payload.task.createdBy = actor;
+        append(workTask);
+
+        const presetSnapshot = { schema: "preset-snapshot/v1", id: "g38-runtime-report" };
+        const presetDigest = `sha256:${sha256Text(stableStringify(presetSnapshot))}`;
+        const presetBody = `${stableStringify({ ...presetSnapshot, digest: presetDigest })}\n`;
+        const presetSha = sha256Text(presetBody);
+        const planBody = "# Plan\n";
+        const planSha = sha256Text(planBody);
+        const childBootstrap = {
+          schema: "task-bootstrap-event/v1",
+          eventId: `event-${++revision}`,
+          workspaceRevision: revision,
+          opId: `op-bootstrap-${revision}`,
+          taskId: "task_report_child",
+          type: "task_bootstrapped",
+          actor,
+          source: "local",
+          occurredAt: "2026-11-27T00:00:00.000Z",
+          payload: {
+            task: {
+              schema: "task/v2",
+              taskId: "task_report_child",
+              title: "G38 report child",
+              taskClass: "standard",
+              status: "planned",
+              graph: REPLAY_TASK_GRAPH,
+              currentNode: "implementation",
+              iteration: 0,
+              createdBy: actor,
+              completionGateIds: [],
+              presetSnapshotDigest: presetDigest,
+              pinned: false,
+              metadata: {
+                idempotencyKey: null,
+                parentTaskId: "task_report_work",
+                workKind: null,
+                riskTier: "low",
+                urgency: null,
+                verticalId: "software/coding",
+                presetId: "standard-task",
+                profileId: "baseline",
+                moduleKey: null,
+                slug: "g38-report-child",
+                surfaces: [],
+                fromLegacyId: null,
+              },
+            },
+            presetSnapshotClaim: {
+              digest: presetDigest,
+              sha256: presetSha,
+              size: Buffer.byteLength(presetBody),
+              mediaType: "application/json",
+            },
+            initialDocumentClaims: [
+              {
+                path: "tasks/task_report_child-g38-report-child/task_plan.md",
+                sha256: planSha,
+                size: Buffer.byteLength(planBody),
+                mediaType: "text/markdown",
+                owner: "doc-sync",
+                policyId: "markdown-body-replaceable/v1",
+              },
+            ],
+          },
+        };
+        fixture.blobs.set(presetSha, Buffer.from(presetBody));
+        fixture.blobs.set(planSha, Buffer.from(planBody));
+        append(childBootstrap, taskBootstrapWritePlan(childBootstrap));
+
+        const startCommand = {
+          ...normalizeTaskLifecycleCommand(
+            { workspaceId: "g38-runtime-report", actor, source: "local", expectedRevision: revision },
+            { type: "StartExecution", taskId: "task_report_child", executionId: "exe_report_g38" },
+          ),
+          eventId: `event-${++revision}`,
+          workspaceRevision: revision,
+          occurredAt: "2026-11-27T00:00:00.000Z",
+        };
+        const started = applyTransition(
+          {
+            ...emptyTaskLifecycleSnapshot(),
+            revision: revision - 1,
+            task: childBootstrap.payload.task,
+          },
+          startCommand,
+          {
+            actorBinding: actor,
+            deliveryBaseline: { kind: "commit", commitSha: "0".repeat(40) },
+            reservation: {
+              taskId: "task_report_child",
+              executionId: "exe_report_g38",
+              expiresAt: "2099-01-01T00:00:00.000Z",
+              ttlMs: 1_800_000,
+              previousHolder: null,
+              reason: "initial_claim",
+              version: 0,
+            },
+          },
+        ).event;
+        append(started, taskLifecycleWritePlan(started));
+        // Keep seeded revisions in the same 5-digit range at size=100 and size=2000 so
+        // serialized workspaceRevision digit length never creates false +7B sha256Bytes drift.
+        revision = 10_000;
+        for (let index = 0; index < size; index += 1) {
+          const itemId = `self_seed_${String(index).padStart(6, "0")}`;
+          const ev = compileInboxEnqueuedEvent({
+            eventId: `event-seed-report-${index}`,
+            workspaceRevision: ++revision,
+            opId: `op-seed-report-${index}`,
+            actor,
+            source: "local",
+            occurredAt: "2026-11-27T00:00:01.000Z",
+            payload: {
+              inboxId: "task:task_report_child",
+              itemId,
+              source: "runtime_report",
+              sourceRef: "self-report/task_report_child/milestone",
+              sourceEpoch: revision,
+              dedupeKey: `seed-report:${index}`,
+              admission: "dispatchable",
+              consumerKind: "interactive_watch",
+              taskId: "task_report_child",
+              agentId: null,
+              senderPersonId: "person-g38",
+              workId: "task_report_work",
+              lane: "milestone",
+              correlationId: "exe_report_g38",
+              minRevision: revision,
+              summary: `Seeded report ${String(index).padStart(6, "0")}`,
+              enqueuedAt: "2026-11-27T00:00:01.000Z",
+            },
+          });
+          append(ev, canonicalEventWritePlan(ev, "inbox", "task:task_report_child"));
+        }
+        let headRev = revision;
+        let eventsAppended = 0;
+        let documentReads = 0;
+        const measuredProjection = new Proxy(fixture.projection, {
+          get(target, prop, receiver) {
+            if (prop === "readDocument") {
+              return (...args) => {
+                documentReads += 1;
+                return target.readDocument(...args);
+              };
+            }
+            const value = Reflect.get(target, prop, receiver);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+        const measuredStore = {
+          readHead: () => ({ revision: headRev }),
+          append: (bundle) => {
+            const count = 1 + (bundle.preceding?.length ?? 0);
+            eventsAppended += count;
+            headRev = bundle.event.workspaceRevision;
+            for (const pre of bundle.preceding ?? []) fixture.appendEvent(pre.event);
+            fixture.appendEvent(bundle.event);
+            return { revision: headRev };
+          },
+        };
+        const cell = {
+          input: { repoId: "g38-runtime-report" },
+          store: measuredStore,
+          projection: measuredProjection,
+          now: () => "2026-11-27T00:05:00.000Z",
+          operationId: () => "op-g38-runtime-report-measured",
+          cellCodedError: (code, message) => Object.assign(new Error(message), { code }),
+          requiredCellText: (value, name) => {
+            if (typeof value !== "string" || value.trim().length === 0) throw new Error(`missing ${name}`);
+            return value;
+          },
+        };
+        const hashes = measureHashes(() => {
+          const receipt = runRuntimeReportCommand(
+            cell,
+            {
+              kind: "runtime-report",
+              taskId: "task_report_child",
+              reportKind: "milestone",
+              summary: "G38 measured runtime-report entry",
+            },
+            binding,
+          );
+          assert.equal(receipt.outcome, "applied");
+        });
+        assert.equal(documentReads, 0, "runtime-report must not read progress.md");
+        return {
+          size,
+          counts: {
+            eventsAppended,
+            documentReads,
+            sha256Calls: hashes.sha256Calls,
+            sha256Bytes: hashes.sha256Bytes,
+          },
+        };
+      });
+    },
+  },
 });

@@ -168,14 +168,21 @@ prefix. It prints the absolute `ha` path, ready-to-run commands, and an optional
 edit your shell startup files. On Linux it sets Electron's `chrome-sandbox` owner and setuid mode
 (using `sudo` when needed).
 
-### Upgrading, including a center without GitHub access
+### Upgrading an edge node, including offline centers
 
-Running the same command again first upgrades the checkout with `git pull --ff-only` and then builds. It skips `npm ci`
-while dependencies (`package-lock.json` and each workspace `package.json`) are unchanged. Once the build output changes,
-a running daemon exits as build-superseded and the new build takes over, so no manual restart is needed.
+On a joined edge node, run a single product command or open **Settings → Updates** in the GUI (source installs use the same orchestrator; packaged desktop apps use the signed desktop updater):
+
+```bash
+ha edge upgrade [--to <commit-or-ref>] [--offline] [--rollback]
+```
+
+- Without `--to`, `ha edge upgrade` discovers the center's current build commit, delegates to `scripts/install-source.{sh,ps1}` (skipping `npm ci` when dependencies are unchanged), waits for `build_superseded` daemon handoff while preserving and re-adopting in-flight runtimes, and confirms first sync.
+- If installation, handoff, or first sync fails, it automatically rolls back to the previous commit; you can also revert manually at any time with `ha edge upgrade --rollback`.
+- Multiple edge nodes can upgrade concurrently with no center-side upgrade lock; if a schema jump triggers base backups, the center shares cached snapshots under its existing resource budget.
+- Quit any running GUI window and rerun `ha gui` (or click **Restart GUI** in **Settings → Updates**) to load the rebuilt frontend bundle.
 
 When the center cannot reach GitHub, push the commit from another machine that can, merge it on the center, then install
-from the local source:
+from the local source (on an offline edge node, pass `--offline --to <commit>`):
 
 ```bash
 # on the machine that can reach the repository (center is the center host's SSH alias)

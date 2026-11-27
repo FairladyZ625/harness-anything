@@ -1264,7 +1264,7 @@
         "explain": "WriteReceipt: Receipt/guidance/diagnostic wire decoding.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/receipt-domain-registry.ts#validateWriteReceipt:f7889a91a93a9a571641c29132b356f1",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/receipt-domain-registry.ts#validateWriteReceipt:a2d9371a1408c2acbf5caab62c8f4ce1",
             "route": "packages/kernel/src/domain/receipt-domain-registry.ts#validateWriteReceipt"
           }
         ],
@@ -2707,6 +2707,27 @@
         "order": 1
       },
       {
+        "id": "canEdgeSelfCleanHistoricalTask",
+        "symbol": "packages/kernel/src/domain/task-bound-runtime-authority.ts#canEdgeSelfCleanHistoricalTask",
+        "declaration": "function",
+        "inputs": [
+          "input: { action, task, lease, actor }"
+        ],
+        "output": "boolean",
+        "failureCodes": [],
+        "explain": "Judge whether an edge principal may self-clean their own historical task when no live unexpired lease exists.",
+        "consumers": [
+          "packages/daemon/src/daemon-host/repo-cell-action-dispatch.ts",
+          "packages/daemon/src/daemon-host/repo-cell-task-command-docs.ts"
+        ],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-bound-runtime-authority.ts#canEdgeSelfCleanHistoricalTask:142dbf574fb2ed157f9689a6ea16e07e",
+            "route": "domain"
+          }
+        ]
+      },
+      {
         "id": "cancel/validate",
         "symbol": "packages/kernel/src/domain/task-lifecycle-command-transitions.ts#cancel.validate",
         "inputs": [
@@ -2862,6 +2883,28 @@
           }
         ],
         "order": 20
+      },
+      {
+        "id": "isHistoricalTaskCleanupAction",
+        "symbol": "packages/kernel/src/domain/task-bound-runtime-authority.ts#isHistoricalTaskCleanupAction",
+        "declaration": "function",
+        "inputs": [
+          "action: { kind, status?, resolvedBy? }"
+        ],
+        "output": "boolean",
+        "failureCodes": [],
+        "explain": "Judge whether an action is one of the historical task cleanup commands (task-release, task-archive, task-transition cancelled, or task-complete --resolved-by).",
+        "consumers": [
+          "packages/daemon/src/daemon-host/fleet-edge-task.ts",
+          "packages/daemon/src/daemon-host/repo-cell-task-command-docs.ts",
+          "packages/kernel/src/domain/task-bound-runtime-authority.ts"
+        ],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-bound-runtime-authority.ts#isHistoricalTaskCleanupAction:d7fec59bc0a7ae1cc294196de3777196",
+            "route": "domain"
+          }
+        ]
       },
       {
         "id": "isSubmittedExecutionCutOpen",

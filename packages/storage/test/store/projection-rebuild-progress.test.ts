@@ -22,10 +22,30 @@ import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixt
 test("explicit rebuild reports per-round progress like catch-up", async () => {
   await withTempStoreAsync(async (rootDir) => {
     const { eventStore } = threeFactLedger(rootDir, "rebuild-progress");
-    const progress: Array<{ readonly applied: number; readonly total: number; readonly watermark: number }> = [],
-      projection = makeTaskProjection({
+    const bulkProgress: Array<{ readonly applied: number; readonly total: number; readonly watermark: number }> = [],
+      bulkProjection = makeTaskProjection({
         rootDir,
         eventStore,
+        catchUpLimit: 1,
+        onProgress: (round) => bulkProgress.push({ ...round, total: round.total ?? -1 }),
+      });
+    // Offline rebuild overrides small online catchUpLimit values to bulk 4096 batches.
+    const bulkReceipt = bulkProjection.rebuild();
+    assert.equal(bulkReceipt.watermark, 3);
+    assert.deepEqual(bulkProgress, [{ applied: 3, total: 3, watermark: 3 }]);
+    bulkProjection.close();
+
+    // When a source returns multiple batches during rebuild, progress is still emitted per round.
+    const chunkedStore: EventStreamPort = {
+        readHead: () => eventStore.readHead(),
+        readBatch: (cursor, _maxItems) => eventStore.readBatch(cursor, 1),
+        readContentBlob: (sha256) => eventStore.readContentBlob(sha256),
+        verifyRevisionContinuity: (throughRevision) => eventStore.verifyRevisionContinuity(throughRevision),
+      },
+      progress: Array<{ readonly applied: number; readonly total: number; readonly watermark: number }> = [],
+      projection = makeTaskProjection({
+        rootDir,
+        eventStore: chunkedStore,
         catchUpLimit: 1,
         onProgress: (round) => progress.push({ ...round, total: round.total ?? -1 }),
       });

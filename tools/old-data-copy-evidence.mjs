@@ -9,8 +9,8 @@
 // can never attribute evidence to a build that did not run). SIGINT/SIGTERM at any stage stop
 // the isolated daemon, delete the temp copy, and exit non-zero without printing a receipt.
 //   node tools/old-data-copy-evidence.mjs [--source <repo-root>] [--build <worktree|sha>]
-//        [--out <dir>] [--keep] [--reuse-workspace <ws>] [--cold-attach] [--attach-timeout-ms <ms>]
-//        [--medium-submit]
+//        [--out <dir>] [--temp-root <dir>] [--keep] [--reuse-workspace <ws>] [--cold-attach]
+//        [--attach-timeout-ms <ms>] [--medium-submit]
 import { spawn, spawnSync } from "node:child_process";
 import { cp, copyFile } from "node:fs/promises";
 import {
@@ -42,6 +42,7 @@ import {
 import { nodeMaterializationPolicyForMode } from "../packages/kernel/src/domain/task-wip-policy.ts";
 import { resolveHarnessLayout } from "../packages/kernel/src/layout/index.ts";
 import { writeFileDurably } from "../packages/storage/src/durable-file.ts";
+import { cloneImmutableTree } from "../packages/storage/src/immutable-tree-clone.ts";
 import { cmdShellInvocation } from "../packages/storage/src/store/cmd-command-line.ts";
 import { locateFleetEdgeConfig } from "../packages/daemon/src/daemon-host/client/fleet-edge-config.ts";
 import { materialize } from "./readonly-checkout.mjs";
@@ -72,6 +73,7 @@ export function parseArgs(argv) {
     source: option("--source"),
     build: option("--build"),
     out: option("--out"),
+    tempRoot: option("--temp-root"),
     keep: argv.includes("--keep"),
     mediumSubmit: argv.includes("--medium-submit"),
     reuseWorkspace: option("--reuse-workspace"),
@@ -79,6 +81,8 @@ export function parseArgs(argv) {
     attachTimeoutMs: Number(option("--attach-timeout-ms") ?? 900_000),
     timeoutMs: Number(option("--timeout-ms") ?? DEFAULT_TIMEOUT_MS),
   };
+  if (argv.includes("--temp-root") && (!args.tempRoot || args.tempRoot.startsWith("--")))
+    throw new Error("--temp-root requires a directory path");
   if (
     !Number.isInteger(args.attachTimeoutMs) ||
     args.attachTimeoutMs < MIN_ATTACH_TIMEOUT_MS ||
@@ -674,19 +678,35 @@ export async function snapshotRepository(sourceRoot, workspace, options = {}) {
   await sqliteBackup(sourceLedger, ledgerSnapshot);
   steps.push({ item: `store/generations/${generation}/ledger.sqlite`, method: "VACUUM INTO before object clone" });
 
-  const generationsCopyMethod = await copyTree(storeGenerations, copiedGenerations, {
-    ...options,
-    progressLabel: `store/generations/${generation}`,
-  });
-  // The clone carries the live ledger's main file plus stale -wal/-shm; replace that trio
-  // with the earlier self-contained snapshot so the event cut and object tree are coherent.
+  const activeLedgerRel = `${generation}/ledger.sqlite`;
+  const cloneStats = await withProgressHeartbeat(`clone store/generations/${generation}`, () =>
+    cloneImmutableTree(storeGenerations, copiedGenerations, {
+      exclude: (_src, rel) =>
+        rel === activeLedgerRel || rel === `${activeLedgerRel}-wal` || rel === `${activeLedgerRel}-shm`,
+    }),
+  );
   rmSync(copiedLedger, { force: true, maxRetries: 5, retryDelay: 20 });
   rmSync(`${copiedLedger}-wal`, { force: true });
   rmSync(`${copiedLedger}-shm`, { force: true });
+  mkdirSync(path.dirname(copiedLedger), { recursive: true });
   renameSync(ledgerSnapshot, copiedLedger);
+  const mutableCopied = cloneStats.clonedFiles + cloneStats.copiedFiles;
+  const generationsCopyMethod =
+    cloneStats.hardlinkedFiles > 0
+      ? `hardlink (immutable CAS: ${cloneStats.hardlinkedFiles}) + ${cloneStats.mutableCloneMethod} (${mutableCopied} mutable)`
+      : cloneStats.fallbackReason
+        ? `${cloneStats.mutableCloneMethod} (hardlink fallback: ${cloneStats.fallbackReason})`
+        : `hardlink (immutable CAS: 0) + ${cloneStats.mutableCloneMethod}`;
   steps.push({
     item: `store/generations/${generation} objects and retired generations`,
     method: generationsCopyMethod,
+    cloneStats: (({ hardlinkedFiles, clonedFiles, copiedFiles, fallbackReason, elapsedMs }) => ({
+      hardlinkedFiles,
+      clonedFiles,
+      copiedFiles,
+      fallbackReason,
+      elapsedMs,
+    }))(cloneStats),
   });
   for (const dir of HARNESS_COPY_DIRS) {
     const from = [path.join(dataLocalRoot, dir), path.join(sourceLocalRoot, dir)].find((candidate) =>
@@ -1520,9 +1540,20 @@ function boundedRm(target) {
   rmSync(resolved, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 }
 
-async function cleanupTempRoot(target) {
+export function resolveTempParent(explicitTempRoot) {
+  const resolved = path.resolve(explicitTempRoot ?? tmpdir());
+  if (explicitTempRoot) mkdirSync(resolved, { recursive: true });
+  return resolved;
+}
+
+export async function cleanupTempRoot(target, tempParent = tmpdir()) {
   const resolved = path.resolve(target);
-  if (!isInsideDir(tmpdir(), resolved) || !path.basename(resolved).startsWith("ha-oldcopy-"))
+  const resolvedParent = path.resolve(tempParent);
+  if (
+    !isInsideDir(resolvedParent, resolved) ||
+    dirnameCrossPlatform(resolved) !== resolvedParent ||
+    !path.basename(resolved).startsWith("ha-oldcopy-")
+  )
     throw new Error(`refusing to remove outside an owned ha-oldcopy temp root: ${resolved}`);
   const code =
     "require('node:fs').rmSync(process.argv[1], { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });";
@@ -1549,9 +1580,10 @@ export function cleanupStaleTempRoots({ now = Date.now(), tempDir = tmpdir(), ma
 export async function main(argv, session = {}) {
   const args = parseArgs(argv);
   const sourceRoot = resolveSourceRoot(args.source);
-  const staleTempRoots = cleanupStaleTempRoots();
+  const tempParent = resolveTempParent(args.tempRoot);
+  const staleTempRoots = cleanupStaleTempRoots({ tempDir: tempParent });
   const label = `ha-oldcopy-${process.pid}-${randomBytes(4).toString("hex")}`;
-  const tempRoot = mkdtempSync(path.join(tmpdir(), `${label}-`));
+  const tempRoot = mkdtempSync(path.join(tempParent, `${label}-`));
   const daemonId = `oldcopy-${randomBytes(4).toString("hex")}`;
   const userRoot = path.join(tempRoot, "user-root");
   mkdirSync(path.join(tempRoot, "logs"), { recursive: true });
@@ -1651,8 +1683,8 @@ export async function main(argv, session = {}) {
       certificate: path.relative(workspace, identity.certificate).split(path.sep).join("/"),
       activationRevision: identity.activationRevision,
     };
-    if (!isInsideDir(tmpdir(), workspace))
-      throw new Error(`workspace must live under the system temp dir, got ${workspace}`);
+    if (!isInsideDir(tempParent, workspace))
+      throw new Error(`workspace must live under the configured temp dir (${tempParent}), got ${workspace}`);
     if (args.coldAttach) {
       const projectionPath = path.join(copyLayout(workspace).localRoot, "cache", "task.sqlite");
       for (const suffix of ["", "-wal", "-shm"])
@@ -1893,7 +1925,7 @@ export async function main(argv, session = {}) {
   }
   if (!args.keep) {
     try {
-      await cleanupTempRoot(tempRoot);
+      await cleanupTempRoot(tempRoot, tempParent);
     } catch (error) {
       receipt.failures.push({ phase: "temp-cleanup", message: String(error instanceof Error ? error.message : error) });
       receipt.ok = false;

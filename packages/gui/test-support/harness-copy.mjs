@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process";
 import {
+  constants,
+  cpSync,
   lstatSync,
   mkdirSync,
   realpathSync,
@@ -12,12 +14,53 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
+import {
+  cloneTreeSync,
+  copyFileWithFicloneFallbackSync,
+  createSyncCloneSessionState,
+} from "../../storage/src/immutable-tree-clone.ts";
+
+function copyTreeMutableCrossPlatform(source, destination) {
+  if (process.platform === "darwin") {
+    try {
+      // Prefer APFS copy-on-write on macOS; fall back gracefully on non-APFS volumes.
+      execFileSync("cp", ["-cR", source, destination], { stdio: "pipe" });
+      return;
+    } catch {
+      rmSync(destination, { recursive: true, force: true });
+    }
+  } else if (process.platform === "linux") {
+    try {
+      execFileSync("cp", ["-a", "--reflink=auto", source, destination], { stdio: "pipe" });
+      return;
+    } catch {
+      rmSync(destination, { recursive: true, force: true });
+    }
+  }
+  try {
+    cpSync(source, destination, { recursive: true, verbatimSymlinks: true, mode: constants.COPYFILE_FICLONE });
+  } catch {
+    rmSync(destination, { recursive: true, force: true });
+    cpSync(source, destination, { recursive: true, verbatimSymlinks: true });
+  }
+}
+
+function copyMutableFileCrossPlatform(source, destination, session) {
+  if (process.platform === "darwin") {
+    try {
+      execFileSync("cp", ["-c", source, destination], { stdio: "ignore" });
+      return;
+    } catch {
+      rmSync(destination, { force: true });
+    }
+  }
+  copyFileWithFicloneFallbackSync(source, destination, { session });
+}
 
 export function copyHarnessLedgerWithCow(sourceRoot, destinationRoot) {
   const source = realpathSync(sourceRoot),
     requestedDestination = path.resolve(destinationRoot);
   if (!statSync(source).isDirectory()) throw new Error(`Harness ledger source is not a directory: ${source}`);
-  if (process.platform !== "darwin") throw new Error("A branch daemon requires an APFS CoW clone on macOS.");
 
   mkdirSync(path.dirname(requestedDestination), { recursive: true });
   const destination = path.join(realpathSync(path.dirname(requestedDestination)), path.basename(requestedDestination)),
@@ -29,9 +72,7 @@ export function copyHarnessLedgerWithCow(sourceRoot, destinationRoot) {
     throw new Error(`Harness ledger clone destination already exists: ${destination}`);
 
   try {
-    // Match the repository's APFS copy-on-write path used by tools/old-data-copy-evidence.mjs.
-    // `-c` forces clonefile and fails instead of silently falling back to a full byte copy.
-    execFileSync("cp", ["-cR", source, destination], { stdio: "pipe" });
+    copyTreeMutableCrossPlatform(source, destination);
     const excludedExternalSymlinks = rebaseOrExcludeSymlinks(source, destination, source, destination);
     return { excludedExternalSymlinks };
   } catch (error) {
@@ -40,11 +81,10 @@ export function copyHarnessLedgerWithCow(sourceRoot, destinationRoot) {
   }
 }
 
-/** Copy the live generation-three ledger as a coherent SQLite snapshot, then CoW-clone its
- *  immutable object tree. The authored harness clone alone has only the Git follower manifest;
- *  attach also requires this project-local generation store. */
+/** Copy the live generation-three ledger as a coherent SQLite snapshot, then hardlink-clone its
+ *  immutable CAS object tree (`objects/sha256/<2>/<62>`) and independently copy mutable files.
+ *  Works natively on macOS, Linux, and Windows. */
 export function copyHarnessRuntimeLedgerWithCow(sourceProjectRoot, destinationProjectRoot) {
-  if (process.platform !== "darwin") throw new Error("A branch daemon requires an APFS CoW clone on macOS.");
   const sourceLayout = resolveHarnessLayout(sourceProjectRoot),
     destinationLayout = resolveHarnessLayout(destinationProjectRoot),
     sourceGenerations = path.join(sourceLayout.localRoot, "store", "generations"),
@@ -59,6 +99,7 @@ export function copyHarnessRuntimeLedgerWithCow(sourceProjectRoot, destinationPr
     throw new Error(`Branch ledger destination already exists: ${destinationGenerations}`);
 
   mkdirSync(path.dirname(destinationGenerations), { recursive: true });
+  const cloneSession = createSyncCloneSessionState();
   try {
     if (lstatSync(sourceCache, { throwIfNoEntry: false })) {
       mkdirSync(destinationCache, { recursive: true });
@@ -66,7 +107,9 @@ export function copyHarnessRuntimeLedgerWithCow(sourceProjectRoot, destinationPr
         const source = path.join(sourceCache, name),
           sources = [source, `${source}-wal`].filter((candidate) => lstatSync(candidate, { throwIfNoEntry: false }));
         if (sources.length === 0) continue;
-        execFileSync("cp", ["-c", ...sources, destinationCache], { stdio: "ignore" });
+        for (const file of sources) {
+          copyMutableFileCrossPlatform(file, path.join(destinationCache, path.basename(file)), cloneSession);
+        }
         const cached = path.join(destinationCache, name),
           checkpointScript =
             'const { DatabaseSync } = require("node:sqlite"); ' +
@@ -83,13 +126,17 @@ export function copyHarnessRuntimeLedgerWithCow(sourceProjectRoot, destinationPr
         }
       }
     }
-    const sqlTarget = snapshot.replace(/'/gu, "''"),
-      snapshotScript =
-        'const { DatabaseSync } = require("node:sqlite"); ' +
-        "const db = new DatabaseSync(process.argv[1], { readOnly: true }); " +
-        `try { db.exec("VACUUM INTO '${sqlTarget}'"); } finally { db.close(); }`;
-    execFileSync(process.execPath, ["-e", snapshotScript, sourceLedger], { stdio: "pipe" });
-    execFileSync("cp", ["-cR", sourceGenerations, destinationGenerations], { stdio: "pipe" });
+    const snapshotScript =
+      'const { DatabaseSync } = require("node:sqlite"); ' +
+      "const db = new DatabaseSync(process.argv[1], { readOnly: true }); " +
+      "const sqlTarget = process.argv[2].replace(/'/gu, \"''\"); " +
+      "try { db.exec(`VACUUM INTO '${sqlTarget}'`); } finally { db.close(); }";
+    execFileSync(process.execPath, ["-e", snapshotScript, sourceLedger, snapshot], { stdio: "pipe" });
+    cloneTreeSync(sourceGenerations, destinationGenerations, {
+      session: cloneSession,
+      exclude: (_src, rel) =>
+        rel === "3/ledger.sqlite" || rel === "3/ledger.sqlite-wal" || rel === "3/ledger.sqlite-shm",
+    });
     const excludedExternalSymlinks = rebaseOrExcludeSymlinks(
       sourceGenerations,
       destinationGenerations,
@@ -100,6 +147,7 @@ export function copyHarnessRuntimeLedgerWithCow(sourceProjectRoot, destinationPr
     rmSync(destinationLedger, { force: true });
     rmSync(`${destinationLedger}-wal`, { force: true });
     rmSync(`${destinationLedger}-shm`, { force: true });
+    mkdirSync(path.dirname(destinationLedger), { recursive: true });
     renameSync(snapshot, destinationLedger);
     return { generation: 3, excludedExternalSymlinks };
   } catch (error) {
@@ -138,10 +186,19 @@ function rebaseOrExcludeSymlinks(sourceRoot, destinationRoot, sourceDirectory, d
       }
       const clonedTarget = path.join(destinationRoot, targetRelative);
       // A cloned internal link must resolve inside this throwaway tree, never back to canonical.
-      statSync(clonedTarget);
+      const clonedStat = statSync(clonedTarget);
       unlinkSync(destinationEntry);
-      symlinkSync(path.relative(path.dirname(destinationEntry), clonedTarget), destinationEntry);
-    } else if (entry.isDirectory()) {
+      const linkTarget = path.relative(path.dirname(destinationEntry), clonedTarget);
+      if (process.platform === "win32" && clonedStat.isDirectory()) {
+        try {
+          symlinkSync(linkTarget, destinationEntry, "dir");
+        } catch {
+          symlinkSync(clonedTarget, destinationEntry, "junction");
+        }
+      } else {
+        symlinkSync(linkTarget, destinationEntry);
+      }
+    } else if (entry.isDirectory() && lstatSync(destinationEntry, { throwIfNoEntry: false })?.isDirectory()) {
       excluded += rebaseOrExcludeSymlinks(sourceRoot, destinationRoot, sourceEntry, destinationEntry);
     }
   }

@@ -844,7 +844,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "outcome",
     module: "packages/kernel/src/domain/write-receipt-status.ts",
     anchor: "writeReceiptOutcomes",
-    words: ["applied", "pending", "no_changes", "indeterminate", "op_rejected"],
+    words: ["applied", "queued", "pending", "no_changes", "indeterminate", "op_rejected"],
   },
   {
     id: "receipt.detail.outcome",
@@ -852,7 +852,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "outcome",
     module: "packages/kernel/src/domain/receipt-domain-registry.ts",
     anchor: "#outcome",
-    words: ["applied", "pending", "no_changes", "indeterminate", "op_rejected"],
+    words: ["applied", "queued", "pending", "no_changes", "indeterminate", "op_rejected"],
     subsetOf: "receipt.outcome",
     note: "The WriteReceipt interface repeats the outcome vocabulary; must stay equal to writeReceiptOutcomes.",
   },
@@ -1173,7 +1173,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "outcome",
     module: "packages/daemon/src/daemon-host/protocol/daemon-protocol-vocabulary.ts",
     anchor: "receiptOutcomeWords",
-    words: ["applied", "pending", "no_changes", "indeterminate", "op_rejected"],
+    words: ["applied", "queued", "pending", "no_changes", "indeterminate", "op_rejected"],
     mirrorOf: "receipt.outcome",
   },
   {

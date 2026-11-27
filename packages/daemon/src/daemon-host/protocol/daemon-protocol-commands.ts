@@ -723,6 +723,13 @@ const residentCeoProtocolCommands = Object.freeze([
         { field: "targetNodeId", pathKind: "non-path" },
       ),
       cliInput(
+        "--supersedes",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "supersedesTaskId", pathKind: "non-path" },
+      ),
+      cliInput(
         "--instance",
         "single",
         false,

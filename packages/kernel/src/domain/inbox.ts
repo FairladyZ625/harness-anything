@@ -16,7 +16,7 @@ import { isNonEmptyString, isRecord } from "./write-chain.contract.ts";
 export const INBOX_MODEL_VERSION = 3;
 export const INBOX_PAGE_LIMIT = 200;
 const INBOX_TEXT_LIMIT = 256;
-const INBOX_SUMMARY_LIMIT = 1024;
+export const INBOX_SUMMARY_LIMIT = 1024;
 
 export const inboxEventTypes = [
   "inbox_item_enqueued",
@@ -424,6 +424,7 @@ export type InboxQuery =
   | { readonly by: "item"; readonly inboxId: string; readonly itemId: string }
   | { readonly by: "dedupe"; readonly inboxId: string; readonly dedupeKey: string }
   | { readonly by: "inbox"; readonly inboxId: string; readonly limit?: number; readonly cursor?: string }
+  | { readonly by: "inbox-updates"; readonly inboxId: string; readonly afterRevision: number; readonly limit?: number }
   | InboxQueueQuery;
 
 export type InboxRead =

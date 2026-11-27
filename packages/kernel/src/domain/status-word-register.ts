@@ -894,6 +894,13 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     divergence: "entity-scoped",
   },
   {
+    word: "queued",
+    entity: "WriteReceipt",
+    field: "outcome",
+    meaning: "Control prompt durably queued into Canonical Inbox for turn-end continuation.",
+    divergence: "entity-scoped",
+  },
+  {
     word: "no_changes",
     entity: "WriteReceipt",
     field: "outcome",

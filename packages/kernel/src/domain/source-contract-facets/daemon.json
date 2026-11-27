@@ -627,7 +627,7 @@
         "explain": "Daemon exit wire-response validator for `daemon.fleet-overview/v1` envelopes, center build stamps, replica link states and event summaries carrying canonical attribution.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/fleet/fleet-overview-read.ts#validateFleetOverview:dc893bee1e06eb6b448a9e944fca5465",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/fleet/fleet-overview-read.ts#validateFleetOverview:d3a4b20be42c746deb3ab946ffea2424",
             "route": "packages/daemon/src/daemon-host/fleet/fleet-overview-read.ts#validateFleetOverview"
           }
         ],
@@ -1023,7 +1023,7 @@
         "explain": "Wire-response validator for `command-receipt/v2` GUI mutation receipts across entity commands, checking cut fidelity and optional boolean steerSupported only on runtime-spawn, and delegating committed acceptance intervals to kernel `validateReceiptAcceptance`.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts#validateDaemonGuiCommandReceipt:7ff0f66fb63e11db8230d00f54a676d9",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts#validateDaemonGuiCommandReceipt:f3a7351be22addd0f6da2758d0a8e1de",
             "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts#validateDaemonGuiCommandReceipt"
           }
         ],
@@ -1559,7 +1559,7 @@
         "explain": "Closed JSON-RPC request parameter validator for `repo.runtime.steer` session target and operator message fields; steer admissibility stays in kernel dispatch lifecycle policy.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateRuntimeSteerPayload:500334d6c729f58258536628f75e6e14",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateRuntimeSteerPayload:6cb26db464c40d30efcc013a5369d1e1",
             "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateRuntimeSteerPayload"
           }
         ],
@@ -1688,7 +1688,7 @@
         "explain": "Runtime execution credential RPC scope guard allowing post-submit `task-push` and `task-submit --amend` only when kernel `isSubmittedExecutionCutOpen` holds.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/runtime-execution-scope.ts#isCurrentSubmittedWorkerWrite:7090d57763afb51efdd76752bfde074f",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/runtime-execution-scope.ts#isCurrentSubmittedWorkerWrite:4fa895ca66cade71c4bd1b8e47998a40",
             "route": "packages/daemon/src/daemon-host/runtime-execution-scope.ts#isCurrentSubmittedWorkerWrite"
           }
         ],
@@ -1717,6 +1717,18 @@
           }
         ],
         "order": 37
+      },
+      {
+        "id": "daemon/src/runtime-queued-steer.ts#hasActiveRuntimeForTask",
+        "symbol": "packages/daemon/src/daemon-host/runtime-queued-steer.ts#hasActiveRuntimeForTask",
+        "explain": "Single-writer queued-steer guard checking whether the target task already has an active runtime handle before launching a continuation turn.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/runtime-queued-steer.ts#hasActiveRuntimeForTask:9cb589db74241f7e810a22b956afefe1",
+            "route": "packages/daemon/src/daemon-host/runtime-queued-steer.ts#hasActiveRuntimeForTask"
+          }
+        ],
+        "order": 35.5
       },
       {
         "id": "daemon/src/runtime-resume-admission.ts#assertBareProviderSessionResumeIdentity",
@@ -1789,6 +1801,18 @@
           }
         ],
         "order": 43
+      },
+      {
+        "id": "daemon/src/runtime-spawn-control.ts#assertTaskTargetExpectationWithoutLocalHeader",
+        "symbol": "packages/daemon/src/daemon-host/runtime-spawn-control.ts#assertTaskTargetExpectationWithoutLocalHeader",
+        "explain": "Compare-and-steer expectation guard validating task/execution/dispatch/version on task-target enqueue branches where no local dispatch header exists.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-control.ts#assertTaskTargetExpectationWithoutLocalHeader:46905545ff8e77d2e7140f492c5d9bbe",
+            "route": "packages/daemon/src/daemon-host/runtime-spawn-control.ts#assertTaskTargetExpectationWithoutLocalHeader"
+          }
+        ],
+        "order": 35.6
       },
       {
         "id": "daemon/src/runtime-spawn-mission.ts#resolveRuntimeInstanceCandidates.assertAllowed",

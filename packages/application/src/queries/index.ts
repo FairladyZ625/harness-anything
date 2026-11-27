@@ -39,6 +39,7 @@ export * from "./collaborator-reads.ts";
 export * from "./collaborator-token-usage.ts";
 export * from "./token-usage-detail-read.ts";
 export * from "./collaborator-artifacts.ts";
+export * from "./runtime-collect-read.ts";
 
 export { makePersonActionExplanationService } from "../person-action-explanation-service.ts";
 export { makeSquadActionExplanationService } from "../squad-action-explanation-service.ts";

@@ -239,6 +239,8 @@ export const inboxParityQueries: readonly InboxQuery[] = [
   { by: "inbox", inboxId: "person:owner" },
   { by: "inbox", inboxId: "person:owner", limit: 2 },
   { by: "inbox", inboxId: "person:owner", limit: 2, cursor: "12" },
+  { by: "inbox-updates", inboxId: "person:owner", afterRevision: 10 },
+  { by: "inbox-updates", inboxId: "person:owner", afterRevision: 12, limit: 2 },
   { by: "dedupe", inboxId: "person:owner", dedupeKey: "peer-reply-1" },
   { by: "item", inboxId: "task:task_a", itemId: "item-a1" },
   { by: "item", inboxId: "task:task_a", itemId: "item-a1-retry" },

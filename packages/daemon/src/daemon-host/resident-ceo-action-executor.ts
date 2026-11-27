@@ -599,6 +599,7 @@ export async function settleResidentCeoHumanChatTurn(input: {
         action.actionKind === "promote_and_dispatch" || action.actionKind === "start_and_dispatch_existing"
           ? action.proposedTargetNodeId
           : null,
+      proposedSupersedesTaskId: action.actionKind === "promote_and_dispatch" ? action.proposedSupersedesTaskId : null,
       proposedPrompt:
         action.actionKind === "promote_and_dispatch" || action.actionKind === "start_and_dispatch_existing"
           ? action.proposedPrompt

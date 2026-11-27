@@ -320,7 +320,13 @@ function validateInvocation(args: readonly string[], rootDir: string): DoctorVer
       ? doctorOk
       : { ok: false, code: "command_not_found", reason: `${root} is not a command domain.` };
   const local =
-    root === undefined ? false : root === "migrate" ? args[at + 1] === "ledger" : doctorLocalRoots.includes(root);
+    root === undefined
+      ? false
+      : root === "migrate"
+        ? args[at + 1] === "ledger"
+        : root === "edge"
+          ? args[at + 1] === "upgrade"
+          : doctorLocalRoots.includes(root);
   if (local) {
     const words = args.slice(at),
       firstFlag = words.findIndex((token, index) => index > 0 && token.startsWith("-")),

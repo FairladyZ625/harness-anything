@@ -441,6 +441,14 @@
         "order": 226
       }
     ],
+    "runtime-report": [
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/runtime-report-action.ts#runRuntimeReportCommand.appended:a1707bf4299ee460b8dc0d8f7be92dfb",
+        "route": "runtime-report",
+        "role": "effect",
+        "order": 0
+      }
+    ],
     "task-submit": [
       {
         "candidateId": "action:packages/application:packages/application/src/commands/submission-artifacts.ts#createSubmissionArtifactReader:a90fd32eb02c5973cfcf0c346fb48244",

@@ -155,6 +155,7 @@ export const taskLeasePolicyJudgments = [
     failureCodes: [],
     explain: "Preserve the existing decideReadableTaskLease verdict at one canonical definition.",
     consumers: [
+      "packages/kernel/src/domain/task-bound-runtime-authority.ts",
       "packages/storage/src/projection/rebuildable-task-projection-runtime.ts",
       "packages/storage/src/migration/projection.ts",
     ],

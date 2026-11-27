@@ -421,7 +421,10 @@ export interface TaskProjection {
     taskId: string,
   ) => import("../domain/migration-import-event.ts").MigrationImportEventV1 | null;
   readonly readPresetSnapshot: (digest: string) => PresetSnapshotProjectionRead;
-  readonly readProgress: (taskId: string) => TaskProgressProjectionRead;
+  readonly readProgress: (
+    taskId: string,
+    options?: { readonly afterRevision?: number; readonly limit?: number },
+  ) => TaskProgressProjectionRead;
   /** The single dispatch lifecycle read port (dec_AEB05951C69E47FCE53E53C341 CH2). */
   readonly readDispatchLifecycle: (
     query:

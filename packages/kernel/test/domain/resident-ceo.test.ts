@@ -14,6 +14,7 @@ import {
   evaluateResidentCeoGateDecision,
   evaluateResidentCeoOwnerDirectApproval,
   evaluateResidentCeoTier0Access,
+  isValidResidentCeoEntityId,
   isValidResidentCeoTargetNodeId,
   parseResidentCeoDelegationDecision,
   parseResidentCeoTurnActions,
@@ -157,7 +158,7 @@ test("delegation response parser extracts structured proposals, honors advise_on
     requestedAction: "Run migration audit",
   };
   const structured = parseResidentCeoDelegationDecision(
-    '```json\n{"action":"propose_task","title":"Audit storage migration","workId":"task_work_2","agentId":"sol","targetNodeId":"cea7e947","prompt":"Check PG schema","rationale":"Needs tracked task."}\n```',
+    '```json\n{"action":"propose_task","title":"Audit storage migration","workId":"task_work_2","agentId":"sol","targetNodeId":"cea7e947","supersedesTaskId":"task_old_42","prompt":"Check PG schema","rationale":"Needs tracked task."}\n```',
     fallback,
   );
   assert.deepEqual(structured, {
@@ -166,17 +167,19 @@ test("delegation response parser extracts structured proposals, honors advise_on
     proposedWorkId: "task_work_2",
     proposedAgentId: "sol",
     proposedTargetNodeId: "cea7e947",
+    proposedSupersedesTaskId: "task_old_42",
     proposedPrompt: "Check PG schema",
     rationale: "Needs tracked task.",
   });
 
   const dottedNode = parseResidentCeoDelegationDecision(
-    '{"action":"propose_task","title":"Run on edge","targetNodeId":" edge-mac.prod_1 ","rationale":"Offload build."}',
+    '{"action":"propose_task","title":"Run on edge","targetNodeId":" edge-mac.prod_1 ","supersedesTaskId":"  ","rationale":"Offload build."}',
     fallback,
   );
   assert.equal(dottedNode.decision, "propose_task");
   if (dottedNode.decision === "propose_task") {
     assert.equal(dottedNode.proposedTargetNodeId, "edge-mac.prod_1");
+    assert.equal(dottedNode.proposedSupersedesTaskId, null);
   }
 
   for (const invalidTarget of ["   ", "bad node", "../escape", "node..double", "-leading", ".leading", "node/slash"]) {
@@ -186,6 +189,7 @@ test("delegation response parser extracts structured proposals, honors advise_on
         action: "propose_task",
         title: "Invalid target node",
         targetNodeId: invalidTarget,
+        supersedesTaskId: invalidTarget,
         rationale: "Reject invalid node ids.",
       }),
       fallback,
@@ -193,11 +197,14 @@ test("delegation response parser extracts structured proposals, honors advise_on
     assert.equal(parsedInvalid.decision, "propose_task");
     if (parsedInvalid.decision === "propose_task") {
       assert.equal(parsedInvalid.proposedTargetNodeId, null);
+      assert.equal(parsedInvalid.proposedSupersedesTaskId, null);
     }
   }
   for (const validTarget of ["cea7e947", "node_edge_1", "edge-1.prod", "center"]) {
     assert.equal(isValidResidentCeoTargetNodeId(validTarget), true, `expected ${validTarget} to pass`);
   }
+  assert.equal(isValidResidentCeoEntityId("task_old_1"), true);
+  assert.equal(isValidResidentCeoEntityId("bad task/id"), false);
 
   const advise = parseResidentCeoDelegationDecision(
     '{"action":"advise_only","rationale":"Already answered in docs."}',
@@ -212,6 +219,7 @@ test("delegation response parser extracts structured proposals, honors advise_on
     assert.equal(plain.proposedWorkId, "task_work_1");
     assert.equal(plain.proposedAgentId, "neon");
     assert.equal(plain.proposedTargetNodeId, null);
+    assert.equal(plain.proposedSupersedesTaskId, null);
   }
 });
 

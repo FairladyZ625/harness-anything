@@ -158,6 +158,7 @@ export const daemonActionRoutes = Object.freeze([
         title: "string?",
         agentId: "string?",
         targetNodeId: "string?",
+        supersedesTaskId: "string?",
         runtimeInstanceId: "string?",
         model: "string?",
         prompt: "string?",
@@ -493,7 +494,9 @@ export const daemonActionRoutes = Object.freeze([
     shape({
       runtimeSessionId: "string?",
       dispatchId: "string?",
+      taskId: "string?",
       prompt: "string",
+      mode: "string?",
       expected: "json?",
       idempotencyKey: "string?",
     }),

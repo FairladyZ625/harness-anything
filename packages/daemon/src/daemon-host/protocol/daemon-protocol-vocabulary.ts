@@ -359,7 +359,14 @@ export const decisionCapabilityReasonWordsAreExact: [DecisionCapabilityReason] e
 
 export const reviewVerdictWords = ["approved", "changes_requested", "dismissed"] as const;
 
-export const receiptOutcomeWords = ["applied", "pending", "no_changes", "indeterminate", "op_rejected"] as const;
+export const receiptOutcomeWords = [
+  "applied",
+  "queued",
+  "pending",
+  "no_changes",
+  "indeterminate",
+  "op_rejected",
+] as const;
 
 export const daemonRepoModeWords = Object.freeze([
   "local",

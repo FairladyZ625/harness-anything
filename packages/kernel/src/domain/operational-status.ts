@@ -198,3 +198,15 @@ export const reviewDispatchStepOutcomeWords = [
   "failed",
 ] as const;
 export type ReviewDispatchStepOutcome = (typeof reviewDispatchStepOutcomeWords)[number];
+
+export const edgeUpgradeOutcomeWords = [
+  "upgraded",
+  "already_current",
+  "rolled_back",
+  "failed",
+  "rollback_failed",
+] as const;
+export type EdgeUpgradeOutcome = (typeof edgeUpgradeOutcomeWords)[number];
+
+export const edgeUpgradeStateOutcomeWords = ["in_progress", "upgraded", "rolled_back", "failed"] as const;
+export type EdgeUpgradeStateOutcome = (typeof edgeUpgradeStateOutcomeWords)[number];

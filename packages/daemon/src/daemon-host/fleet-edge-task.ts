@@ -28,6 +28,7 @@ import { tmpdir } from "node:os";
 import { writeFileDurably } from "@harness-anything/storage";
 import {
   consumeKnownError,
+  isHistoricalTaskCleanupAction,
   RAW_ARTIFACT_MAX_BYTES,
   RAW_ARTIFACT_POLICY_ID,
   resolveHarnessLayout,
@@ -760,7 +761,13 @@ export async function runFleetEdgeTask(
     readonly mirrorBaseCut: { readonly revision: number; readonly headDigest: string };
     readonly acceptedWorktreeChanges: Parameters<typeof acceptEdgeWorktreeScanBases>[0];
   } | null> {
-    if (taskId === null || workspaceRoot === null || action.kind === "task-create") return null;
+    if (
+      taskId === null ||
+      workspaceRoot === null ||
+      action.kind === "task-create" ||
+      isHistoricalTaskCleanupAction(action)
+    )
+      return null;
     const view = locateFleetMirrorView(payload.viewRoot, payload.repoId, payload.nodeId, {
       entriesPrefix: `tasks/${taskId}`,
     });

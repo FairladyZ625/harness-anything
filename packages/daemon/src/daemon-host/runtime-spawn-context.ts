@@ -126,6 +126,17 @@ export interface RuntimeSpawnerContext {
   readonly reconcileFallback: (dispatchId: string) => void | Promise<void>;
   /** Non-blocking wake for the background steer receipt uplink pump (F13). */
   readonly triggerSteerReceiptFlush?: () => void;
+  /** Per-task single-flight guard ensuring at most one queued-steer continuation turn per `task:<id>`. */
+  readonly queuedSteerInFlight?: Set<string>;
+  /** Spawns a follow-up turn consuming queued Inbox steers at a turn boundary. */
+  readonly spawnQueuedSteerTurn?: (
+    payload: JsonObject,
+    binding: RuntimeBinding,
+    options?: {
+      readonly recoveryRequested?: boolean;
+      readonly preparedWorktree?: import("./task-worktree.ts").TaskWorktreeCheckout | null;
+    },
+  ) => Promise<JsonObject>;
 }
 
 function withoutCaseInsensitivePathKeys(env: NodeJS.ProcessEnv): {

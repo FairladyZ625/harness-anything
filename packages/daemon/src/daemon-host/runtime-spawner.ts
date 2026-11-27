@@ -149,6 +149,7 @@ import {
   assertResumeAgent,
   parseDispatchSnapshotExpectations,
   readOnlyAttachDispatch,
+  ensureFallbackReviewWorktree,
   prepareDispatchWorktree,
   preflightRuntimeSelection,
   projectedWorktreeBinding,
@@ -221,6 +222,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const dispatchState = input.runtimeInstanceDispatchState ?? createRuntimeInstanceDispatchState();
   const activeRuntimeHandles = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
+    queuedSteerInFlight = new Set<string>(),
     launch = input.launch ?? launchNative,
     prepareDaemonGitEnvironment = (instanceId: string, provider: "github" | "gitlab" = "github") =>
       input.prepareDaemonGitEnvironment?.(instanceId, provider, input.repoId).then((value) => value ?? undefined) ??
@@ -256,6 +258,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     providerErrorLimit,
     publishRuntimeEvent,
     exiting,
+    queuedSteerInFlight,
+    spawnQueuedSteerTurn: async (payload, binding, options) => {
+      const preparedWorktree =
+        options?.preparedWorktree ??
+        (!input.remote ? await prepareDispatchWorktree(input, payload, projectedWorktreeBinding(input)) : null);
+      return spawnAttempt(payload, binding, {
+        preparedWorktree,
+        recoveryRequested: options?.recoveryRequested === true,
+      });
+    },
     runtimeResultText: (active, code, outcome) =>
       runtimeSpawnerDelegates.runtimeResultText(extracted, active, code, outcome),
     resultMediaType,
@@ -271,37 +283,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     reconcileFallback: (dispatchId) =>
       scheduleFallbackContinuation({
         context: extracted,
-        ensureFallbackWorktree: async ({
-          role,
-          taskId,
-          executionId,
-          reviewTarget,
-          cwd,
-          dispatchKey,
-          trustedManagedCwd,
-        }) => {
-          if (role !== "reviewer" || !taskId || input.remote) return null;
-          const worktreePayload: JsonObject = {
-              role,
-              taskId,
-              ...(executionId ? { executionId } : {}),
-              ...(reviewTarget ? { reviewTarget } : {}),
-              dispatchKey,
-            },
-            pinnedCommit = reviewerPinnedCommit(
-              worktreePayload,
-              requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot,
-            );
-          if (existsSync(cwd)) {
-            if (
-              typeof pinnedCommit === "string" &&
-              (trustedManagedCwd === "worktree" || resolveManagedReviewWorktreePath(input.rootDir, cwd) !== null)
-            )
-              await verifyReviewCheckout(cwd, pinnedCommit);
-            return null;
-          }
-          return prepareDispatchWorktree(input, worktreePayload, projectedWorktreeBinding(input), pinnedCommit);
-        },
+        ensureFallbackWorktree: (params) => ensureFallbackReviewWorktree(input, params, reviewerPinnedCommit),
         prepareCausalGitHistory: (taskId) =>
           prepareRuntimeCausalGitHistory({
             rootDir: input.rootDir,
@@ -1121,7 +1103,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               readOnlyCeiling: launchedPermissionMode === "read-only" || unboundReadOnlyAgent,
             })
           : null,
-      dispatchRole = tasklessExecutionRole === "read-only" ? "read-only" : role;
+      dispatchRole =
+        tasklessExecutionRole === "read-only"
+          ? "read-only"
+          : taskId && !readOnlyAttach && !reviewerBinding && agent?.role === "commander" && role === undefined
+            ? "coordinator"
+            : role;
     if (dispatchRole === "read-only" && !daemonRoute)
       throw runtimeSpawnError(
         "runtime_preconditions_unavailable",
@@ -1547,10 +1534,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 dispatchId: newDispatchId,
                 taskId,
                 executionId: taskBinding!.executionId,
-                role: reviewerBinding ? "reviewer" : "implementation",
+                role: reviewerBinding ? "reviewer" : dispatchRole === "coordinator" ? "coordinator" : "implementation",
                 surfaces: taskExecutionSurfaces(
                   taskSnapshot?.task ?? null,
-                  reviewerBinding ? "reviewer" : "implementation",
+                  reviewerBinding ? "reviewer" : dispatchRole === "coordinator" ? "coordinator" : "implementation",
                 ),
               },
             }

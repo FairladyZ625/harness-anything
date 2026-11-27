@@ -22,8 +22,7 @@ import {
 import type { SystemRepoRow } from "../api-client.ts";
 import { RepositoriesAndConnectionsView } from "./settings/RepositoriesAndConnectionsView.tsx";
 import { RepositorySettingsPanel } from "./settings/RepositorySettingsPanel.tsx";
-import { guiHostBridge } from "../gui-transport.ts";
-import type { UpdateState } from "../../api/update-contract.ts";
+import { UpdatesSettingsPanel } from "./settings/UpdatesSettingsPanel.tsx";
 
 // i18n(task_bff1b8d6):设置页文案一律走 locales(同 task_9f39e256 的 tab 机制),
 // 模块级清单只留 id/key,文案键(labelKey/descKey)在渲染期经 t() 取。
@@ -97,6 +96,7 @@ export function SettingsView({
   repos,
   onOpenProject,
   onJoinCenter,
+  initialTab,
 }: {
   /** 当前仓;无仓(首次运行的空态)时为 null,仓库设置页停用、仓库与连接页照常可用。 */
   readonly repoId: string | null;
@@ -104,19 +104,19 @@ export function SettingsView({
   readonly onOpenProject: (repoId: string) => void;
   /** 打开「加入中心」向导;本机连接空状态的入口(task_0499bcc75d0f)。 */
   readonly onJoinCenter: () => void;
+  /** 由顶栏等入口跳转时指定的初始设置页签。 */
+  readonly initialTab?: SettingsTab;
 }) {
   const { mode, setMode, uiScale, setUiScale } = useTheme();
   const { preference: motionPreference, setPreference: setMotionPreference } = useMotionPreference();
   const { locale, setLocale } = useI18n();
-  const [activeTab, setActiveTab] = useState<SettingsTab>(repoId === null ? "repositories" : "repository");
-  const [notifyOnReady, setNotifyOnReady] = useState(true);
-  const updates = guiHostBridge()?.updates;
-  const [updateState, setUpdateState] = useState<UpdateState>({ state: "idle" });
+  const [activeTab, setActiveTab] = useState<SettingsTab>(
+    initialTab ?? (repoId === null ? "repositories" : "repository"),
+  );
   useEffect(() => {
-    if (!updates) return;
-    void updates.status().then(setUpdateState);
-    return updates.onStatus(setUpdateState);
-  }, [updates]);
+    if (initialTab) setActiveTab(initialTab);
+  }, [initialTab]);
+  const [notifyOnReady, setNotifyOnReady] = useState(true);
   const [timePrefs, setTimePrefs] = useState<TimeDisplayPrefs>(() => readTimeDisplayPrefs());
   const updateTimePrefs = (partial: Partial<TimeDisplayPrefs>) => {
     const next = { ...timePrefs, ...partial };
@@ -375,30 +375,7 @@ export function SettingsView({
           </Section>
         );
       case "updates":
-        return (
-          <Section variant="panel" title={t("views.settingsView.sectionUpdates")}>
-            <Row
-              label={t("views.settingsView.updateStatusLabel")}
-              desc={t("views.settingsView.updateStatusDescription")}
-            >
-              <div className="flex items-center gap-2">
-                <span className="ui-meta text-text-muted">
-                  {updateState.state === "available" || updateState.state === "downloaded"
-                    ? updateState.version
-                    : updateState.state}
-                </span>
-                <Button onClick={() => void updates?.check()} disabled={!updates || updateState.state === "checking"}>
-                  {t("views.settingsView.checkUpdates")}
-                </Button>
-                {updateState.state === "downloaded" ? (
-                  <Button variant="primary" onClick={() => void updates?.install()}>
-                    {t("views.settingsView.installUpdate")}
-                  </Button>
-                ) : null}
-              </div>
-            </Row>
-          </Section>
-        );
+        return <UpdatesSettingsPanel repoId={repoId} />;
     }
   };
 

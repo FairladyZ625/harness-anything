@@ -451,6 +451,24 @@
         "order": 905
       },
       {
+        "candidateId": "action:packages/gui:packages/gui/src/preload/edge-upgrade-preload.ts#edgeUpgradePreloadApi.relaunch:6abe8ddbf61584466a3bede79acaec35",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/gui/src/preload/edge-upgrade-preload.ts#edgeUpgradePreloadApi.invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/preload/edge-upgrade-preload.ts#edgeUpgradePreloadApi.run:f5b7686f476f4ea476e1ad9e44f235ef",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/gui/src/preload/edge-upgrade-preload.ts#edgeUpgradePreloadApi.invoke"
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/preload/edge-upgrade-preload.ts#edgeUpgradePreloadApi.status:b27585a71275ba7868201f6be53c7683",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/gui/src/preload/edge-upgrade-preload.ts#edgeUpgradePreloadApi.invoke"
+      },
+      {
         "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.artifacts.openExternal:0a79dc2cf2be46eee7b664b9b3eeee1c",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -1117,6 +1135,12 @@
         "route": "daemon:bin",
         "role": "support",
         "order": 1002
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/views/settings/UpdatesSettingsPanel.tsx#UpdatesSettingsPanel.executeEdgeAction:289c06e4422b43987639a9345fda3dc7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/gui/src/api/edge-upgrade-contract.ts#EdgeUpgradeGuiApi.run"
       }
     ],
     "daemon-repo-register": [

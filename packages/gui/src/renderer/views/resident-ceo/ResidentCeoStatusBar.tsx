@@ -62,15 +62,23 @@ export function ResidentCeoStatusBar({
       <StatusTag tone={statusTone} label={statusLabel} testId="resident-ceo-status" />
       {profile ? (
         <>
-          <span className="font-mono text-text" data-testid="resident-ceo-instance-model">
+          <span
+            className="font-mono text-text"
+            data-testid="resident-ceo-instance-model"
+            title={t("residentCeo.modelScopeHint")}
+          >
             {profile.runtimeInstanceId} · {profile.model}
           </span>
           {modeBadge ? (
             <StatusTag tone={modeBadge.tone} label={modeBadge.label} testId="resident-ceo-policy-badge" />
           ) : null}
           {gate ? <StatusTag tone={gate.tone} label={gate.label} testId="resident-ceo-gate-badge" mono /> : null}
-          <span className="font-mono tabular-nums text-text-faint" data-testid="resident-ceo-heartbeat-meta">
-            {profile.heartbeatIntervalSec}s
+          <span
+            className="font-mono tabular-nums text-text-faint"
+            data-testid="resident-ceo-heartbeat-meta"
+            title={t("residentCeo.heartbeatHint")}
+          >
+            {t("residentCeo.heartbeatStatusBadge", { seconds: profile.heartbeatIntervalSec })}
           </span>
           {pendingProposalCount > 0 ? (
             <StatusTag

@@ -65,6 +65,7 @@ const selectors = {
   "event-show": { opId: "read-vertical" },
   "ledger-audit-export": { fromRevision: 1, toRevision: 1, limit: 1 },
   "task-delivery-certificate": { taskId: READ_DONE_TASK_ID },
+  "runtime-collect": { taskId: READ_TASK_ID },
 };
 const binding = { actor: { principal: { personId: "person-g38" }, executor: null }, source: "local" };
 function resultSize(value) {

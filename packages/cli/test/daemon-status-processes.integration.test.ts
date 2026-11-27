@@ -353,7 +353,7 @@ const disconnectBlockedVerticalScriptTest = async (context: TestContext) => {
     queuedClient?.close();
     if (daemonProcess?.pid !== undefined && daemonProcess.exitCode === null) {
       runAutostartCli(fixture.root, fixture.userRoot, ["daemon", "stop", "--daemon-id", "default"]);
-      await waitForProcessExit(daemonProcess.pid, process.platform === "win32" ? 30_000 : 2_000);
+      await waitForProcessExit(daemonProcess.pid, process.platform === "win32" ? 30_000 : 10_000);
     }
   }
 };

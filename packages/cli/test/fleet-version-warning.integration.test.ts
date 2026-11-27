@@ -36,7 +36,7 @@ test("a successful Fleet task keeps build skew out of CLI output", { timeout: 30
   };
   assert.equal(typeof warning.centerBuildCommit, "string");
   assert.equal(typeof warning.localBuildCommit, "string");
-  assert.equal(warning.upgradeCommand, "git pull --ff-only, then build CLI and daemon");
+  assert.equal(warning.upgradeCommand, "ha edge upgrade");
   const lines: string[] = [],
     originalLog = console.log,
     originalError = console.error;
@@ -78,5 +78,5 @@ test("an incompatible Fleet protocol failure keeps the upgrade instruction", () 
     console.error = originalError;
   }
   assert.match(lines.join("\n"), /protocol_version_unsupported/u);
-  assert.match(lines.join("\n"), /git pull --ff-only, then build CLI and daemon/u);
+  assert.match(lines.join("\n"), /ha edge upgrade/u);
 });

@@ -172,7 +172,7 @@ export interface EdgeReadFreshness {
 }
 export interface WriteReceiptDraft extends Partial<Omit<ReceiptAcceptanceFields, "status">> {
   readonly status?: string;
-  readonly outcome: "applied" | "pending" | "no_changes" | "indeterminate" | "op_rejected";
+  readonly outcome: "applied" | "queued" | "pending" | "no_changes" | "indeterminate" | "op_rejected";
   readonly opId: string;
   readonly revision?: number;
   /**
@@ -225,7 +225,7 @@ export interface WriteReceipt extends Omit<WriteReceiptDraft, keyof ReceiptAccep
 }
 export const WRITE_RECEIPT_SCHEMA = Object.freeze({
   id: "write-receipt/v1",
-  outcomes: Object.freeze(["applied", "pending", "no_changes", "indeterminate", "op_rejected"] as const),
+  outcomes: Object.freeze(["applied", "queued", "pending", "no_changes", "indeterminate", "op_rejected"] as const),
   required: Object.freeze([
     "outcome",
     "opId",
@@ -391,25 +391,28 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
   )
     errors.push("materialized commitSha and cut must be reported together");
   if (
-    (value.outcome === "applied" || value.outcome === "pending" || value.outcome === "no_changes") &&
+    (value.outcome === "applied" ||
+      value.outcome === "queued" ||
+      value.outcome === "pending" ||
+      value.outcome === "no_changes") &&
     (visibility === undefined || (!unaccepted && !validProof))
   )
     errors.push(`${String(value.outcome)} requires visibility and proof`);
   if (
-    value.outcome === "applied" &&
+    (value.outcome === "applied" || value.outcome === "queued") &&
     validProof &&
     (!proof.durable || !proof.canonicalVisible || proof.committedRevision !== proof.appliedCut)
   )
-    errors.push("applied proof must prove durable and canonical-visible at the committed cut");
+    errors.push(`${String(value.outcome)} proof must prove durable and canonical-visible at the committed cut`);
   if (
-    value.outcome === "applied" &&
+    (value.outcome === "applied" || value.outcome === "queued") &&
     replica &&
     validProof &&
     (proof.ackCut !== proof.appliedCut || proof.worktreeVisible !== true)
   )
-    errors.push("replica applied requires worktree visibility and ackCut at the same cut");
+    errors.push(`replica ${String(value.outcome)} requires worktree visibility and ackCut at the same cut`);
   if (
-    (value.outcome === "applied" || value.outcome === "no_changes") &&
+    (value.outcome === "applied" || value.outcome === "queued" || value.outcome === "no_changes") &&
     ((!unaccepted && !cut(value.revision)) || !isNonEmptyString(value.evidence))
   )
     errors.push(`${String(value.outcome)} requires revision and evidence`);

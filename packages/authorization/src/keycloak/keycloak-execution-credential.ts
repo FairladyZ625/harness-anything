@@ -277,7 +277,11 @@ function validPrincipal(value: unknown): value is RuntimeExecutionPrincipal {
     ["personId", "repoId", "runtimeSessionId", "dispatchId"].every(
       (key) => typeof p[key] === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(p[key]),
     ) &&
-    (p.role === "implementation" || p.role === "reviewer" || p.role === "read-only" || p.role === "session") &&
+    (p.role === "implementation" ||
+      p.role === "coordinator" ||
+      p.role === "reviewer" ||
+      p.role === "read-only" ||
+      p.role === "session") &&
     (p.role === "read-only" || p.role === "session"
       ? p.taskId === null && p.executionId === null
       : typeof p.taskId === "string" &&

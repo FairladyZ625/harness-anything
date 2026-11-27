@@ -1718,6 +1718,31 @@
     "runtime-instance-update": {
       "owner": "runtime-instance"
     },
+    "runtime-report": {
+      "owner": "runtime-session",
+      "execution": {
+        "ingress": "runtime-report",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "task-lease"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "task-package",
+          "refTemplate": "tasks/<task>/progress.md"
+        }
+      }
+    },
     "runtime-run": {
       "owner": "runtime-session"
     },

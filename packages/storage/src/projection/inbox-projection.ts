@@ -60,6 +60,8 @@ export const INBOX_TABLES_SQL = `
       WHERE status IN ('pending', 'quarantined_external', 'claimed');
     CREATE INDEX IF NOT EXISTS inbox_item_by_inbox
       ON inbox_item(inbox_id, enqueued_revision);
+    CREATE INDEX IF NOT EXISTS inbox_item_by_inbox_revision
+      ON inbox_item(inbox_id, revision);
     /* @gate-identity state-store/task.projection.inbox_cursor */ CREATE TABLE IF NOT EXISTS inbox_cursor (
       singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
       revision INTEGER NOT NULL,
@@ -132,7 +134,9 @@ export function ensureInboxModel(db: DatabaseSync): void {
   if (version === null || (version !== undefined && version !== INBOX_MODEL_VERSION)) {
     for (const table of INBOX_TABLES) runSql(db, `DROP TABLE IF EXISTS ${table}`);
     for (const statement of INBOX_TABLES_SQL.split(";")) if (statement.trim()) runSql(db, statement);
+    return;
   }
+  runSql(db, "CREATE INDEX IF NOT EXISTS inbox_item_by_inbox_revision ON inbox_item(inbox_id, revision)");
 }
 
 function inboxModelCurrent(db: DatabaseSync): boolean {
@@ -192,6 +196,27 @@ export function readInboxRows(
   cut: { readonly watermark: number; readonly sourceRevision: number },
 ): InboxRead {
   if (!inboxModelCurrent(db)) return { status: "pending", ...cut };
+  if (query.by === "inbox-updates") {
+    if (typeof query.inboxId !== "string" || query.inboxId.length === 0)
+      throw new Error("inbox update reads require a targeted inboxId");
+    const afterRevision = inboxQueueCursor(String(query.afterRevision)),
+      limit = inboxPageLimit(query.limit);
+    const items = queryRows<{ item_json: string }>(
+      db,
+      `SELECT item_json FROM inbox_item
+       WHERE inbox_id = ? AND revision > ?
+       ORDER BY revision ASC LIMIT ?`,
+      query.inboxId,
+      afterRevision,
+      limit + 1,
+    ).map(({ item_json }) => JSON.parse(item_json) as InboxItem);
+    return {
+      status: "ready",
+      ...cut,
+      items: items.slice(0, limit),
+      nextCursor: items.length > limit ? String(items[limit - 1]!.revision) : null,
+    };
+  }
   if (query.by === "inbox") {
     if (typeof query.inboxId !== "string" || query.inboxId.length === 0)
       throw new Error("inbox history reads require a targeted inboxId");

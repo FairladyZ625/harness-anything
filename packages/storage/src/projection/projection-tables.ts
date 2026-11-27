@@ -123,8 +123,6 @@ export const REPOSITORY_READ_BASE_TABLES_SQL = `
       bound_at TEXT NOT NULL,
       PRIMARY KEY(task_id, runtime_session_id, execution_id)
     );
-    CREATE INDEX IF NOT EXISTS runtime_session_task_binding_session
-      ON runtime_session_task_binding(runtime_session_id, task_id, execution_id);
     /* @gate-identity state-store/task.projection.squad_run_projection */ CREATE TABLE IF NOT EXISTS squad_run_projection (
       squad_run_id TEXT PRIMARY KEY,
       revision INTEGER NOT NULL,
@@ -147,8 +145,6 @@ export const REPOSITORY_READ_BASE_TABLES_SQL = `
       task_active INTEGER NOT NULL DEFAULT 1,
       PRIMARY KEY(task_id, execution_id, acquired_revision)
     );
-    CREATE INDEX IF NOT EXISTS lease_interval_current ON lease_interval(task_id, lease_expires_at)
-      WHERE released_revision IS NULL;
     /* @gate-identity state-store/task.projection.event_index */ CREATE TABLE IF NOT EXISTS event_index (
       op_id TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL UNIQUE,
@@ -185,6 +181,8 @@ export const REPOSITORY_READ_DEFERRED_INDEXES: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS runtime_session_observed ON runtime_session(${isoTimestampMillisecondsSql("json_extract(value_json, '$.lastObservedAt')")}, runtime_session_id)`,
   // Edge recovery filters by node before outcome, so node-settled history is never visited.
   "CREATE INDEX IF NOT EXISTS runtime_session_node_unsettled ON runtime_session(execution_node_id, json_extract(value_json, '$.outcome'), runtime_session_id)",
+  "CREATE INDEX IF NOT EXISTS runtime_session_task_binding_session ON runtime_session_task_binding(runtime_session_id, task_id, execution_id)",
+  "CREATE INDEX IF NOT EXISTS lease_interval_current ON lease_interval(task_id, lease_expires_at) WHERE released_revision IS NULL",
   "CREATE INDEX IF NOT EXISTS lease_interval_active ON lease_interval(task_active, lease_expires_at, task_id) WHERE released_revision IS NULL",
   // Latest-acquisition reads seek one row per task; without this the acquisition order has to
   // sort every re-entry the task accumulated.

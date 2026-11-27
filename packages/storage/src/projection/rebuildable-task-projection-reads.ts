@@ -25,6 +25,7 @@ import type {
   TaskProjectionRead,
 } from "@harness-anything/kernel";
 import { discardDatabase, withDatabase, withRebuildDatabase } from "./rebuildable-task-projection-database.ts";
+import { projectionCatchUpLimit } from "./catch-up-limit.ts";
 import { catchUpRound } from "./rebuildable-task-projection-event-application.ts";
 import { normalizeHistoricalPresetSnapshot } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
 import {
@@ -370,6 +371,9 @@ export function rebuildProjection(
   discardDatabase(projectionPath, eventStore, "explicit_rebuild", onValidationProgress);
   // Replay on one dedicated bulk connection with deferred secondary indexes and triggers,
   // then build indexes and restore triggers before computing the source-complete state digest.
+  // Offline cold rebuild always replays in bulk batches (4096) rather than inheriting a small
+  // online incremental catchUpLimit (e.g. 32), avoiding thousands of tiny transactions.
+  const bulkLimit = Math.max(limit, projectionCatchUpLimit());
   let transactions = 0,
     reducedItems = 0,
     maxBatchItems = 0;
@@ -380,7 +384,7 @@ export function rebuildProjection(
       const initialWatermark = watermark(db);
       let reportedWatermark = initialWatermark;
       for (;;) {
-        const round = catchUpRound(db, eventStore, limit);
+        const round = catchUpRound(db, eventStore, bulkLimit);
         transactions += round.storeTransactions;
         reducedItems += round.reducedItems;
         maxBatchItems = Math.max(maxBatchItems, round.accessedItems);
