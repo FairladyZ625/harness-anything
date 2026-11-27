@@ -262,32 +262,10 @@ function openSqliteEventStoreInternal(
         readOnly: options.readOnly ?? false,
       },
     );
-  configureLedgerConnection((sql) => {
-    /* @gate-identity state-store/task.source.storage.src.store.sqlite-event-store.sqlite-database */ db.exec(sql);
-  }, options.readOnly);
   const query: SqliteQuery = (sql, values = []) =>
     /* @gate-identity state-store/task.source.storage.src.store.sqlite-event-store.sqlite-database */ db
       .prepare(sql)
       .all(...values);
-  if (!options.readOnly) {
-    createSchema(db, query, options.repoId!, generation);
-    ensureSqliteMigrationControl(db);
-  }
-  const metadata = readMetadata(query),
-    repoId = options.repoId ?? metadata.repoId;
-  assertMetadata(query, repoId, generation);
-  const sqliteVersion = String(
-    /* @gate-identity state-store/task.source.storage.src.store.sqlite-event-store.sqlite-database */ db
-      .prepare("SELECT sqlite_version() AS version")
-      .get()!.version,
-  );
-
-  const insertEvent =
-    /* @gate-identity state-store/task.source.storage.src.store.sqlite-event-store.sqlite-database */ db.prepare(
-      "INSERT INTO event(revision, op_id, event_json, digest, occurred_at, recorded_at) " +
-        "VALUES (?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now')))",
-    );
-
   let hasOutbox = !options.readOnly,
     transactionDepth = 0,
     activeReadOnlyTransaction = false;
@@ -329,27 +307,53 @@ function openSqliteEventStoreInternal(
       activeReadOnlyTransaction = false;
     }
   };
-  // Expand/catch up declaration columns before event-query backfill can apply entity events.
-  if (!options.readOnly) backfillSqliteDeclarationIndex(query, transaction);
-  if (!options.readOnly)
-    transaction(() => {
-      const iterate: SqliteRowIterator = function* (sql, values = []) {
-        let afterRevision = Number(values[0]);
-        for (;;) {
-          const rows = query(`${sql.replace("SELECT event_json", "SELECT revision, event_json")} LIMIT 256`, [
-            afterRevision,
-          ]);
-          if (rows.length === 0) return;
-          yield* rows;
-          afterRevision = Number(rows.at(-1)!.revision);
-          if (rows.length < 256) return;
-        }
-      };
-      backfillDocumentHeads(query, iterate, options.onOpenProgress);
-      backfillEventQueryRefs(query, iterate, options.onOpenProgress);
-    });
-  if (!options.readOnly) {
-    ensureEventQueryIndexes(query);
+  let repoId: string, sqliteVersion: string, insertEvent: ReturnType<DatabaseSync["prepare"]>;
+  try {
+    configureLedgerConnection((sql) => {
+      /* @gate-identity state-store/task.source.storage.src.store.sqlite-event-store.sqlite-database */ db.exec(sql);
+    }, options.readOnly);
+    if (!options.readOnly) {
+      createSchema(db, query, options.repoId!, generation);
+      ensureSqliteMigrationControl(db);
+    }
+    const metadata = readMetadata(query);
+    repoId = options.repoId ?? metadata.repoId;
+    assertMetadata(query, repoId, generation);
+    sqliteVersion = String(
+      /* @gate-identity state-store/task.source.storage.src.store.sqlite-event-store.sqlite-database */ db
+        .prepare("SELECT sqlite_version() AS version")
+        .get()!.version,
+    );
+    insertEvent =
+      /* @gate-identity state-store/task.source.storage.src.store.sqlite-event-store.sqlite-database */ db.prepare(
+        "INSERT INTO event(revision, op_id, event_json, digest, occurred_at, recorded_at) " +
+          "VALUES (?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now')))",
+      );
+    // Expand/catch up declaration columns before event-query backfill can apply entity events.
+    if (!options.readOnly) backfillSqliteDeclarationIndex(query, transaction);
+    if (!options.readOnly)
+      transaction(() => {
+        const iterate: SqliteRowIterator = function* (sql, values = []) {
+          let afterRevision = Number(values[0]);
+          for (;;) {
+            const rows = query(`${sql.replace("SELECT event_json", "SELECT revision, event_json")} LIMIT 256`, [
+              afterRevision,
+            ]);
+            if (rows.length === 0) return;
+            yield* rows;
+            afterRevision = Number(rows.at(-1)!.revision);
+            if (rows.length < 256) return;
+          }
+        };
+        backfillDocumentHeads(query, iterate, options.onOpenProgress);
+        backfillEventQueryRefs(query, iterate, options.onOpenProgress);
+      });
+    if (!options.readOnly) {
+      ensureEventQueryIndexes(query);
+    }
+  } catch (error) {
+    /* @gate-identity state-store/task.source.storage.src.store.sqlite-event-store.sqlite-database */ db.close();
+    throw error;
   }
   // All lease mutations share the store's transaction and the same repository ownership boundary.
   const persistWriterLease = (fence: SqliteWriterFence | null): void => {

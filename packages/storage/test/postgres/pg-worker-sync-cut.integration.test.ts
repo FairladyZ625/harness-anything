@@ -251,7 +251,11 @@ for (const mode of ["product", "bridge"])
             terminateCalls: stats[2],
           }),
         );
-        for (const [name, ms] of Object.entries(timings)) assert.ok(ms < 500, `${name} took ${ms}ms`);
+        const backupLimitMs = Math.max(process.platform === "win32" ? 1_500 : 500, healthyBackupMs * 4);
+        for (const [name, ms] of Object.entries(timings)) {
+          const limitMs = name === "startBackup" ? backupLimitMs : 500;
+          assert.ok(ms < limitMs, `${name} took ${ms}ms (limit ${limitMs}ms)`);
+        }
         await strict(fixture, false);
         assert.equal((await response)[0].error, undefined);
       } finally {

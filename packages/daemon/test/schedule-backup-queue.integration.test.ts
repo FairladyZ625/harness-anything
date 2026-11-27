@@ -105,7 +105,7 @@ for (const mode of ["manifest", "drill", "failure", "cleanup", "deadline", "capt
     // Cold fixture/worker startup is separate from the 15-second invariant budget.
     before(
       async () => {
-        root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-backup-queue-")));
+        root = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ha-backup-queue-")));
         cell = await openFixture(root);
         const timerMock = mock.method(
           globalThis,
@@ -326,7 +326,7 @@ for (const mode of ["manifest", "drill", "failure", "cleanup", "deadline", "capt
 
 // Cleanup may release a worker while it is still importing its executor module.
 test("a barrier preserves release received before hold", { timeout: 15_000 }, async (t) => {
-  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-backup-early-release-"))),
+  const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ha-backup-early-release-"))),
     control = new Int32Array(new SharedArrayBuffer(4)),
     source = path.join(root, "source"),
     destination = path.join(root, "payload", "copy");

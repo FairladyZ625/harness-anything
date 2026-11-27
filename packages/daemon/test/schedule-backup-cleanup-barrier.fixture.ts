@@ -16,13 +16,24 @@ function hold(): void {
 }
 const remove = fs.rmSync,
   open = fs.openSync,
-  copy = fs.cpSync;
+  copy = fs.cpSync,
+  realpathNative = fs.realpathSync.native;
+function canonicalBarrierPath(target: string): string {
+  const resolved = path.resolve(target);
+  let normalized: string;
+  try {
+    normalized = realpathNative(resolved);
+  } catch {
+    normalized = resolved;
+  }
+  const stripped = normalized.replace(/^\/private/, "");
+  return process.platform === "win32" ? stripped.toLowerCase() : stripped;
+}
 fs.rmSync = (candidate, options) => {
   if (
     workerData.phase === "cleanup" &&
     (String(candidate) === workerData.holdAt ||
-      path.resolve(String(candidate)) === path.resolve(workerData.holdAt) ||
-      String(candidate).replace(/^\/private/, "") === String(workerData.holdAt).replace(/^\/private/, ""))
+      canonicalBarrierPath(String(candidate)) === canonicalBarrierPath(String(workerData.holdAt)))
   )
     hold();
   return remove(candidate, options);

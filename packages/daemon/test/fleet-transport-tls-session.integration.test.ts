@@ -2,7 +2,7 @@
 import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { connect, createServer } from "node:tls";
@@ -341,9 +341,12 @@ test("malformed transfer on a real TLS peer closes only that session", async (t)
   stalledPeer.close();
   eofPeer.close();
 });
+const tlsSessionTimeoutMs = process.platform === "win32" ? 90_000 : 30_000;
+const tlsSessionRecoveryTimeoutMs = process.platform === "win32" ? 180_000 : 60_000;
+
 test(
   "fact record from the real CLI parser crosses TLS and reaches the canonical ledger",
-  { timeout: 30_000 },
+  { timeout: tlsSessionTimeoutMs },
   async (t) => {
     const fixture = await fleetFixture(t);
     t.after(() => fixture.close());
@@ -416,7 +419,7 @@ async function runFleetRoundTrip(options: RoundTripOptions) {
 }
 test(
   "production Fleet TLS writes durable claims, replicates document revisions, and resumes after center restart",
-  { timeout: 30_000 },
+  { timeout: tlsSessionTimeoutMs },
   async (t) => {
     const fixture = await fleetFixture(t);
     t.after(() => fixture.close());
@@ -490,7 +493,7 @@ test(
 // authenticates afterwards still finds no owner for its frames. Both layers are observable here.
 test(
   "a node unregistered while it stays connected is cut, and its next session has no owner",
-  { timeout: 30_000 },
+  { timeout: tlsSessionTimeoutMs },
   async (t) => {
     const fixture = await fleetFixture(t);
     t.after(() => fixture.close());
@@ -569,190 +572,198 @@ test("center rejects the retired full-entry/Git-cut durable transfer shape", asy
   );
   await assert.rejects(fixture.center(), /retired delivery state/u);
 });
-test("split UTF-8 frame preserves multibyte text in both TLS directions", { timeout: 30_000 }, async (t) => {
-  const fixture = await fleetFixture(t);
-  t.after(() => fixture.close());
-  const probe = serializeFleetFrame({
-      schema: "fleet.upload.begin/v1",
-      opId: "op-upload-test",
-      messageId: "unicode-probe",
-      repoId: fixture.subject.repoId,
-      content: { sha256: sha256Bytes(Buffer.from("unicode")), size: 7, mediaType: "text/雪" },
-    }),
-    probeBytes = Buffer.from(probe),
-    split = probeBytes.indexOf(Buffer.from("雪")) + 1;
-  for (const direction of ["center", "edge"]) {
-    const decoder = new FleetUtf8LineDecoder();
-    assert.deepEqual(
-      [...decoder.push(probeBytes.subarray(0, split)), ...decoder.push(probeBytes.subarray(split))],
-      [probe.slice(0, -1)],
-      direction,
-    );
-  }
-  const center = await fixture.center();
-  const peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
-    inbound = await peer.split(
-      {
+test(
+  "split UTF-8 frame preserves multibyte text in both TLS directions",
+  { timeout: tlsSessionTimeoutMs },
+  async (t) => {
+    const fixture = await fleetFixture(t);
+    t.after(() => fixture.close());
+    const probe = serializeFleetFrame({
         schema: "fleet.upload.begin/v1",
         opId: "op-upload-test",
-        messageId: "unicode-in",
+        messageId: "unicode-probe",
         repoId: fixture.subject.repoId,
         content: { sha256: sha256Bytes(Buffer.from("unicode")), size: 7, mediaType: "text/雪" },
-      },
-      "雪",
-    );
-  assert.equal(inbound.schema, "fleet.upload.ready/v1");
-  peer.close();
-  await center.close();
-  let sawUpload = false,
-    buffer = "";
-  const scripted = createServer({ key: fixture.key, cert: fixture.cert }, (socket) => {
-    fixture.track(() => socket.destroy());
-    socket.on("data", (chunk) => {
-      buffer += chunk.toString("utf8");
-      for (;;) {
-        const end = buffer.indexOf("\n");
-        if (end < 0) break;
-        const frame = parseFleetFrame(buffer.slice(0, end));
-        buffer = buffer.slice(end + 1);
-        if (frame.schema === "fleet.session.hello/v1")
-          splitWrite(
-            socket,
-            {
-              schema: "fleet.session.ready/v1",
-              messageId: "split_session",
-              inReplyTo: frame.messageId,
-              sessionId: "split-session",
-              maxFrameBytes: 96 * 1024,
-              chunkBytes: 64 * 1024,
-              loginAuthority: { url: "https://example.invalid", realm: "雪", clientId: "test" },
-            },
-            "雪",
-          );
-        else if (frame.schema === "fleet.repo.metadata.get/v1")
-          socket.write(
-            serializeFleetFrame({
-              schema: "fleet.repo.metadata.result/v1",
-              messageId: "split_metadata",
-              inReplyTo: frame.messageId,
-              personId: "person-owner",
-              actionAllowed: null,
-              repoId: fixture.subject.repoId,
-              baseLedgerSha: { repoId: fixture.subject.repoId, revision: 0, headDigest: `sha256:${"0".repeat(64)}` },
-              writerEpoch: 1,
-              replicationSequence: 0,
-              originUrl: null,
-              originPushUrls: [],
-              defaultBranch: null,
-              defaultBranchCommit: null,
-            }),
-          );
-        else if (frame.schema === "fleet.upload.begin/v1") {
-          sawUpload = true;
-          socket.write(
-            serializeFleetFrame({
-              schema: "fleet.error/v1",
-              messageId: "split_stop",
-              inReplyTo: frame.messageId,
-              code: "probe_complete",
-              message: "Probe complete.",
-              retryable: false,
-              resumeOffset: null,
-            }),
-          );
-        }
-      }
-    });
-  });
-  fixture.track(() => scripted.close());
-  await new Promise<void>((resolve, reject) => {
-    scripted.once("error", reject);
-    scripted.listen(0, "127.0.0.1", () => resolve());
-  });
-  const address = scripted.address();
-  if (!address || typeof address === "string") throw new Error("scripted TLS server did not bind");
-  await assert.rejects(
-    runFleetWriteClient({
-      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
-      port: address.port,
-      ca: fixture.cert,
-      nodeId: fixture.subject.nodeId,
-      credential: "machine-secret",
-      repoId: fixture.subject.repoId,
-      executionId: fixture.subject.executionId,
-      channel: "replica",
-      changes: [{ path: fixture.path, body: "unicode" }],
-    }),
-    (error: unknown) => {
-      assert.equal((error as { readonly code?: string }).code, "probe_complete");
-      return true;
-    },
-  );
-  assert.equal(sawUpload, true);
-});
-test("failed Fleet hello closes the socket before session ownership transfers", { timeout: 30_000 }, async (t) => {
-  const fixture = await fleetFixture(t);
-  for (const mode of ["timeout", "remote-error", "unexpected-frame"] as const) {
-    const closed = Promise.withResolvers<void>(),
-      helloObserved = Promise.withResolvers<void>(),
-      server = createServer({ key: fixture.key, cert: fixture.cert }, (socket) => {
-        fixture.track(() => socket.destroy());
-        socket.once("close", closed.resolve);
-        const decoder = new FleetUtf8LineDecoder();
-        socket.on("data", (chunk) => {
-          for (const line of decoder.push(chunk)) {
-            const hello = parseFleetFrame(line);
-            assert.equal(hello.schema, "fleet.session.hello/v1");
-            helloObserved.resolve();
-            // Withhold a response entirely to exercise the handshake timeout without a sleep.
-            if (mode === "timeout") continue;
+      }),
+      probeBytes = Buffer.from(probe),
+      split = probeBytes.indexOf(Buffer.from("雪")) + 1;
+    for (const direction of ["center", "edge"]) {
+      const decoder = new FleetUtf8LineDecoder();
+      assert.deepEqual(
+        [...decoder.push(probeBytes.subarray(0, split)), ...decoder.push(probeBytes.subarray(split))],
+        [probe.slice(0, -1)],
+        direction,
+      );
+    }
+    const center = await fixture.center();
+    const peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
+      inbound = await peer.split(
+        {
+          schema: "fleet.upload.begin/v1",
+          opId: "op-upload-test",
+          messageId: "unicode-in",
+          repoId: fixture.subject.repoId,
+          content: { sha256: sha256Bytes(Buffer.from("unicode")), size: 7, mediaType: "text/雪" },
+        },
+        "雪",
+      );
+    assert.equal(inbound.schema, "fleet.upload.ready/v1");
+    peer.close();
+    await center.close();
+    let sawUpload = false,
+      buffer = "";
+    const scripted = createServer({ key: fixture.key, cert: fixture.cert }, (socket) => {
+      fixture.track(() => socket.destroy());
+      socket.on("data", (chunk) => {
+        buffer += chunk.toString("utf8");
+        for (;;) {
+          const end = buffer.indexOf("\n");
+          if (end < 0) break;
+          const frame = parseFleetFrame(buffer.slice(0, end));
+          buffer = buffer.slice(end + 1);
+          if (frame.schema === "fleet.session.hello/v1")
+            splitWrite(
+              socket,
+              {
+                schema: "fleet.session.ready/v1",
+                messageId: "split_session",
+                inReplyTo: frame.messageId,
+                sessionId: "split-session",
+                maxFrameBytes: 96 * 1024,
+                chunkBytes: 64 * 1024,
+                loginAuthority: { url: "https://example.invalid", realm: "雪", clientId: "test" },
+              },
+              "雪",
+            );
+          else if (frame.schema === "fleet.repo.metadata.get/v1")
             socket.write(
-              serializeFleetFrame(
-                mode === "remote-error"
-                  ? {
-                      schema: "fleet.error/v1",
-                      messageId: "hello-rejected",
-                      inReplyTo: hello.messageId,
-                      code: "hello_rejected",
-                      message: "Session hello rejected.",
-                      retryable: false,
-                      resumeOffset: null,
-                    }
-                  : hello,
-              ),
+              serializeFleetFrame({
+                schema: "fleet.repo.metadata.result/v1",
+                messageId: "split_metadata",
+                inReplyTo: frame.messageId,
+                personId: "person-owner",
+                actionAllowed: null,
+                repoId: fixture.subject.repoId,
+                baseLedgerSha: { repoId: fixture.subject.repoId, revision: 0, headDigest: `sha256:${"0".repeat(64)}` },
+                writerEpoch: 1,
+                replicationSequence: 0,
+                originUrl: null,
+                originPushUrls: [],
+                defaultBranch: null,
+                defaultBranchCommit: null,
+              }),
+            );
+          else if (frame.schema === "fleet.upload.begin/v1") {
+            sawUpload = true;
+            socket.write(
+              serializeFleetFrame({
+                schema: "fleet.error/v1",
+                messageId: "split_stop",
+                inReplyTo: frame.messageId,
+                code: "probe_complete",
+                message: "Probe complete.",
+                retryable: false,
+                resumeOffset: null,
+              }),
             );
           }
-        });
+        }
       });
-    fixture.track(() => server.close());
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(0, "127.0.0.1", resolve);
     });
-    const address = server.address();
-    if (!address || typeof address === "string") throw new Error("hello test server did not bind");
-    const failedHello = assert.rejects(
-      readFleetRepositoryMetadataClient({
+    fixture.track(() => scripted.close());
+    await new Promise<void>((resolve, reject) => {
+      scripted.once("error", reject);
+      scripted.listen(0, "127.0.0.1", () => resolve());
+    });
+    const address = scripted.address();
+    if (!address || typeof address === "string") throw new Error("scripted TLS server did not bind");
+    await assert.rejects(
+      runFleetWriteClient({
         readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
         port: address.port,
         ca: fixture.cert,
         nodeId: fixture.subject.nodeId,
         credential: "machine-secret",
         repoId: fixture.subject.repoId,
-        timeoutMs: mode === "timeout" ? 1_000 : 5_000,
+        executionId: fixture.subject.executionId,
+        channel: "replica",
+        changes: [{ path: fixture.path, body: "unicode" }],
       }),
-      mode === "timeout"
-        ? /Fleet response timeout/u
-        : mode === "remote-error"
-          ? /hello_rejected/u
-          : /session ready expected/u,
+      (error: unknown) => {
+        assert.equal((error as { readonly code?: string }).code, "probe_complete");
+        return true;
+      },
     );
-    await Promise.all([helloObserved.promise, failedHello]);
-    // A rejected open must release its own socket; the fixture has not reclaimed it yet.
-    await closed.promise;
-    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
-  }
-});
+    assert.equal(sawUpload, true);
+  },
+);
+test(
+  "failed Fleet hello closes the socket before session ownership transfers",
+  { timeout: tlsSessionTimeoutMs },
+  async (t) => {
+    const fixture = await fleetFixture(t);
+    for (const mode of ["timeout", "remote-error", "unexpected-frame"] as const) {
+      const closed = Promise.withResolvers<void>(),
+        helloObserved = Promise.withResolvers<void>(),
+        server = createServer({ key: fixture.key, cert: fixture.cert }, (socket) => {
+          fixture.track(() => socket.destroy());
+          socket.once("close", closed.resolve);
+          const decoder = new FleetUtf8LineDecoder();
+          socket.on("data", (chunk) => {
+            for (const line of decoder.push(chunk)) {
+              const hello = parseFleetFrame(line);
+              assert.equal(hello.schema, "fleet.session.hello/v1");
+              helloObserved.resolve();
+              // Withhold a response entirely to exercise the handshake timeout without a sleep.
+              if (mode === "timeout") continue;
+              socket.write(
+                serializeFleetFrame(
+                  mode === "remote-error"
+                    ? {
+                        schema: "fleet.error/v1",
+                        messageId: "hello-rejected",
+                        inReplyTo: hello.messageId,
+                        code: "hello_rejected",
+                        message: "Session hello rejected.",
+                        retryable: false,
+                        resumeOffset: null,
+                      }
+                    : hello,
+                ),
+              );
+            }
+          });
+        });
+      fixture.track(() => server.close());
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("hello test server did not bind");
+      const failedHello = assert.rejects(
+        readFleetRepositoryMetadataClient({
+          readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+          port: address.port,
+          ca: fixture.cert,
+          nodeId: fixture.subject.nodeId,
+          credential: "machine-secret",
+          repoId: fixture.subject.repoId,
+          timeoutMs: mode === "timeout" ? 1_000 : 5_000,
+        }),
+        mode === "timeout"
+          ? /Fleet response timeout/u
+          : mode === "remote-error"
+            ? /hello_rejected/u
+            : /session ready expected/u,
+      );
+      await Promise.all([helloObserved.promise, failedHello]);
+      // A rejected open must release its own socket; the fixture has not reclaimed it yet.
+      await closed.promise;
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
+  },
+);
 test("Fleet connection timeout remains distinct from response timeout", async () => {
   const sockets: Socket[] = [],
     server = createNetServer((socket) => sockets.push(socket));
@@ -780,7 +791,7 @@ test("Fleet connection timeout remains distinct from response timeout", async ()
 });
 test(
   "production Fleet session rejects provenance, revocation, owner removal, content mismatch, and ninth active upload before L1",
-  { timeout: 30_000 },
+  { timeout: tlsSessionTimeoutMs },
   async (t) => {
     const fixture = await fleetFixture(t);
     t.after(() => fixture.close());
@@ -835,7 +846,7 @@ test(
     const staging = path.join(fixture.repo, ".harness", "fleet-uploads"),
       stagingTarget = path.join(fixture.root, "unsafe-staging-target");
     mkdirSync(stagingTarget);
-    symlinkSync(stagingTarget, staging);
+    symlinkSync(stagingTarget, staging, process.platform === "win32" ? "junction" : undefined);
     const unsafeStaging = await peer.request({
       schema: "fleet.upload.begin/v1",
       opId: "op-upload-test",
@@ -845,7 +856,8 @@ test(
     });
     assert.equal(unsafeStaging.schema, "fleet.error/v1");
     if (unsafeStaging.schema === "fleet.error/v1") assert.equal(unsafeStaging.code, "unsafe_staging");
-    rmSync(staging);
+    if (process.platform === "win32") rmdirSync(staging);
+    else rmSync(staging);
     const uploadConflict = await peer.request({
       schema: "fleet.upload.begin/v1",
       opId: "op-upload-test",
@@ -1012,7 +1024,7 @@ test(
 );
 test(
   "disconnect and crash recovery preserve upload and document idempotency while a lagging replica never holds the repo mutex",
-  { timeout: 60_000 },
+  { timeout: tlsSessionRecoveryTimeoutMs },
   async (t) => {
     const fixture = await fleetFixture(t),
       edgeRoot = path.join(fixture.root, "fault-edge"),

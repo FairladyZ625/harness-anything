@@ -17,6 +17,35 @@ import path from "node:path";
 
 export type WriteFence = <T>(operation: () => T) => T;
 
+const windowsRenameDelaysMs = [10, 25, 50, 100, 200, null] as const;
+const windowsRenameWaitBuffer = new Int32Array(new SharedArrayBuffer(4));
+
+function renameStep(
+  source: string,
+  target: string,
+): { readonly done: true } | { readonly done: false; readonly error: unknown } {
+  try {
+    /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ renameSync(
+      source,
+      target,
+    );
+    return { done: true };
+  } catch (error) {
+    return { done: false, error };
+  }
+}
+
+function renameReplacingSync(source: string, target: string): void {
+  for (const delayMs of windowsRenameDelaysMs) {
+    const step = renameStep(source, target);
+    if (step.done) return;
+    const code = step.error instanceof Error ? (step.error as NodeJS.ErrnoException).code : undefined;
+    if (delayMs === null || process.platform !== "win32" || (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES"))
+      throw step.error;
+    Atomics.wait(windowsRenameWaitBuffer, 0, 0, delayMs);
+  }
+}
+
 // Windows refuses fsync on a handle that was not opened for writing: FlushFileBuffers needs
 // write access, so `openSync(target, "r")` followed by fsync raises EPERM and takes the whole
 // write down before the bytes it was meant to make durable can be observed (#1586, measured on
@@ -96,8 +125,7 @@ export function writeFileDurablyFrom(
       /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ closeSync(descriptor);
     }
     // Byte preparation and flush may be slow; ownership must hold only for publication.
-    const publish = () =>
-      /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ renameSync(temp, file);
+    const publish = () => renameReplacingSync(temp, file);
     if (withFence) withFence(publish);
     else publish();
   } catch (error) {
@@ -213,10 +241,7 @@ export function openAuditRevisionScratch(file: string) {
     seal(footer: Buffer) {
       write(footer);
       close();
-      /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ renameSync(
-        pending,
-        file,
-      );
+      renameReplacingSync(pending, file);
       // The timer owns only this export's immutable file and never holds the worker open.
       setTimeout(() => {
         /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ rm(

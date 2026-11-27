@@ -142,7 +142,7 @@ test("real PG ledger: SQLite byte parity, scoped locks, outcomes, rollback and p
       const exhausted = new Pool({
         connectionString: `postgres://${POSTGRES_SCOPE_SCHEMA_CONTRACT.roles.runtime}@127.0.0.1:${fixture.port}/${database}`,
         max: 1,
-        connectionTimeoutMillis: 50,
+        connectionTimeoutMillis: 500,
       });
       const held = await exhausted.connect();
       try {

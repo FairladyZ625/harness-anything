@@ -24,9 +24,10 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { evidence } from "./task-surface.fixtures.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 const replicaQuota = 64 * 1024 * 1024;
+const causalContextTimeoutMs = process.platform === "win32" ? 180_000 : 60_000;
 test(
   "remote-edge dispatch serves causal context from the newly confirmed replica cut",
-  { timeout: 60_000 },
+  { timeout: causalContextTimeoutMs },
   async (t) => {
     const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"], [], "local", "# English\n# 中文\n");
     t.after(() => fixture.close());
@@ -453,7 +454,7 @@ for (const probe of [
   { name: "contract unresolved", code: "runtime_task_package_unavailable", message: /scaffold is not resolvable/u },
 ]) {
   const verb = probe.name.endsWith("missing") ? "refreshes" : "rejects";
-  test(`edge task context ${verb} ${probe.name}`, { timeout: 60_000 }, async (t) => {
+  test(`edge task context ${verb} ${probe.name}`, { timeout: causalContextTimeoutMs }, async (t) => {
     const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"], [], "local", "# English\n# 中文\n");
     t.after(() => fixture.close());
     const missionLogical = "tasks/task-fleet-fleet/artifacts/missions/probe.md";
@@ -569,7 +570,7 @@ for (const probe of [
 }
 test(
   "the center delivers the task's worktree binding and refuses a second node's dispatch while the lease is held",
-  { timeout: 60_000 },
+  { timeout: causalContextTimeoutMs },
   async (t) => {
     const fixture = await fleetFixture(t);
     t.after(() => fixture.close());

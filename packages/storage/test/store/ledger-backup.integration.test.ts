@@ -251,18 +251,30 @@ test("VACUUM backup survives source deletion and rejects wrong generation metada
       events: [event],
     });
     store.close();
-    const before = openSqliteEventStore({ databasePath, generation: 1, readOnly: true }).readCommandOutcome(event.opId);
+    const beforeStore = openSqliteEventStore({ databasePath, generation: 1, readOnly: true });
+    let before: ReturnType<typeof beforeStore.readCommandOutcome>;
+    try {
+      before = beforeStore.readCommandOutcome(event.opId);
+    } finally {
+      beforeStore.close();
+    }
     createLedgerBackup({ generation: 1, rootInput: root, backupDir });
     rmSync(databasePath, { force: true });
     const drilled = drillLedgerBackup({ backupDir, shadowParent: path.join(root, "shadow") }),
       restoredPath = path.join(drilled.shadowRoot, path.relative(root, databasePath)),
       restored = openSqliteEventStore({ databasePath: restoredPath, generation: 1, readOnly: true });
-    assert.deepEqual(restored.readCommandOutcome(event.opId), before);
-    restored.close();
+    try {
+      assert.deepEqual(restored.readCommandOutcome(event.opId), before);
+    } finally {
+      restored.close();
+    }
     const backupDatabasePath = path.join(backupDir, "payload", path.relative(root, databasePath)),
       db = new DatabaseSync(backupDatabasePath);
-    db.prepare("UPDATE ledger_meta SET generation=2 WHERE singleton=1").run();
-    db.close();
+    try {
+      db.prepare("UPDATE ledger_meta SET generation=2 WHERE singleton=1").run();
+    } finally {
+      db.close();
+    }
     const manifestPath = path.join(backupDir, "manifest.json"),
       manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
         files: { path: string; size: number; backupSha256: string }[];

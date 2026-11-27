@@ -36,34 +36,43 @@ export async function uploadFleetChange(
       opId ??
       sha256Bytes(
         Buffer.from(["fleet-upload", content.sha256, String(content.size), content.mediaType].join("\0")),
-      ).slice(0, 32),
-    ready = await session.request({
+      ).slice(0, 32);
+  for (const finalPass of [false, false, true]) {
+    const ready = await session.request({
       schema: "fleet.upload.begin/v1",
       messageId: session.messageId(),
       opId: requestId,
       repoId,
       content,
     });
-  if (ready.schema !== "fleet.upload.ready/v1") throw new Error("upload ready expected");
-  let offset = ready.resumeOffset;
-  while (offset < body.length) {
-    const response = await session.request({
-      schema: "fleet.upload.chunk/v1",
-      messageId: session.messageId(),
-      opId: requestId,
-      uploadId: ready.uploadId,
-      offset,
-      dataBase64: body.subarray(offset, offset + FLEET_CHUNK_BYTES).toString("base64"),
-    });
-    if (response.schema !== "fleet.upload.ready/v1") throw new Error("chunk receipt expected");
-    offset = response.resumeOffset;
+    if (ready.schema !== "fleet.upload.ready/v1") throw new Error("upload ready expected");
+    try {
+      let offset = ready.resumeOffset;
+      while (offset < body.length) {
+        const response = await session.request({
+          schema: "fleet.upload.chunk/v1",
+          messageId: session.messageId(),
+          opId: requestId,
+          uploadId: ready.uploadId,
+          offset,
+          dataBase64: body.subarray(offset, offset + FLEET_CHUNK_BYTES).toString("base64"),
+        });
+        if (response.schema !== "fleet.upload.ready/v1") throw new Error("chunk receipt expected");
+        offset = response.resumeOffset;
+      }
+      const uploaded = await session.request({
+        schema: "fleet.upload.finish/v1",
+        messageId: session.messageId(),
+        opId: requestId,
+        uploadId: ready.uploadId,
+      });
+      if (uploaded.schema !== "fleet.upload.result/v1") throw new Error("upload result expected");
+      return uploaded.descriptor;
+    } catch (error) {
+      const code = error instanceof Error && "code" in error ? (error as { readonly code?: unknown }).code : undefined;
+      if (!finalPass && code === "upload_unknown") continue;
+      throw error;
+    }
   }
-  const uploaded = await session.request({
-    schema: "fleet.upload.finish/v1",
-    messageId: session.messageId(),
-    opId: requestId,
-    uploadId: ready.uploadId,
-  });
-  if (uploaded.schema !== "fleet.upload.result/v1") throw new Error("upload result expected");
-  return uploaded.descriptor;
+  throw new Error("upload pass exhausted");
 }
