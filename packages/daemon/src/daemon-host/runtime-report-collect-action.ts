@@ -117,8 +117,8 @@ export function runRuntimeCollectAction(
   const resolvedTarget = resolveCollectTargetTaskId(cell, action),
     principal = binding.executionPrincipal;
   if (principal?.role === "coordinator" && principal.taskId !== null) {
-    const task = cell.projection.read(resolvedTarget.taskId).snapshot.task;
-    if (task && resolvedTarget.taskId !== principal.taskId && task.metadata?.parentTaskId !== principal.taskId)
+    const task = cell.projection.readTaskIndex({ taskIds: [resolvedTarget.taskId] }).rows[0] ?? null;
+    if (task && resolvedTarget.taskId !== principal.taskId && task.parentTaskId !== principal.taskId)
       throw executionCredentialRejected("write-other-task", {
         dispatchId: principal.dispatchId,
         role: principal.role,

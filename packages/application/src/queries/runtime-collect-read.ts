@@ -101,8 +101,8 @@ export function runRuntimeCollectRead(
   if (!Number.isSafeInteger(sinceRaw) || sinceRaw < 0)
     throw cell.cellCodedError("invalid_field", "--since must be a non-negative integer workspace revision.");
   const { taskId, resolvedFrom } = options?.resolvedTarget ?? resolveCollectTargetTaskId(cell, action),
-    taskRead = cell.projection.read(taskId),
-    task = taskRead.snapshot.task;
+    taskRead = cell.projection.readTaskIndex({ taskIds: [taskId] }),
+    task = taskRead.rows[0] ?? null;
   if (!task) throw cell.cellCodedError("task_not_found", `Task ${taskId} does not exist.`);
 
   const cut = cell.projection.readCut(),
@@ -187,8 +187,8 @@ export function runRuntimeCollectRead(
         processAlive: lifecycle?.policy.processAlive ?? false,
       };
     }),
-    artifactsRead = taskRead.packagePath
-      ? cell.projection.readDocuments(`${taskRead.packagePath}/artifacts/`, { limit: COLLECT_ARTIFACTS_LIMIT })
+    artifactsRead = task.packagePath
+      ? cell.projection.readDocuments(`${task.packagePath}/artifacts/`, { limit: COLLECT_ARTIFACTS_LIMIT })
       : null,
     artifacts =
       artifactsRead && artifactsRead.status === "ready"
@@ -215,7 +215,7 @@ export function runRuntimeCollectRead(
         taskId: task.taskId,
         title: task.title,
         status: task.status,
-        parentTaskId: task.metadata?.parentTaskId ?? null,
+        parentTaskId: task.parentTaskId ?? null,
         activeExecutorId: activeLease?.phase === "held" ? (activeLease.actor.executor?.id ?? null) : null,
       },
       reports,

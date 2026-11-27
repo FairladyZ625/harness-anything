@@ -478,11 +478,17 @@ test(
           },
         };
 
+        const commitRuntimeInboxBundles = (bundles: readonly Parameters<typeof store.append>[0][]) => {
+          const final = bundles[bundles.length - 1]!;
+          return store.append({ ...final, preceding: bundles.slice(0, -1) });
+        };
+
         const context = {
           input: {
             repoId,
             rootDir: canonicalRoot(root),
             now: () => "2026-11-27T01:05:00.000Z",
+            commitRuntimeInboxBundles,
             authorizeRuntimeContinuation: async (_payload: unknown, b: Record<string, unknown>) => ({
               ...b,
               authorizationDecision: allowDecision(actor, "canonical:fresh"),
@@ -543,7 +549,7 @@ test(
         assert.equal(new Set([...res1.consumedItemIds, ...res2.consumedItemIds]).size, 55);
 
         // 3. Task becomes terminal after steer was enqueued -> consume settles pending steer to dropped_stale(target_terminal)
-        const pendingBeforeFreeze = enqueueQueuedSteer(
+        const pendingBeforeFreeze = await enqueueQueuedSteer(
           context,
           {
             taskId: activeTaskId,
@@ -647,6 +653,10 @@ test(
             repoId,
             rootDir: canonicalRoot(root),
             now: () => "2026-11-27T02:00:00.000Z",
+            commitRuntimeInboxBundles: (bundles: readonly Parameters<typeof store.append>[0][]) => {
+              const final = bundles[bundles.length - 1]!;
+              return store.append({ ...final, preceding: bundles.slice(0, -1) });
+            },
             authorizeRuntimeContinuation: async (_payload: unknown, b: Record<string, unknown>) => {
               authCalls += 1;
               assert.equal(
@@ -668,7 +678,7 @@ test(
           },
         } as unknown as RuntimeSpawnerContext;
 
-        const q1 = enqueueQueuedSteer(
+        const q1 = await enqueueQueuedSteer(
           baseCtx,
           {
             taskId,
@@ -709,7 +719,7 @@ test(
 
         // Case B (Invariant #4): task slot switched employee (arrangement.agentId = "neon-worker" !== previous "sol-worker")
         // -> --resume MUST be forbidden and item settled to failed(unattended_handoff_packet_missing)
-        const q2 = enqueueQueuedSteer(
+        const q2 = await enqueueQueuedSteer(
           baseCtx,
           {
             taskId,
@@ -802,7 +812,7 @@ test(
         assert.equal(swapRow.items[0]?.settlementReason, "unattended_handoff_packet_missing");
 
         // Case C (Invariant #5): --resume throws runtime_resume_failed -> writes immutable canonical audit event and degrades to fresh
-        const q3 = enqueueQueuedSteer(
+        const q3 = await enqueueQueuedSteer(
           baseCtx,
           {
             taskId,

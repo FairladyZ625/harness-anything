@@ -135,15 +135,31 @@ function resolveWorkId(projection: TaskProjection, taskId: string): string | nul
   return null;
 }
 
+async function commitInboxBundles(
+  context: RuntimeSpawnerContext,
+  projection: TaskProjection,
+  bundles: readonly Parameters<CanonicalEventStore["append"]>[0][],
+  binding: RuntimeBinding,
+): Promise<{ readonly revision: number }> {
+  if (!context.input.commitRuntimeInboxBundles)
+    throw context.runtimeSpawnError(
+      "runtime_preconditions_unavailable",
+      "Local runtime inbox persistence is unavailable.",
+    );
+  const appended = await context.input.commitRuntimeInboxBundles(bundles, binding);
+  for (const bundle of bundles) projection.apply(bundle.event, bundle.plan);
+  return appended;
+}
+
 /**
  * Atomically persist a steer prompt into Canonical Inbox (`task:<taskId>`) inside the
  * single-writer turn. Refuses non-consumable roles and frozen/terminal tasks before enqueue.
  */
-export function enqueueQueuedSteer(
+export async function enqueueQueuedSteer(
   context: RuntimeSpawnerContext,
   input: EnqueueQueuedSteerInput,
   binding: RuntimeBinding,
-): EnqueueQueuedSteerResult {
+): Promise<EnqueueQueuedSteerResult> {
   const store = context.requiredRuntimeStore(context.input),
     projection = context.requiredRuntimeProjection(context.input),
     inboxId = `task:${input.taskId}`,
@@ -254,8 +270,7 @@ export function enqueueQueuedSteer(
     }),
     plan = canonicalEventWritePlan(event, "inbox", inboxId);
 
-  const appended = store.append({ event, plan, blobs });
-  projection.apply(event, plan);
+  const appended = await commitInboxBundles(context, projection, [{ event, plan, blobs }], binding);
   notifyRuntimeCollectWaiters(context.input.repoId, [input.taskId]);
   return {
     opId,
@@ -452,7 +467,7 @@ export async function consumeQueuedSteersAfterTurn(
   const projection = context.requiredRuntimeProjection(context.input),
     lineage = resolveDispatchLineage(projection, trigger),
     daemonBinding = stripStaleContinuationBinding(trigger.binding),
-    runWrite = <T>(work: () => T): Promise<T> =>
+    runWrite = <T>(work: () => T | Promise<T>): Promise<T> =>
       context.input.writeRuntime ? context.input.writeRuntime(work, daemonBinding) : Promise.resolve(work());
 
   if (!taskAllowsQueuedSteerContinuation(projection, trigger.taskId)) {
@@ -460,7 +475,7 @@ export async function consumeQueuedSteersAfterTurn(
     if (staleItems.length === 0) return null;
     inFlight?.add(inboxId);
     try {
-      await runWrite(() => {
+      await runWrite(async () => {
         const currentProjection = context.requiredRuntimeProjection(context.input);
         if (taskAllowsQueuedSteerContinuation(currentProjection, trigger.taskId)) return;
         const store = context.requiredRuntimeStore(context.input),
@@ -490,9 +505,7 @@ export async function consumeQueuedSteersAfterTurn(
           });
           return { event, plan: canonicalEventWritePlan(event, "inbox", inboxId), blobs: [] as const };
         });
-        const final = bundles[bundles.length - 1]!;
-        store.append({ ...final, preceding: bundles.slice(0, -1) });
-        for (const bundle of bundles) currentProjection.apply(bundle.event, bundle.plan);
+        await commitInboxBundles(context, currentProjection, bundles, daemonBinding);
       });
     } finally {
       inFlight?.delete(inboxId);
@@ -509,7 +522,7 @@ export async function consumeQueuedSteersAfterTurn(
 
   let claimedItems: { readonly item: InboxItem; readonly prompt: string }[] = [];
   try {
-    const claimWork = (): { readonly item: InboxItem; readonly prompt: string }[] => {
+    const claimWork = async (): Promise<{ readonly item: InboxItem; readonly prompt: string }[]> => {
       if (hasActiveRuntimeForTask(context, trigger.taskId)) return [];
       const currentProjection = context.requiredRuntimeProjection(context.input);
       if (!taskAllowsQueuedSteerContinuation(currentProjection, trigger.taskId)) return [];
@@ -534,9 +547,7 @@ export async function consumeQueuedSteersAfterTurn(
         });
         return { event, plan: canonicalEventWritePlan(event, "inbox", inboxId), blobs: [] as const };
       });
-      const final = bundles[bundles.length - 1]!;
-      store.append({ ...final, preceding: bundles.slice(0, -1) });
-      for (const bundle of bundles) currentProjection.apply(bundle.event, bundle.plan);
+      await commitInboxBundles(context, currentProjection, bundles, daemonBinding);
       return pending.map((item) => ({ item, prompt: readSteerItemPrompt(store, item) }));
     };
 
@@ -612,7 +623,7 @@ export async function consumeQueuedSteersAfterTurn(
     });
 
     const recordResumeDowngradeAudit = async (reasonCode: string): Promise<string> =>
-      runWrite(() => {
+      runWrite(async () => {
         const store = context.requiredRuntimeStore(context.input),
           proj = context.requiredRuntimeProjection(context.input),
           occurredAt = context.input.now(),
@@ -651,8 +662,7 @@ export async function consumeQueuedSteersAfterTurn(
             },
           }),
           auditPlan = canonicalEventWritePlan(auditEvent, "inbox", inboxId);
-        store.append({ event: auditEvent, plan: auditPlan, blobs: [] });
-        proj.apply(auditEvent, auditPlan);
+        await commitInboxBundles(context, proj, [{ event: auditEvent, plan: auditPlan, blobs: [] }], daemonBinding);
         return auditItemId;
       });
 
@@ -722,7 +732,7 @@ export async function consumeQueuedSteersAfterTurn(
     }
 
     const spawnedDispatchId = typeof spawned.dispatchId === "string" ? spawned.dispatchId : null;
-    await runWrite(() => {
+    await runWrite(async () => {
       const store = context.requiredRuntimeStore(context.input),
         proj = context.requiredRuntimeProjection(context.input),
         completedAt = context.input.now();
@@ -747,9 +757,7 @@ export async function consumeQueuedSteersAfterTurn(
         });
         return { event, plan: canonicalEventWritePlan(event, "inbox", inboxId), blobs: [] as const };
       });
-      const final = bundles[bundles.length - 1]!;
-      store.append({ ...final, preceding: bundles.slice(0, -1) });
-      for (const bundle of bundles) proj.apply(bundle.event, bundle.plan);
+      await commitInboxBundles(context, proj, bundles, daemonBinding);
     });
 
     return {
@@ -759,9 +767,9 @@ export async function consumeQueuedSteersAfterTurn(
       ...(downgradedFromResume ? { downgradedFromResume: true, downgradeAuditItemId } : {}),
     };
   } catch (error) {
-    if (claimedItems.length > 0) {
+    if (claimedItems.length) {
       const reasonCode = errorCodeOf(error, "queued_steer_spawn_failed");
-      await runWrite(() => {
+      await runWrite(async () => {
         const store = context.requiredRuntimeStore(context.input),
           proj = context.requiredRuntimeProjection(context.input),
           failedAt = context.input.now();
@@ -780,9 +788,7 @@ export async function consumeQueuedSteersAfterTurn(
           });
           return { event, plan: canonicalEventWritePlan(event, "inbox", inboxId), blobs: [] as const };
         });
-        const final = bundles[bundles.length - 1]!;
-        store.append({ ...final, preceding: bundles.slice(0, -1) });
-        for (const bundle of bundles) proj.apply(bundle.event, bundle.plan);
+        await commitInboxBundles(context, proj, bundles, daemonBinding);
       });
     }
     throw error;

@@ -972,7 +972,7 @@ test(
       assert.equal(storeAppends.length, 0, "refused reviewer queue steer must leave zero pending inbox items");
 
       // enqueueQueuedSteer itself also enforces refusal for reviewer and read-only targets.
-      assert.throws(
+      await assert.rejects(
         () =>
           enqueueQueuedSteer(
             reviewerCtx,

@@ -691,7 +691,7 @@ export async function steerRuntime(
             controlLeafDispatchId: null,
           });
         }
-        const queued = enqueueQueuedSteer(
+        const queued = await enqueueQueuedSteer(
           context,
           { taskId: taskIdInput, prompt, dispatchId: null, runtimeSessionId: null, agentId: null, idempotencyKey },
           binding,
@@ -761,7 +761,7 @@ export async function steerRuntime(
           controlLeafDispatchId: canonicalView?.controlLeafDispatchId ?? null,
         });
       }
-      const queued = enqueueQueuedSteer(
+      const queued = await enqueueQueuedSteer(
         context,
         {
           taskId: taskIdInput,
@@ -903,7 +903,7 @@ export async function steerRuntime(
         mismatch.field,
         mismatch.expected,
       );
-    const queued = enqueueQueuedSteer(
+    const queued = await enqueueQueuedSteer(
       context,
       {
         taskId: boundTaskId,
@@ -1000,7 +1000,7 @@ export async function steerRuntime(
     );
   const interruptQueued =
     steerMode === "interrupt" && boundTaskId !== null && !context.input.remote && context.input.store
-      ? enqueueQueuedSteer(
+      ? await enqueueQueuedSteer(
           context,
           {
             taskId: boundTaskId,
