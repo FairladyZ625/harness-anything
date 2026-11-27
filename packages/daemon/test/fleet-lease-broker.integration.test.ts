@@ -2,17 +2,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { sha256Bytes } from "@harness-anything/kernel";
-import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
+import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
+import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixtures.ts";
+import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import {
   readFleetReceiptClient,
   readFleetRepositoryMetadataClient,
   runFleetUploadClient,
   runFleetTaskCommandClient,
 } from "../src/daemon-host/fleet/peer.ts";
+import { requireExecutionActionScope } from "../src/daemon-host/runtime-execution-scope.ts";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { parseFleetFrame } from "../src/daemon-host/fleet/command-protocol.ts";
@@ -562,3 +565,293 @@ test("node document reads remain bound to the canonical lease scope", { timeout:
   assert.equal(other.code, "execution_scope_mismatch", JSON.stringify(other));
   assert.equal(f.eventCount(), held);
 });
+
+function receiptEvidence(receipt: Record<string, unknown>): Record<string, unknown> {
+  return JSON.parse(String(receipt.evidence));
+}
+
+async function prepareCarriedDoc(
+  f: Awaited<ReturnType<typeof fleetNodeClaimFixture>>,
+  nodeId: string,
+  logicalPath: string,
+  suffix: string,
+) {
+  const originalBody = readFileSync(path.join(f.repo, "harness", logicalPath), "utf8");
+  const body = `${originalBody}\n<!-- edge note: ${suffix} -->\n`;
+  const [candidate] = await runFleetUploadClient({ ...f.peer(nodeId), changes: [{ path: logicalPath, body }] });
+  return {
+    path: logicalPath,
+    baseBlobSha256: sha256Bytes(Buffer.from(originalBody)),
+    policyId: "markdown-body-replaceable/v1",
+    candidate: candidate!,
+  };
+}
+
+test(
+  "Part B: edge principal under keycloak-policy@1 cleans up own unleased and expired-orphaned historical tasks (with dirty edge docs & N-1 docChanges) and frees WIP while preserving all negative boundaries",
+  { timeout: 120_000 },
+  async (t) => {
+    let clock = "2026-11-27T00:00:00.000Z";
+    const f = await fleetNodeClaimFixture(t, undefined, undefined, () => clock);
+    const edge = await fleetEdgeHostFixture(t, f, { now: () => clock });
+
+    // Set tight WIP limit = 2 so freeing WIP slots is directly observable.
+    const setWip = await f.host.run(
+      "lease-repo",
+      { kind: "settings-update", wipLimit: 2, idempotencyKey: "edge-cleanup-wip-2" },
+      localAuthFixture(),
+    );
+    assert.equal(setWip.outcome, "applied", JSON.stringify(setWip));
+
+    // 1. Own historical task with released lease + dirty edge mirror file -> transition cancelled frees WIP.
+    const createdCancel = await f.command("node-one", {
+      kind: "task-create",
+      taskId: "task-edge-own-cancel",
+      title: "Own historical task to cancel",
+    });
+    assert.equal(createdCancel.outcome, "applied", JSON.stringify(createdCancel));
+    const cancelPkg = String(createdCancel.receipt?.packagePath);
+    assert.equal(
+      (await f.command("node-one", { kind: "task-start", taskId: "task-edge-own-cancel" })).outcome,
+      "applied",
+    );
+    assert.equal(
+      (await f.command("node-one", { kind: "task-release", taskId: "task-edge-own-cancel", reason: "Done locally" }))
+        .outcome,
+      "applied",
+    );
+    await f.host.settleMaterialization("lease-repo", "own cancel task settled");
+
+    // 2. Own historical task with expired orphaned lease -> release + resolved-by frees second WIP slot.
+    const createdOrphan = await f.command("node-one", {
+      kind: "task-create",
+      taskId: "task-edge-own-orphan",
+      title: "Own historical task with expired orphaned lease",
+    });
+    assert.equal(createdOrphan.outcome, "applied", JSON.stringify(createdOrphan));
+    const orphanPkg = String(createdOrphan.receipt?.packagePath);
+    assert.equal(
+      (await f.command("node-one", { kind: "task-start", taskId: "task-edge-own-orphan", ttlMs: 60_000 })).outcome,
+      "applied",
+    );
+    await f.host.settleMaterialization("lease-repo", "own orphan task settled");
+
+    // Verify WIP is now full (2/2): a third task cannot start yet.
+    assert.equal(
+      (await f.command("node-one", { kind: "task-create", taskId: "task-edge-next", title: "Blocked by WIP" })).outcome,
+      "applied",
+    );
+    const wipBlocked = await f.command("node-one", { kind: "task-start", taskId: "task-edge-next" });
+    assert.equal(wipBlocked.outcome, "op_rejected", JSON.stringify(wipBlocked));
+    assert.equal(wipBlocked.code, "task_wip_limit_reached", JSON.stringify(wipBlocked));
+
+    // Advance clock past TTL so task-edge-own-orphan's lease becomes `orphaned`.
+    clock = "2026-11-27T02:00:00.000Z";
+
+    // Simulate N-1 edge client carrying dirty task_plan.md on task-release (orphaned lease) AND task-transition cancelled.
+    const orphanDoc = await prepareCarriedDoc(f, "node-one", `${orphanPkg}/task_plan.md`, "orphan-release-dirty");
+    const releasedOrphan = await runFleetTaskCommandClient({
+      ...f.peer("node-one"),
+      opId: randomUUID(),
+      taskId: "task-edge-own-orphan",
+      action: { kind: "task-release", taskId: "task-edge-own-orphan", reason: "Expired orphaned lease cleanup" },
+      waitMs: 5_000,
+      docChanges: [orphanDoc],
+    });
+    assert.equal(releasedOrphan.outcome, "applied", JSON.stringify(releasedOrphan));
+    assert.equal(
+      (releasedOrphan.receipt?.authorizationDecision as { readonly policyRef?: string } | undefined)?.policyRef,
+      "keycloak-policy@1",
+    );
+
+    // Dirty local file in edge workspace -> both N-1 carried docChanges and direct edge.command succeed without execution_scope_mismatch.
+    await edge.command({ kind: "task-show", taskId: "task-edge-own-cancel" });
+    const edgePlanPath = path.join(edge.edgeRoot, "harness", ...cancelPkg.split("/"), "task_plan.md");
+    mkdirSync(path.dirname(edgePlanPath), { recursive: true });
+    writeFileSync(edgePlanPath, "# Dirty local edge task plan\n\n<!-- local dirty edge edit -->\n");
+    const cancelDoc = await prepareCarriedDoc(f, "node-one", `${cancelPkg}/task_plan.md`, "cancel-dirty");
+    const cancelledOwn = await runFleetTaskCommandClient({
+      ...f.peer("node-one"),
+      opId: randomUUID(),
+      taskId: "task-edge-own-cancel",
+      action: {
+        kind: "task-transition",
+        taskId: "task-edge-own-cancel",
+        status: "cancelled",
+        force: true,
+        reason: "Historical task superseded/merged; releasing WIP",
+      },
+      waitMs: 5_000,
+      docChanges: [cancelDoc],
+    });
+    assert.equal(cancelledOwn.outcome, "applied", JSON.stringify(cancelledOwn));
+
+    // Archive own unleased task via direct edge.command (with dirty edge workspace file) AND verify N-1 carried docChanges.
+    await f.host.settleMaterialization("lease-repo", "before archive");
+    const edgeArchivedOwn = await edge.command({
+      kind: "task-archive",
+      taskId: "task-edge-own-cancel",
+      reason: "Archive retired own task from edge host with dirty mirror",
+    });
+    assert.equal(edgeArchivedOwn.outcome, "applied", JSON.stringify(edgeArchivedOwn));
+
+    const createdN1Archive = await f.command("node-one", {
+      kind: "task-create",
+      taskId: "task-edge-n1-archive",
+      title: "Own unleased task for N-1 docChanges archive",
+    });
+    assert.equal(createdN1Archive.outcome, "applied", JSON.stringify(createdN1Archive));
+    const n1ArchivePkg = String(createdN1Archive.receipt?.packagePath);
+    await f.host.settleMaterialization("lease-repo", "before N-1 archive");
+    const archiveDoc = await prepareCarriedDoc(f, "node-one", `${n1ArchivePkg}/task_plan.md`, "archive-dirty");
+    const archivedOwn = await runFleetTaskCommandClient({
+      ...f.peer("node-one"),
+      opId: randomUUID(),
+      taskId: "task-edge-n1-archive",
+      action: { kind: "task-archive", taskId: "task-edge-n1-archive", reason: "Archive retired own task (N-1)" },
+      waitMs: 5_000,
+      docChanges: [archiveDoc],
+    });
+    assert.equal(archivedOwn.outcome, "applied", JSON.stringify(archivedOwn));
+
+    // Complete own historical task via --resolved-by <commitSha> with carried docChanges.
+    execFileSync("git", ["-C", f.repo, "update-ref", "refs/remotes/origin/main", "HEAD"]);
+    const headSha = execFileSync("git", ["-C", f.repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    const recordedFact = await f.command("node-one", {
+      kind: "fact-record",
+      statement: `Merged on main at ${headSha}`,
+      evidenceSource: "test:edge-cleanup",
+      confidence: "high",
+      memoryClass: "semantic",
+    });
+    assert.equal(recordedFact.outcome, "applied", JSON.stringify(recordedFact));
+    const factId = String(receiptEvidence(recordedFact.receipt as Record<string, unknown>).factId);
+    await waitForFleetPublication(f.host, "lease-repo", String(recordedFact.receipt?.opId), localAuthFixture());
+    await f.host.settleMaterialization("lease-repo", "before resolved-by");
+    const resolvedDoc = await prepareCarriedDoc(f, "node-one", `${orphanPkg}/task_plan.md`, "resolved-by-dirty");
+    const completedOwn = await runFleetTaskCommandClient({
+      ...f.peer("node-one"),
+      opId: randomUUID(),
+      taskId: "task-edge-own-orphan",
+      action: {
+        kind: "task-complete",
+        taskId: "task-edge-own-orphan",
+        resolvedBy: headSha,
+        resolutionFact: `fact/${factId}`,
+        resolutionRationale: "Commit already merged on main",
+      },
+      waitMs: 5_000,
+      docChanges: [resolvedDoc],
+    });
+    assert.equal(completedOwn.outcome, "applied", JSON.stringify(completedOwn));
+
+    // WIP is now freed (0/2) -> task-edge-next can start immediately.
+    const startedNext = await f.command("node-one", { kind: "task-start", taskId: "task-edge-next" });
+    assert.equal(startedNext.outcome, "applied", JSON.stringify(startedNext));
+
+    // --- NEGATIVE CONTROLS ---
+
+    // (a) Active unexpired held lease owned by person-center on center-node -> person-one on node-one MUST be rejected.
+    const foreignTask = await f.command("center-node", {
+      kind: "task-create",
+      taskId: "task-foreign-live",
+      title: "Foreign task with live lease",
+    });
+    assert.equal(foreignTask.outcome, "applied", JSON.stringify(foreignTask));
+    const foreignPkg = String(foreignTask.receipt?.packagePath);
+    assert.equal(
+      (await f.command("center-node", { kind: "task-start", taskId: "task-foreign-live", ttlMs: 3_600_000 })).outcome,
+      "applied",
+    );
+    await f.host.settleMaterialization("lease-repo", "foreign live task");
+
+    const foreignRelease = await f.command("node-one", {
+      kind: "task-release",
+      taskId: "task-foreign-live",
+      reason: "Attempt foreign hijack",
+    });
+    assert.equal(foreignRelease.outcome, "op_rejected", JSON.stringify(foreignRelease));
+    assert.equal(foreignRelease.code, "lease_conflict", JSON.stringify(foreignRelease));
+
+    const foreignCancel = await f.command("node-one", {
+      kind: "task-transition",
+      taskId: "task-foreign-live",
+      status: "cancelled",
+      force: true,
+      reason: "Attempt foreign cancel",
+    });
+    assert.equal(foreignCancel.outcome, "op_rejected", JSON.stringify(foreignCancel));
+
+    const foreignArchive = await f.command("node-one", {
+      kind: "task-archive",
+      taskId: "task-foreign-live",
+      reason: "Attempt foreign archive",
+    });
+    assert.equal(foreignArchive.outcome, "op_rejected", JSON.stringify(foreignArchive));
+    assert.equal(foreignArchive.code, "active_lease", JSON.stringify(foreignArchive));
+
+    // (b) Foreign unleased task (owned by person-center) with carried docChanges from person-one -> rejected with execution_scope_mismatch.
+    assert.equal(
+      (await f.command("center-node", { kind: "task-release", taskId: "task-foreign-live", reason: "Owner releases" }))
+        .outcome,
+      "applied",
+    );
+    await f.host.settleMaterialization("lease-repo", "foreign unleased");
+    const foreignDoc = await prepareCarriedDoc(f, "node-one", `${foreignPkg}/task_plan.md`, "foreign-unleased");
+    const foreignDocCancel = await runFleetTaskCommandClient({
+      ...f.peer("node-one"),
+      opId: randomUUID(),
+      taskId: "task-foreign-live",
+      action: {
+        kind: "task-transition",
+        taskId: "task-foreign-live",
+        status: "cancelled",
+        force: true,
+        reason: "Non-owner carried doc cancel",
+      },
+      waitMs: 5_000,
+      docChanges: [foreignDoc],
+    });
+    assert.equal(foreignDocCancel.outcome, "op_rejected", JSON.stringify(foreignDocCancel));
+    assert.equal(foreignDocCancel.code, "execution_scope_mismatch", JSON.stringify(foreignDocCancel));
+
+    // (c) review-consent from an edge node MUST STILL fail (never bypassed).
+    const consentRejected = await f.command("node-one", {
+      kind: "task-review-consent",
+      taskId: "task-edge-own-cancel",
+      executionId: "exe-missing",
+      reviewId: "review-missing",
+    });
+    assert.equal(consentRejected.outcome, "op_rejected", JSON.stringify(consentRejected));
+
+    // (d) Task-bound implementation worker credential MUST STILL be blocked from operating on any other task.
+    const workerPrincipal = {
+      schema: "runtime-execution-principal/v1" as const,
+      repoId: "lease-repo",
+      personId: "person-one",
+      dispatchId: "dispatch_worker_1",
+      runtimeSessionId: "rt_worker_1",
+      role: "implementation" as const,
+      taskId: "task-edge-next",
+      executionId: "exe_worker_1",
+      source: { kind: "node" as const, nodeId: "node-one" },
+      expiresAt: "2026-11-27T12:00:00.000Z",
+    };
+    for (const crossTaskAction of [
+      { kind: "task-transition", taskId: "task-edge-own-cancel", status: "cancelled", force: true, reason: "cross" },
+      { kind: "task-release", taskId: "task-edge-own-cancel", reason: "cross" },
+      { kind: "task-archive", taskId: "task-edge-own-cancel", reason: "cross" },
+      { kind: "task-complete", taskId: "task-edge-own-cancel", resolvedBy: headSha },
+    ]) {
+      assert.throws(
+        () => requireExecutionActionScope(workerPrincipal, crossTaskAction),
+        (error: unknown) =>
+          typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          error.code === "execution_credential_rejected",
+        `implementation worker must be rejected for cross-task ${crossTaskAction.kind}`,
+      );
+    }
+  },
+);

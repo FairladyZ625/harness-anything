@@ -248,6 +248,7 @@ export function makeRepoCellCommandRunner(
           repoId: context.input.repoId,
           revision,
           now: context.now(),
+          readTask: (taskId) => context.projection.read(taskId).snapshot.task,
         }).then(async (decision) => {
           if (decision.outcome === "allowed" && action.kind !== "task-review-execution")
             binding = await bindCurrentPersonIdentityWitnesses(

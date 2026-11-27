@@ -332,7 +332,7 @@ export const daemonResidentCeoPolicySources = [
     "Resident CEO event reads use the bounded page limit.",
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#buildResidentCeoPeerPrompt:f163311e978b7d2b0c19db1134f16bf4",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#buildResidentCeoPeerPrompt:8a7f16e010e35506bbfbbfef653e3d13",
     "residentCeoDelegation",
     "Resident CEO emits structured delegation proposal prompts only under approval-gated policy.",
   ],
@@ -342,7 +342,32 @@ export const daemonResidentCeoPolicySources = [
     "Resident CEO peer request lookup uses the bounded 20-item page limit.",
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#settleResidentCeoPeerTurn:44252584b03de738d0bcc2dbf4f42395",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#makeResidentCeoDelegationExecutor.supersedeTask.lease:d3239ee575bedbec62c58895d0b71a30",
+    "residentCeoDelegation",
+    "Resident CEO supersedeTask inspects projected lease presence before cancelling a superseded task.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#makeResidentCeoDelegationExecutor.supersedeTask:f5514f6f64533eccd5816f28d905a3c3",
+    "residentCeoDelegation",
+    "Resident CEO supersedeTask releases expired orphaned leases non-forcibly before cancelling.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#makeResidentCeoDelegationExecutor.supersedeTask:10f386931409c69a8dc757f7de578fd4",
+    "residentCeoDelegation",
+    "Resident CEO supersedeTask fails closed if releasing an expired orphaned lease is not applied.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#makeResidentCeoDelegationExecutor.supersedeTask:ba8b7c546aa12688a02d1cd7f36ec37f",
+    "residentCeoDelegation",
+    "Resident CEO supersedeTask refuses to supersede tasks holding an active unexpired lease.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#makeResidentCeoDelegationExecutor.supersedeTask.execDetail:5a7d7b3fcfaac535dc31cc8736f5b723",
+    "residentCeoDelegation",
+    "Resident CEO supersedeTask includes execution id detail when surfacing active-lease refusal.",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#settleResidentCeoPeerTurn:ed96be302608d4a184874f32d2fb057c",
     "residentCeoDelegation",
     "Resident CEO records structured proposals instead of advisory replies only under approval-gated policy.",
   ],

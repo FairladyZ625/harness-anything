@@ -3,6 +3,7 @@ import { assertEntityAssignment, assignmentFromRelations } from "./entity-assign
 import { preparedSubmission, type PreparedSubmissionAction } from "./submission-preparation.ts";
 import { readCloseoutSubmission, submissionAnchorDriftWarnings, submissionStopped } from "./repo-cell-submit.ts";
 import {
+  canEdgeSelfCleanHistoricalTask,
   compileTaskLifecycleWrite,
   taskCompletionNext,
   getExecutableEntityAction,
@@ -127,6 +128,17 @@ export async function runTaskCommandWithDocs(
       unleasedTaskCommandId = taskId;
   }
   const lease = cell.projection.currentLease(taskId, cell.now());
+  if (
+    unleasedTaskCommandId === undefined &&
+    binding.executionPrincipal === undefined &&
+    canEdgeSelfCleanHistoricalTask({
+      action: taskAction,
+      task: cell.projection.read(taskId).snapshot.task,
+      lease,
+      actor: binding.actor,
+    })
+  )
+    unleasedTaskCommandId = taskId;
   const intent = parseDocWriteIntent(
     {
       schema: "doc-write-intent/v1",

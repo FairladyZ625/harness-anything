@@ -89,6 +89,7 @@ export interface ResidentCeoDelegationProposal {
   readonly proposedWorkId: string | null;
   readonly proposedAgentId: string | null;
   readonly proposedTargetNodeId?: string | null;
+  readonly proposedSupersedesTaskId?: string | null;
   readonly proposedPrompt: string | null;
   readonly rationale: string;
   readonly wakeId: string;
@@ -98,6 +99,8 @@ export interface ResidentCeoDelegationProposal {
   readonly decidedAt: string | null;
   readonly decidedByPersonId: string | null;
   readonly promotedTaskId: string | null;
+  readonly supersededTaskId?: string | null;
+  readonly supersedeError?: string | null;
   readonly dispatchedTargetNodeId?: string | null;
   readonly dispatchRuntimeSessionId: string | null;
   readonly dispatchError: string | null;
@@ -158,6 +161,10 @@ export class ResidentCeoProfileError extends Error {
 
 const ENTITY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
 const TARGET_NODE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+
+export function isValidResidentCeoEntityId(value: string): boolean {
+  return ENTITY_ID_PATTERN.test(value);
+}
 
 export function isValidResidentCeoTargetNodeId(value: string): boolean {
   return TARGET_NODE_ID_PATTERN.test(value) && !value.includes("..");
@@ -281,7 +288,7 @@ export function checkResidentCeoGatePreconditions(
   >,
   proposal: Pick<
     ResidentCeoDelegationProposal,
-    "fromPersonId" | "proposedWorkId" | "proposedAgentId" | "proposedTargetNodeId"
+    "fromPersonId" | "proposedWorkId" | "proposedAgentId" | "proposedTargetNodeId" | "proposedSupersedesTaskId"
   >,
 ): { readonly ok: true; readonly workId: string } | { readonly ok: false; readonly reason: string } {
   const gate = effectiveResidentCeoApprovalGate(profile);
@@ -305,6 +312,13 @@ export function checkResidentCeoGatePreconditions(
     !isValidResidentCeoTargetNodeId(rawTargetNodeId.trim())
   )
     return { ok: false, reason: "invalid_target_node_id" };
+  const rawSupersedesTaskId = proposal.proposedSupersedesTaskId ?? null;
+  if (
+    rawSupersedesTaskId !== null &&
+    rawSupersedesTaskId.trim().length > 0 &&
+    !ENTITY_ID_PATTERN.test(rawSupersedesTaskId.trim())
+  )
+    return { ok: false, reason: "invalid_supersedes_task_id" };
   return { ok: true, workId };
 }
 
@@ -315,7 +329,7 @@ export function evaluateResidentCeoGateDecision(input: {
   >;
   readonly proposal: Pick<
     ResidentCeoDelegationProposal,
-    "fromPersonId" | "proposedWorkId" | "proposedAgentId" | "proposedTargetNodeId"
+    "fromPersonId" | "proposedWorkId" | "proposedAgentId" | "proposedTargetNodeId" | "proposedSupersedesTaskId"
   >;
   readonly observation: ResidentCeoGateObservation;
 }): ResidentCeoGateEvaluation {
@@ -372,6 +386,7 @@ export type ParsedResidentCeoDelegationDecision =
       readonly proposedWorkId: string | null;
       readonly proposedAgentId: string | null;
       readonly proposedTargetNodeId: string | null;
+      readonly proposedSupersedesTaskId: string | null;
       readonly proposedPrompt: string | null;
       readonly rationale: string;
     };
@@ -428,6 +443,7 @@ export function parseResidentCeoDelegationDecision(
         proposedWorkId: optionalProposalId(parsed.value.workId) ?? fallback.defaultWorkId,
         proposedAgentId: optionalProposalId(parsed.value.agentId) ?? fallback.defaultAgentId,
         proposedTargetNodeId: optionalProposalTargetNodeId(parsed.value.targetNodeId),
+        proposedSupersedesTaskId: optionalProposalId(parsed.value.supersedesTaskId),
         proposedPrompt: optionalProposalText(parsed.value.prompt) ?? fallback.requestedAction,
         rationale,
       };
@@ -439,6 +455,7 @@ export function parseResidentCeoDelegationDecision(
     proposedWorkId: fallback.defaultWorkId,
     proposedAgentId: fallback.defaultAgentId,
     proposedTargetNodeId: null,
+    proposedSupersedesTaskId: null,
     proposedPrompt: fallback.requestedAction,
     rationale: trimmed || fallback.summary,
   };
@@ -585,6 +602,9 @@ export function transitionResidentCeoProposal(
         readonly proposedTitle: string;
         readonly proposedAgentId: string | null;
         readonly proposedTargetNodeId?: string | null;
+        readonly proposedSupersedesTaskId?: string | null;
+        readonly supersededTaskId?: string | null;
+        readonly supersedeError?: string | null;
         readonly dispatchedTargetNodeId?: string | null;
         readonly dispatchRuntimeSessionId: string | null;
         readonly dispatchError: string | null;
@@ -624,6 +644,11 @@ export function transitionResidentCeoProposal(
           ...(transition.proposedTargetNodeId === undefined
             ? {}
             : { proposedTargetNodeId: transition.proposedTargetNodeId }),
+          ...(transition.proposedSupersedesTaskId === undefined
+            ? {}
+            : { proposedSupersedesTaskId: transition.proposedSupersedesTaskId }),
+          ...(transition.supersededTaskId === undefined ? {} : { supersededTaskId: transition.supersededTaskId }),
+          ...(transition.supersedeError === undefined ? {} : { supersedeError: transition.supersedeError }),
           ...(transition.dispatchedTargetNodeId === undefined
             ? {}
             : { dispatchedTargetNodeId: transition.dispatchedTargetNodeId }),

@@ -34,6 +34,18 @@
         "route": "ceo-approve"
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#makeResidentCeoDelegationExecutor.supersedeTask.released:40df9a532ac3c3a9995b52e71cd6d7aa",
+        "route": "ceo-approve"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#makeResidentCeoDelegationExecutor.supersedeTask.shown:70ca165c4795462b000d9cd0aee84709",
+        "route": "ceo-approve"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#makeResidentCeoDelegationExecutor.supersedeTask.transitioned:c91475cc66ec52d2e39d11bc481460ed",
+        "route": "ceo-approve"
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#syncResidentCeoPromotedTaskOutcomes.shown:809d759c406ca7feb8318e52f51f548b",
         "route": "ceo-approve"
       }

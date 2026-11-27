@@ -7,6 +7,7 @@ import {
   evaluateResidentCeoAutoApproval,
   evaluateResidentCeoGateDecision,
   findResidentCeoProposal,
+  isValidResidentCeoEntityId,
   isValidResidentCeoTargetNodeId,
   recordResidentCeoProposalGateVerdict,
   recordResidentCeoProposalTerminalOutcome,
@@ -62,6 +63,14 @@ export interface ResidentCeoDelegationExecutor {
     readonly targetNodeId: string;
     readonly idempotencyKey: string;
   }) => Promise<void>;
+  readonly supersedeTask?: (input: {
+    readonly taskId: string;
+    readonly promotedTaskId: string;
+    readonly peerRequestId: string;
+    readonly proposalId: string;
+    readonly rationale: string;
+    readonly idempotencyKey: string;
+  }) => Promise<void>;
   readonly dispatchAgent?: (input: {
     readonly taskId: string;
     readonly agentId: string;
@@ -111,6 +120,7 @@ export interface ResidentCeoProposalDraft {
   readonly proposedWorkId: string | null;
   readonly proposedAgentId: string | null;
   readonly proposedTargetNodeId?: string | null;
+  readonly proposedSupersedesTaskId?: string | null;
   readonly proposedPrompt: string | null;
   readonly rationale: string;
   readonly wakeId: string;
@@ -122,6 +132,7 @@ export interface ResidentCeoApproveProposalInput {
   readonly title?: string;
   readonly agentId?: string;
   readonly targetNodeId?: string;
+  readonly supersedesTaskId?: string;
   readonly runtimeInstanceId?: string;
   readonly model?: string;
   readonly prompt?: string;
@@ -141,6 +152,7 @@ export interface ResidentCeoPromotedTaskPlanInput {
   readonly workId: string;
   readonly agentId: string | null;
   readonly targetNodeId?: string | null;
+  readonly supersedesTaskId?: string | null;
   readonly title: string;
   readonly summary: string;
   readonly prompt: string;
@@ -180,7 +192,7 @@ export function buildResidentCeoPromotedTaskPlan(input: ResidentCeoPromotedTaskP
     "",
     `- Proposal: \`${input.proposalId}\` (wake \`${input.wakeId}\`, approval mode \`${input.approvalMode}\`, approved by \`${input.decidedByPersonId}\`).`,
     `- Source PeerRequest: \`${input.peerRequestId}\` from \`${input.fromPersonId}\`.`,
-    `- Target Work: \`${input.workId}\`; Assigned Executor: ${assignee}${input.targetNodeId ? `; Target Node: \`${input.targetNodeId}\`` : ""}.`,
+    `- Target Work: \`${input.workId}\`; Assigned Executor: ${assignee}${input.targetNodeId ? `; Target Node: \`${input.targetNodeId}\`` : ""}${input.supersedesTaskId ? `; Supersedes: \`${input.supersedesTaskId}\`` : ""}.`,
     `- Rationale: ${rationale}`,
     "",
     "## Required Reading",
@@ -292,6 +304,21 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
         throw codedError("invalid_field", `Invalid proposedTargetNodeId: ${proposed}.`);
       return trimmed;
     })();
+    const supersedesTaskId = (() => {
+      if (approveInput.supersedesTaskId !== undefined) {
+        const trimmed = approveInput.supersedesTaskId.trim();
+        if (trimmed.length === 0 || !isValidResidentCeoEntityId(trimmed))
+          throw codedError("invalid_field", `Invalid supersedesTaskId: ${approveInput.supersedesTaskId}.`);
+        return trimmed;
+      }
+      const proposed = proposal.proposedSupersedesTaskId ?? null;
+      if (proposed === null) return null;
+      const trimmed = proposed.trim();
+      if (trimmed.length === 0) return null;
+      if (!isValidResidentCeoEntityId(trimmed))
+        throw codedError("invalid_field", `Invalid proposedSupersedesTaskId: ${proposed}.`);
+      return trimmed;
+    })();
     const prompt = (approveInput.prompt?.trim() || proposal.proposedPrompt || proposal.summary).trim();
     const approvalMode = approveInput.approvalMode ?? "manual";
     const plan = buildResidentCeoPromotedTaskPlan({
@@ -303,6 +330,7 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
       workId,
       agentId,
       targetNodeId,
+      supersedesTaskId,
       title,
       summary: proposal.summary,
       prompt,
@@ -316,6 +344,29 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
       plan,
       idempotencyKey: `resident-ceo-promote-${proposal.proposalId}`,
     });
+    let supersededTaskId: string | null = null;
+    let supersedeError: string | null = null;
+    if (supersedesTaskId !== null) {
+      if (supersedesTaskId === promotedTaskId) {
+        supersedeError = `Cannot supersede task ${supersedesTaskId}: target matches promoted task ${promotedTaskId}.`;
+      } else if (!delegation.supersedeTask) {
+        supersedeError = `Task ${supersedesTaskId} cannot be superseded because task supersede executor is unavailable.`;
+      } else {
+        const [superseded] = await Promise.allSettled([
+          delegation.supersedeTask({
+            taskId: supersedesTaskId,
+            promotedTaskId,
+            peerRequestId: proposal.peerRequestId,
+            proposalId: proposal.proposalId,
+            rationale: `Superseded by promoted task ${promotedTaskId} (proposal ${proposal.proposalId}, peer request ${proposal.peerRequestId}).`,
+            idempotencyKey: `resident-ceo-supersede-${proposal.proposalId}-${supersedesTaskId}`,
+          }),
+        ]);
+        if (superseded.status === "fulfilled") supersededTaskId = supersedesTaskId;
+        else
+          supersedeError = superseded.reason instanceof Error ? superseded.reason.message : String(superseded.reason);
+      }
+    }
     const localNodeId = delegation.resolveLocalNodeId?.() ?? null;
     const isRemoteTargetNode = targetNodeId !== null && targetNodeId !== localNodeId;
     let dispatchRuntimeSessionId: string | null = null;
@@ -361,6 +412,9 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
         proposedTitle: title,
         proposedAgentId: agentId,
         proposedTargetNodeId: targetNodeId,
+        proposedSupersedesTaskId: supersedesTaskId,
+        supersededTaskId,
+        supersedeError,
         dispatchedTargetNodeId,
         dispatchRuntimeSessionId,
         dispatchError,
@@ -484,6 +538,7 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
         proposedWorkId: draft.proposedWorkId,
         proposedAgentId: draft.proposedAgentId,
         proposedTargetNodeId: draft.proposedTargetNodeId ?? null,
+        proposedSupersedesTaskId: draft.proposedSupersedesTaskId ?? null,
         proposedPrompt: draft.proposedPrompt,
         rationale: draft.rationale,
         wakeId: draft.wakeId,
@@ -493,6 +548,8 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
         decidedAt: null,
         decidedByPersonId: null,
         promotedTaskId: null,
+        supersededTaskId: null,
+        supersedeError: null,
         dispatchedTargetNodeId: null,
         dispatchRuntimeSessionId: null,
         dispatchError: null,

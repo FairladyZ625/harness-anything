@@ -61,6 +61,8 @@ export { isIndependentFrom, isSameExecution, isSamePerson } from "./domain/actor
 export { revisionIssues } from "./domain/task-lifecycle-contract-support.ts";
 export { supersededTaskState, taskAmendment } from "./domain/task-lifecycle-event.ts";
 export {
+  canEdgeSelfCleanHistoricalTask,
+  isHistoricalTaskCleanupAction,
   isTaskBoundRuntimeWriter,
   isReturnedRuntimeContinuation,
   resolveTaskBoundRuntimeBinding,
