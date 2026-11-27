@@ -139,6 +139,7 @@ export function ResidentCeoTimeline({
             key={item.id}
             size="sm"
             variant={filter === item.id ? "primary" : "ghost"}
+            tip={item.id === "heartbeat" ? t("residentCeo.heartbeatHint") : undefined}
             testId={`resident-ceo-filter-${item.id}`}
             onClick={() => setFilter(item.id)}
           >
@@ -167,7 +168,7 @@ export function ResidentCeoTimeline({
                   className="rounded border border-border/80 bg-surface/60 px-3 py-1.5"
                 >
                   <div className="flex flex-wrap items-center gap-2 ui-micro text-text-faint">
-                    <StatusTag tone="neutral" label={causeLabel("heartbeat")} />
+                    <StatusTag tone="neutral" label={causeLabel("heartbeat")} tip={t("residentCeo.heartbeatHint")} />
                     <StatusTag
                       tone={wakeStatusTone(entry.status)}
                       label={t(`residentCeo.wakeStatus.${entry.status}`)}

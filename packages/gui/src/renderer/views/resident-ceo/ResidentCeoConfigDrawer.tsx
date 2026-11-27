@@ -161,34 +161,44 @@ export function ResidentCeoConfigDrawer({
             </select>
           </label>
 
-          <label className="flex flex-col gap-1 ui-meta text-text-muted">
-            {t("residentCeo.model")}
-            <select
-              data-testid="resident-ceo-config-model"
-              className={selectClass}
-              value={selectedModel}
-              onChange={(event) => setModel(event.target.value)}
-            >
-              <option value="">{t("residentCeo.chooseModel")}</option>
-              {models.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="flex flex-col gap-1">
+            <label className="flex flex-col gap-1 ui-meta text-text-muted">
+              {t("residentCeo.model")}
+              <select
+                data-testid="resident-ceo-config-model"
+                className={selectClass}
+                value={selectedModel}
+                onChange={(event) => setModel(event.target.value)}
+              >
+                <option value="">{t("residentCeo.chooseModel")}</option>
+                {models.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p data-testid="resident-ceo-config-model-scope-hint" className="ui-micro text-text-faint">
+              {t("residentCeo.modelScopeHint")}
+            </p>
+          </div>
 
-          <label className="flex flex-col gap-1 ui-meta text-text-muted">
-            {t("residentCeo.heartbeatInterval")}
-            <TextInput
-              type="number"
-              label={t("residentCeo.heartbeatInterval")}
-              value={heartbeatIntervalSec}
-              mono
-              onChange={setHeartbeatIntervalSec}
-              testId="resident-ceo-config-heartbeat"
-            />
-          </label>
+          <div className="flex flex-col gap-1">
+            <label className="flex flex-col gap-1 ui-meta text-text-muted">
+              {t("residentCeo.heartbeatInterval")}
+              <TextInput
+                type="number"
+                label={t("residentCeo.heartbeatInterval")}
+                value={heartbeatIntervalSec}
+                mono
+                onChange={setHeartbeatIntervalSec}
+                testId="resident-ceo-config-heartbeat"
+              />
+            </label>
+            <p data-testid="resident-ceo-config-heartbeat-hint" className="ui-micro text-text-faint">
+              {t("residentCeo.heartbeatHint")}
+            </p>
+          </div>
 
           <div className="border-t border-border pt-3">
             <label className="flex flex-col gap-1 ui-meta text-text-muted">
