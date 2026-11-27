@@ -1,9 +1,21 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import {
+  parseCanonicalEvent,
+  serializePersistedCanonicalEvent,
+} from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
 import type { InboxItem, InboxQuery, InboxRead } from "@harness-anything/kernel/internal/domain/inbox.ts";
+import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
+import { BASE_BACKUP_ARCHIVE_ROOT } from "../../src/fleet-basebackup-layout.ts";
+import { hydrateReplicaSeed } from "../../src/fleet-replica-seed.ts";
+import { taskProjectionSchemaVersion } from "../../src/projection/projection-schema.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
+import { openReplicaProjection } from "../../src/replica-projection.ts";
+import { openSqliteEventStore } from "../../src/store/sqlite-event-store.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 import { inboxBundle, inboxEvent, inboxParityQueries, inboxScenario } from "./inbox-events.fixture.ts";
@@ -224,5 +236,137 @@ test("a source event and its inbox_item_enqueued commit in one publication, or n
     assert.equal(item?.enqueuedRevision, 2);
     projection.close();
     await store.drain();
+  });
+});
+
+test("PR 1A reader-first N/N-1 compat (dec_659E15CF, dec_A7A88E2079CA1DE548234A6CC3): sqlite-event-store, fleet-replica-seed, and inbox-projection replay runtime_steer and runtime_report alongside N-1 events", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const repoId = "inbox-reader-first-seed",
+      sourceDir = path.join(rootDir, "source"),
+      replicaDir = path.join(rootDir, "replica"),
+      sourceLedgerPath = path.join(sourceDir, ".harness", "store", "generations", "3", "ledger.sqlite"),
+      fence = { repoId, holder: "center-writer", epoch: 1 };
+    mkdirSync(path.dirname(sourceLedgerPath), { recursive: true });
+    mkdirSync(path.join(replicaDir, "harness"), { recursive: true });
+
+    const baselineEvent = inboxEvent(1, "inbox_item_enqueued", {
+      inboxId: "task:task_legacy",
+      itemId: "item-legacy-1",
+      source: "ruling_resolved",
+      sourceRef: "dispatch/dispatch_legacy",
+      sourceEpoch: 1,
+      dedupeKey: "ruling_resolved:dispatch/dispatch_legacy@1",
+      admission: "dispatchable",
+      consumerKind: "unattended_dispatch",
+      taskId: "task_legacy",
+      agentId: "neon",
+      summary: "N-1 baseline ruling event",
+      enqueuedAt: "2026-11-27T01:00:01.000Z",
+    });
+    const steerEvent = inboxEvent(2, "inbox_item_enqueued", {
+      inboxId: "task:task_steer",
+      itemId: "item-steer-1",
+      source: "runtime_steer",
+      sourceRef: "dispatch/dispatch_steer",
+      sourceEpoch: 1,
+      dedupeKey: "runtime_steer:dispatch/dispatch_steer@1",
+      admission: "dispatchable",
+      consumerKind: "unattended_dispatch",
+      taskId: "task_steer",
+      agentId: "neon",
+      lane: "steer",
+      summary: "Queued runtime steer",
+      enqueuedAt: "2026-11-27T01:00:02.000Z",
+    });
+    const reportEvent = inboxEvent(3, "inbox_item_enqueued", {
+      inboxId: "person:owner",
+      itemId: "item-report-1",
+      source: "runtime_report",
+      sourceRef: "task/task_steer",
+      sourceEpoch: 1,
+      dedupeKey: "runtime_report:task/task_steer@1",
+      admission: "dispatchable",
+      consumerKind: "interactive_watch",
+      taskId: null,
+      agentId: null,
+      lane: "milestone",
+      summary: "Child milestone report",
+      enqueuedAt: "2026-11-27T01:00:03.000Z",
+    });
+
+    const sourceStore = openSqliteEventStore({ repoId, databasePath: sourceLedgerPath, generation: 3 });
+    try {
+      sourceStore.claimWriter(fence);
+      for (const event of [baselineEvent, steerEvent, reportEvent]) {
+        const bytes = serializePersistedCanonicalEvent(event);
+        assert.deepEqual(parseCanonicalEvent(bytes), event);
+        sourceStore.appendCommand(
+          {
+            fence,
+            intent: { opId: event.opId, intentDigest: `sha256:${sha256Text(bytes)}`, summary: event.type },
+            events: [event],
+          },
+          [bytes],
+        );
+      }
+      const position = sourceStore.replicationPosition(),
+        events = sourceStore.eventRows(),
+        outcomes = sourceStore.outcomes(),
+        replicaLedgerPath = path.join(
+          replicaDir,
+          BASE_BACKUP_ARCHIVE_ROOT,
+          "store",
+          "generations",
+          "3",
+          "ledger.sqlite",
+        ),
+        seedDir = path.dirname(replicaLedgerPath);
+      mkdirSync(seedDir, { recursive: true });
+      const target = openSqliteEventStore({ repoId, databasePath: replicaLedgerPath, generation: 3 });
+      target.close();
+      writeFileSync(path.join(seedDir, "canonical-seed.json"), JSON.stringify({ events, outcomes, writer: fence }));
+
+      await hydrateReplicaSeed(replicaDir, {
+        schema: "fleet-basebackup/v3",
+        readerProfile: null,
+        repoId,
+        position,
+        ledgerGeneration: 3,
+        projectionSchema: taskProjectionSchemaVersion,
+      });
+
+      const hydrated = openReplicaProjection({
+        repoId,
+        rootDir: replicaDir,
+        ledgerPath: replicaLedgerPath,
+        projectionPath: path.join(replicaDir, BASE_BACKUP_ARCHIVE_ROOT, "cache", "task.sqlite"),
+        generation: 3,
+      });
+      try {
+        const [legacy] = items(
+          hydrated.projection.readInbox({ by: "item", inboxId: "task:task_legacy", itemId: "item-legacy-1" }),
+        );
+        const [steer] = items(
+          hydrated.projection.readInbox({ by: "item", inboxId: "task:task_steer", itemId: "item-steer-1" }),
+        );
+        const [report] = items(
+          hydrated.projection.readInbox({ by: "item", inboxId: "person:owner", itemId: "item-report-1" }),
+        );
+        assert.equal(legacy?.source, "ruling_resolved");
+        assert.equal(legacy?.status, "pending");
+        assert.equal(steer?.source, "runtime_steer");
+        assert.equal(steer?.consumerKind, "unattended_dispatch");
+        assert.equal(steer?.lane, "steer");
+        assert.equal(steer?.status, "pending");
+        assert.equal(report?.source, "runtime_report");
+        assert.equal(report?.consumerKind, "interactive_watch");
+        assert.equal(report?.lane, "milestone");
+        assert.equal(report?.status, "pending");
+      } finally {
+        hydrated.close();
+      }
+    } finally {
+      sourceStore.close();
+    }
   });
 });

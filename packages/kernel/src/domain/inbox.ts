@@ -48,6 +48,10 @@ export const inboxItemSources = [
   "external_ingress",
   "peer_request",
   "peer_reply",
+  // Expand-Contract Step 1 / Reader-First (dec_659E15CF, dec_A7A88E2079CA1DE548234A6CC3):
+  // admit decoding/replay/projection before PR 1B enables production writers.
+  "runtime_steer",
+  "runtime_report",
 ] as const;
 export type InboxItemSource = (typeof inboxItemSources)[number];
 /** External input lands quarantined until host isolation (CH4) exists; it never wakes a runtime. */
@@ -518,7 +522,12 @@ function enqueuedIssues(value: Readonly<Record<string, unknown>>): readonly stri
         value.consumerKind !== "interactive_watch" ||
         !String(value.inboxId).startsWith("person:"))) ||
     ((value.source === "peer_request" || value.source === "peer_reply") &&
-      (value.consumerKind === undefined || value.consumerKind !== "interactive_watch"))
+      (value.consumerKind === undefined || value.consumerKind !== "interactive_watch")) ||
+    (value.source === "runtime_steer" &&
+      (value.admission !== "dispatchable" || !String(value.inboxId).startsWith("task:"))) ||
+    (value.source === "runtime_report" &&
+      (value.admission !== "dispatchable" ||
+        (!String(value.inboxId).startsWith("task:") && !String(value.inboxId).startsWith("person:"))))
   )
     return ["external ingress must be quarantined, and peer messages must use the interactive watch consumer"];
   return [];
@@ -619,7 +628,7 @@ export const inboxPolicies = [
     ownerRef: "runtime-session/inbox_item_enqueued",
     unit: "inbox admission",
     bounds:
-      "external_ingress is admitted only as quarantined_external and only into the quarantined_external consumerKind; channel_message is dispatchable only for a person: inbox with the interactive_watch consumerKind; peer_request and peer_reply require interactive_watch.",
+      "external_ingress is admitted only as quarantined_external and only into the quarantined_external consumerKind; channel_message is dispatchable only for a person: inbox with the interactive_watch consumerKind; peer_request and peer_reply require interactive_watch; runtime_steer is dispatchable only for a task: inbox; runtime_report is dispatchable only for a task: or person: inbox.",
     defaultValue: "quarantined_external",
     version: 2,
     scope: "Inbox events until verified host isolation exists (R4)",
@@ -629,7 +638,7 @@ export const inboxPolicies = [
       inboxSource("reduceInboxItem.item.status:d91a350dc6eb2c6f420694fcd95c75f1"),
       inboxSource("enqueuedIssues:1fea5df76694395d7b799c3b236d1508"),
       inboxSource("enqueuedIssues.consumerKind:610cfd0bf7fd352a34dc7f040d91a4c1"),
-      inboxSource("enqueuedIssues:0f8cc454517758951ef05f34971347a8"),
+      inboxSource("enqueuedIssues:a5d8d2a31bd53b9d3d3e45e6271f082f"),
     ].map((candidateId) => ({ candidateId, route: "readInbox" })),
   },
 ] as const satisfies readonly OntologyPolicyDeclaration[];

@@ -2086,7 +2086,7 @@
             "route": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields"
           },
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:7edbc867ce1df5a8e21ea33871c21693",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:eedc36aa4ae47b7ddf9ee45956604900",
             "route": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields"
           }
         ],

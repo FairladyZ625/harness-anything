@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   reduceRuntimeSession,
+  validateAgentRuntimeEvent,
   validateCurrentAgentRuntimeEvent,
   type AgentRuntimeEventV1,
 } from "../src/domain/agent-runtime.ts";
+import { parseCanonicalEvent, serializePersistedCanonicalEvent } from "../src/domain/doc-sync-canonical-events.ts";
 import {
   evaluateInboxConsumption,
   inboxDedupeKey,
@@ -392,4 +394,114 @@ test("queue cursors are numeric revisions and malformed cursors fail closed", ()
   assert.equal(inboxQueueCursor("42"), 42);
   assert.throws(() => inboxQueueCursor("-1"), /cursor is invalid/u);
   assert.throws(() => inboxQueueCursor("1; DROP TABLE inbox_item"), /cursor is invalid/u);
+});
+
+test("PR 1A reader-first N/N-1 compat (dec_659E15CF, dec_A7A88E2079CA1DE548234A6CC3): runtime_steer and runtime_report decode and fold while preserving existing source rules", () => {
+  const runtimeSteer = enqueued(20, {
+    inboxId: "task:task_a",
+    itemId: "steer-item-1",
+    source: "runtime_steer",
+    sourceRef: "dispatch/dispatch_a",
+    sourceEpoch: 1,
+    dedupeKey: inboxDedupeKey({ source: "runtime_steer", sourceRef: "dispatch/dispatch_a", sourceEpoch: 1 }),
+    admission: "dispatchable",
+    consumerKind: "unattended_dispatch",
+    taskId: "task_a",
+    agentId: "neon",
+    lane: "steer",
+    summary: "Queued steer prompt",
+  });
+  const runtimeReportTask = enqueued(21, {
+    inboxId: "task:task_parent",
+    itemId: "report-task-1",
+    source: "runtime_report",
+    sourceRef: "task/task_a",
+    sourceEpoch: 1,
+    dedupeKey: inboxDedupeKey({ source: "runtime_report", sourceRef: "task/task_a", sourceEpoch: 1 }),
+    admission: "dispatchable",
+    consumerKind: "unattended_dispatch",
+    taskId: "task_parent",
+    agentId: null,
+    lane: "milestone",
+    summary: "Milestone report to parent task",
+  });
+  const runtimeReportPerson = enqueued(22, {
+    inboxId: "person:owner",
+    itemId: "report-person-1",
+    source: "runtime_report",
+    sourceRef: "task/task_a",
+    sourceEpoch: 2,
+    dedupeKey: inboxDedupeKey({ source: "runtime_report", sourceRef: "task/task_a", sourceEpoch: 2 }),
+    admission: "dispatchable",
+    consumerKind: "interactive_watch",
+    taskId: null,
+    agentId: null,
+    lane: "milestone",
+    summary: "Milestone report to owner",
+  });
+
+  for (const event of [runtimeSteer, runtimeReportTask, runtimeReportPerson]) {
+    assert.deepEqual(validateAgentRuntimeEvent(event), [], event.payload.itemId);
+    assert.deepEqual(validateCurrentAgentRuntimeEvent(event), [], event.payload.itemId);
+    const bytes = serializePersistedCanonicalEvent(event);
+    assert.deepEqual(parseCanonicalEvent(bytes), event);
+    assert.deepEqual(parseCanonicalEvent(bytes, { allowUnknownForwardFields: true }), event);
+    const item = applied(null, event);
+    assert.equal(item.source, event.payload.source);
+    assert.equal(item.status, "pending");
+    assert.equal(reduceRuntimeSession(null, event as AgentRuntimeEventV1), null);
+  }
+
+  // Negative constraints: runtime_steer requires task: + dispatchable; runtime_report requires task:|person: + dispatchable.
+  assert.notDeepEqual(
+    validateAgentRuntimeEvent(
+      enqueued(23, { inboxId: "person:owner", taskId: null, source: "runtime_steer", admission: "dispatchable" }),
+    ),
+    [],
+    "runtime_steer must target a task:<taskId> inbox",
+  );
+  assert.notDeepEqual(
+    validateAgentRuntimeEvent(
+      enqueued(24, {
+        inboxId: "task:task_a",
+        taskId: "task_a",
+        source: "runtime_steer",
+        admission: "quarantined_external",
+        consumerKind: "quarantined_external",
+      }),
+    ),
+    [],
+    "runtime_steer must be dispatchable",
+  );
+  assert.notDeepEqual(
+    validateAgentRuntimeEvent(
+      enqueued(25, {
+        inboxId: "agent:watcher",
+        taskId: null,
+        agentId: "watcher",
+        source: "runtime_report",
+        admission: "dispatchable",
+      }),
+    ),
+    [],
+    "runtime_report must target task: or person: inbox",
+  );
+  assert.notDeepEqual(
+    validateAgentRuntimeEvent(
+      enqueued(26, {
+        inboxId: "person:owner",
+        taskId: null,
+        source: "runtime_report",
+        admission: "quarantined_external",
+        consumerKind: "quarantined_external",
+      }),
+    ),
+    [],
+    "runtime_report must be dispatchable",
+  );
+  assert.notDeepEqual(
+    validateAgentRuntimeEvent(enqueued(27, { source: "runtime_unknown" as never })),
+    [],
+    "unknown inbox sources must still fail closed",
+  );
 });
