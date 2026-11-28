@@ -38,6 +38,26 @@ test("resident CEO config CLI carries the selected instance, model, and heartbea
     model: "model-a",
     heartbeatIntervalSec: 600,
   });
+
+  const disabledHeartbeat = parseThinCommand([
+    "ceo",
+    "config",
+    "--instance",
+    "instance_owner",
+    "--model",
+    "model-a",
+    "--heartbeat-interval-sec",
+    "0",
+  ]);
+  assert.equal(disabledHeartbeat.ok, true);
+  if (!disabledHeartbeat.ok) return;
+  assert.equal(disabledHeartbeat.command.method, "repo.residentCeo.config");
+  assert.deepEqual(disabledHeartbeat.command.action, {
+    kind: "ceo-config",
+    runtimeInstanceId: "instance_owner",
+    model: "model-a",
+    heartbeatIntervalSec: 0,
+  });
 });
 
 test("resident CEO Phase 2 CLI parses policy config, proposals, approve, and reject commands", () => {

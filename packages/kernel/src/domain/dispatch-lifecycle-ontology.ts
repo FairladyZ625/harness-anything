@@ -327,7 +327,7 @@ export const daemonResidentCeoPolicySources = [
     "Resident CEO peer inbox scans use the bounded 20-item page limit.",
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/daemon-host/daemon-host-runtime-api.ts#createDaemonHostRuntimeApi.watchResidentCeoInbox.run.page.limit:bf38217595aafee0d2b364031d7e7000",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/daemon-host-runtime-api.ts#createDaemonHostRuntimeApi.watchResidentCeoInbox.run.waitForEvents.page.limit:bf38217595aafee0d2b364031d7e7000",
     "residentCeoInbox",
     "Resident CEO event reads use the bounded page limit.",
   ],
@@ -687,9 +687,9 @@ export const daemonResidentCeoPolicySources = [
     "Resident CEO allowlist auto-approval requires explicit approval-gated execution policy.",
   ],
   [
-    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo.ts#createResidentCeoProfile:08f270fc2b07c6f7ddcfa00ad67d112f",
+    "policy:packages/kernel:packages/kernel/src/domain/resident-ceo.ts#createResidentCeoProfile:c06990e1c969779bc6caa2e904e065fc",
     "residentCeoExecutionPolicy",
-    "Resident CEO profile creation enforces valid execution policy and bounded heartbeat interval.",
+    "Resident CEO profile creation enforces valid execution policy and 0 (disabled) or bounded heartbeat interval.",
   ],
   [
     "policy:packages/kernel:packages/kernel/src/domain/resident-ceo.ts#checkResidentCeoGatePreconditions:7188e0b1b563047165cc4c5c40a9f495",

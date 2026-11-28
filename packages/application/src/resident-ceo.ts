@@ -480,6 +480,8 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
       return trimmed;
     })();
     const prompt = (approveInput.prompt?.trim() || proposal.proposedPrompt || proposal.summary).trim();
+    const overrideRuntimeInstanceId = approveInput.runtimeInstanceId?.trim() || undefined;
+    const overrideModel = approveInput.model?.trim() || undefined;
     const approvalMode = approveInput.approvalMode ?? "manual";
     const workId: string | null =
       (approveInput.workId?.trim() || proposal.proposedWorkId || profile.defaultWorkId || "").trim() || null;
@@ -573,8 +575,8 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
           delegation.dispatchAgent({
             taskId: promotedTaskId,
             agentId,
-            runtimeInstanceId: approveInput.runtimeInstanceId ?? profile.runtimeInstanceId,
-            model: approveInput.model ?? profile.model,
+            ...(overrideRuntimeInstanceId === undefined ? {} : { runtimeInstanceId: overrideRuntimeInstanceId }),
+            ...(overrideModel === undefined ? {} : { model: overrideModel }),
             prompt,
             dispatchKey: `resident-ceo-delegate:${proposal.proposalId}`,
           }),
@@ -593,8 +595,8 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
         taskId: targetTaskId,
         targetNodeId,
         agentId,
-        runtimeInstanceId: approveInput.runtimeInstanceId ?? profile.runtimeInstanceId,
-        model: approveInput.model ?? profile.model,
+        ...(overrideRuntimeInstanceId === undefined ? {} : { runtimeInstanceId: overrideRuntimeInstanceId }),
+        ...(overrideModel === undefined ? {} : { model: overrideModel }),
         prompt: approveInput.prompt?.trim() ?? proposal.proposedPrompt,
         dispatchKey: `resident-ceo-start-existing:${proposal.proposalId}`,
         idempotencyKey: proposal.proposalId,

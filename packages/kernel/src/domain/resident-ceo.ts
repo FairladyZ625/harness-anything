@@ -12,6 +12,7 @@ import {
 export * from "./resident-ceo-actions.ts";
 
 export const RESIDENT_CEO_PROFILE_SCHEMA = "resident-ceo-profile/v1" as const;
+export const RESIDENT_CEO_HEARTBEAT_DISABLED_SEC = 0;
 export const RESIDENT_CEO_MIN_HEARTBEAT_INTERVAL_SEC = 30;
 export const RESIDENT_CEO_MAX_HEARTBEAT_INTERVAL_SEC = 86_400;
 export const RESIDENT_CEO_MAX_PROPOSALS = 50;
@@ -557,20 +558,28 @@ export function parseResidentCeoDelegationDecision(
   };
 }
 
+export function isValidResidentCeoHeartbeatIntervalSec(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    (value === RESIDENT_CEO_HEARTBEAT_DISABLED_SEC ||
+      (value >= RESIDENT_CEO_MIN_HEARTBEAT_INTERVAL_SEC && value <= RESIDENT_CEO_MAX_HEARTBEAT_INTERVAL_SEC))
+  );
+}
+
 export function createResidentCeoProfile(input: ResidentCeoProfileInput, updatedAt: string): ResidentCeoProfile {
   const fields = [input.principalPersonId, input.runtimeInstanceId, input.model, updatedAt];
   if (
     fields.some((field) => field.trim().length === 0) ||
-    !Number.isSafeInteger(input.heartbeatIntervalSec) ||
-    input.heartbeatIntervalSec < RESIDENT_CEO_MIN_HEARTBEAT_INTERVAL_SEC ||
-    input.heartbeatIntervalSec > RESIDENT_CEO_MAX_HEARTBEAT_INTERVAL_SEC ||
+    !isValidResidentCeoHeartbeatIntervalSec(input.heartbeatIntervalSec) ||
     (input.executionPolicy !== undefined && !isResidentCeoExecutionPolicy(input.executionPolicy))
   ) {
     throw new ResidentCeoProfileError(
       "resident_ceo_invalid_profile",
-      `Resident CEO requires a principal, runtime instance, model, timestamp, valid execution policy, and heartbeat interval from ${RESIDENT_CEO_MIN_HEARTBEAT_INTERVAL_SEC} to ${RESIDENT_CEO_MAX_HEARTBEAT_INTERVAL_SEC} seconds.`,
+      `Resident CEO requires a principal, runtime instance, model, timestamp, valid execution policy, and heartbeat interval of ${RESIDENT_CEO_HEARTBEAT_DISABLED_SEC} (disabled) or ${RESIDENT_CEO_MIN_HEARTBEAT_INTERVAL_SEC} to ${RESIDENT_CEO_MAX_HEARTBEAT_INTERVAL_SEC} seconds.`,
     );
   }
+  const heartbeatIntervalSec = input.heartbeatIntervalSec === 0 ? 0 : input.heartbeatIntervalSec;
   const defaultWorkId = normalizeOptionalEntityId(input.defaultWorkId, "defaultWorkId");
   const defaultAgentId = normalizeOptionalEntityId(input.defaultAgentId, "defaultAgentId");
   const autoApproveSenders = normalizeAutoApproveSenders(input.autoApproveSenders);
@@ -581,7 +590,7 @@ export function createResidentCeoProfile(input: ResidentCeoProfileInput, updated
     ...(input.repoId === undefined ? {} : { repoId: input.repoId }),
     runtimeInstanceId: input.runtimeInstanceId,
     model: input.model,
-    heartbeatIntervalSec: input.heartbeatIntervalSec,
+    heartbeatIntervalSec,
     ...(input.executionPolicy === undefined ? {} : { executionPolicy: input.executionPolicy }),
     ...(defaultWorkId === undefined ? {} : { defaultWorkId }),
     ...(defaultAgentId === undefined ? {} : { defaultAgentId }),
@@ -605,6 +614,7 @@ export function assertResidentCeoPrincipal(profile: ResidentCeoProfile, principa
 
 export function residentCeoWakeDue(profile: ResidentCeoProfile, now: number): boolean {
   if (profile.status !== "running" || profile.lastWake?.status === "running") return false;
+  if (profile.heartbeatIntervalSec <= RESIDENT_CEO_HEARTBEAT_DISABLED_SEC) return false;
   if (profile.lastWake === null) return true;
   const lastWakeAt = Date.parse(profile.lastWake.completedAt ?? profile.lastWake.requestedAt);
   return Number.isFinite(lastWakeAt) && now >= lastWakeAt + profile.heartbeatIntervalSec * 1_000;

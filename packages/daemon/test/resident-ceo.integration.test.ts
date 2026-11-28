@@ -496,3 +496,196 @@ test(
     }
   },
 );
+
+test(
+  "resident CEO heartbeatIntervalSec = 0 disables polling while keeping event-driven wake active and supports live 0 <-> 30 toggling",
+  { timeout: 120_000 },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-resident-ceo-zero-hb-"));
+    const rootDir = path.join(parent, "repo");
+    const userRoot = path.join(parent, "user");
+    const argsPath = path.join(parent, "provider-args.json");
+    const repoId = "resident-ceo-zero-hb";
+    const installation = {
+      installationId: "resident-ceo-zero-hb-codex",
+      kindId: "codex" as const,
+      executablePath: writeProviderStub(path.join(parent, "codex.mjs"), "codex", argsPath),
+      version: "codex-cli 0.159.1",
+      observedAt: new Date().toISOString(),
+    };
+    initIngressRepo(rootDir, process.getuid?.() ?? 0);
+    registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+    signInPolicyTestUser(userRoot, "person_bob", [repoId], "admin");
+    let clockOffsetMs = 0;
+    const host = await openDaemonHost({
+      daemonId: repoId,
+      userRoot,
+      now: () => new Date(Date.now() + clockOffsetMs).toISOString(),
+      runtimeDiscover: () => [installation],
+    });
+    try {
+      await host.attachmentsSettled();
+      await registerFixtureRuntimeInstance(host, repoId, auth, {
+        instanceId: "codex-provider",
+        name: "Resident CEO Zero Heartbeat fixture",
+        kindId: "codex",
+        installationId: installation.installationId,
+        providerId: "openai",
+        models: ["test-model"],
+        authMode: "subscription",
+        codex: {},
+      });
+      const bobAuth = {
+        ...auth,
+        oidcPrincipal: await host.sessionPrincipal(auth, "repo.residentCeo.status", { repo: { repoId }, payload: {} }),
+      };
+      const ceo = (operation: string, payload: Record<string, unknown> = {}) =>
+        rpc(host, bobAuth, `repo.residentCeo.${operation}`, { repo: { repoId }, payload });
+
+      // Negative controls: invalid intervals 1, 29, -1, 86401 are rejected with resident_ceo_invalid_profile.
+      for (const invalidSec of [1, 29, -1, 86_401]) {
+        const rejected = await ceo("config", {
+          runtimeInstanceId: "codex-provider",
+          model: "test-model",
+          heartbeatIntervalSec: invalidSec,
+        });
+        assert.equal(rejected.ok, false, `expected heartbeatIntervalSec=${invalidSec} to fail`);
+        assert.equal(
+          (rejected.error as { code?: string })?.code,
+          "resident_ceo_invalid_profile",
+          JSON.stringify(rejected),
+        );
+      }
+
+      // Positive control: heartbeatIntervalSec = 0 is accepted and starts cleanly.
+      const configuredZero = await ceo("config", {
+        runtimeInstanceId: "codex-provider",
+        model: "test-model",
+        heartbeatIntervalSec: 0,
+      });
+      assert.equal(configuredZero.ok, true, JSON.stringify(configuredZero));
+      assert.equal((configuredZero.profile as { heartbeatIntervalSec: number }).heartbeatIntervalSec, 0);
+      assert.equal((await ceo("start")).ok, true);
+
+      const statusZero = await ceo("status");
+      assert.match(String(statusZero.summary ?? ""), /0s \(event-only\)/u);
+
+      // Let the watcher complete initial check and park on canonical event stream.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+
+      // Advance clock by 65s and emit an unrelated event; heartbeat must NOT fire or record history.
+      clockOffsetMs += 65_000;
+      const unrelated1 = await host.run(
+        repoId,
+        {
+          kind: "peer-ask",
+          toPersonId: "person_carol",
+          summary: "Unrelated notice during 0s heartbeat",
+          claim: "Only for Carol.",
+          requestedAction: "No action for Bob.",
+        },
+        bobAuth,
+      );
+      assert.equal(unrelated1.outcome, "applied", JSON.stringify(unrelated1));
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      const hbHistoryZero = await ceo("history", { cause: "heartbeat" });
+      assert.equal(hbHistoryZero.ok, true, JSON.stringify(hbHistoryZero));
+      assert.equal((hbHistoryZero.history as unknown[]).length, 0, JSON.stringify(hbHistoryZero));
+      assert.equal(existsSync(argsPath), false, "0s heartbeat mode must not launch an LLM runtime on unrelated events");
+
+      // Event-driven wake remains active when a real delegation arrives for Bob.
+      signInPolicyTestUser(userRoot, "person_alice", [repoId], "admin");
+      const aliceAuth = {
+        ...auth,
+        oidcPrincipal: await host.sessionPrincipal(auth, "repo.residentCeo.status", { repo: { repoId }, payload: {} }),
+      };
+      const delegated = await host.run(
+        repoId,
+        {
+          kind: "peer-ask",
+          requestKind: "delegate",
+          toPersonId: "person_bob",
+          summary: "Event-driven wake with 0s heartbeat",
+        },
+        aliceAuth,
+      );
+      assert.equal(delegated.outcome, "applied", JSON.stringify(delegated));
+      signInPolicyTestUser(userRoot, "person_bob", [repoId], "admin");
+      const woke = await eventuallyValue(async () => {
+        const status = await ceo("status");
+        const profile = status.profile as {
+          readonly lastWake: { readonly cause: string; readonly status: string } | null;
+        };
+        assert.notEqual(profile.lastWake?.status, "failed", JSON.stringify(profile.lastWake));
+        return profile.lastWake?.status === "succeeded" ? profile : null;
+      }, "resident CEO wakes immediately via event stream when heartbeatIntervalSec = 0");
+      assert.equal(woke.lastWake?.cause, "peer-request");
+      assert.equal(existsSync(argsPath), true);
+
+      // Live switch 0 -> 30 while running starts periodic heartbeat checks.
+      assert.equal(
+        (
+          await ceo("config", {
+            runtimeInstanceId: "codex-provider",
+            model: "test-model",
+            heartbeatIntervalSec: 30,
+          })
+        ).ok,
+        true,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      clockOffsetMs += 35_000;
+      const unrelated2 = await host.run(
+        repoId,
+        {
+          kind: "peer-ask",
+          toPersonId: "person_carol",
+          summary: "Unrelated notice after enabling 30s heartbeat",
+          claim: "Only for Carol.",
+          requestedAction: "No action for Bob.",
+        },
+        bobAuth,
+      );
+      assert.equal(unrelated2.outcome, "applied", JSON.stringify(unrelated2));
+      const hbCountAfterEnable = await eventuallyValue(async () => {
+        const res = await ceo("history", { cause: "heartbeat" });
+        const entries = (res.history ?? []) as unknown[];
+        return entries.length > 0 ? entries.length : null;
+      }, "30s heartbeat records programmatic check after 0 -> 30 live switch");
+      assert.equal(hbCountAfterEnable, 1);
+
+      // Live switch 30 -> 0 while running stops periodic heartbeat checks cleanly.
+      assert.equal(
+        (
+          await ceo("config", {
+            runtimeInstanceId: "codex-provider",
+            model: "test-model",
+            heartbeatIntervalSec: 0,
+          })
+        ).ok,
+        true,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      clockOffsetMs += 65_000;
+      const unrelated3 = await host.run(
+        repoId,
+        {
+          kind: "peer-ask",
+          toPersonId: "person_carol",
+          summary: "Unrelated notice after disabling heartbeat back to 0s",
+          claim: "Only for Carol.",
+          requestedAction: "No action for Bob.",
+        },
+        bobAuth,
+      );
+      assert.equal(unrelated3.outcome, "applied", JSON.stringify(unrelated3));
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const hbHistoryAfterDisable = await ceo("history", { cause: "heartbeat" });
+      assert.equal((hbHistoryAfterDisable.history as unknown[]).length, hbCountAfterEnable);
+    } finally {
+      await host.close();
+      removeTempRepository(parent);
+    }
+  },
+);

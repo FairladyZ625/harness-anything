@@ -78,7 +78,9 @@ export function ResidentCeoStatusBar({
             data-testid="resident-ceo-heartbeat-meta"
             title={t("residentCeo.heartbeatHint")}
           >
-            {t("residentCeo.heartbeatStatusBadge", { seconds: profile.heartbeatIntervalSec })}
+            {profile.heartbeatIntervalSec === 0
+              ? t("residentCeo.heartbeatStatusOff")
+              : t("residentCeo.heartbeatStatusBadge", { seconds: profile.heartbeatIntervalSec })}
           </span>
           {pendingProposalCount > 0 ? (
             <StatusTag

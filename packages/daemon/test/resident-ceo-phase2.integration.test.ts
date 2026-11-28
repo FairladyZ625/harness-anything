@@ -1109,3 +1109,358 @@ test(
     assert.equal(propagated.terminalOutcome?.taskStatus, "cancelled");
   },
 );
+
+test(
+  "cross-kind local delegation: CEO claude profile does not override codex worker declared model on promote_and_dispatch or start_and_dispatch_existing, while explicit approve override still wins",
+  { timeout: 120_000 },
+  async (t) => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-ceo-cross-kind-model-"));
+    const rootDir = path.join(parent, "repo");
+    const userRoot = path.join(parent, "user");
+    const repoId = "ceo-cross-kind-model";
+    const claudeTurnPath = path.join(parent, "claude-turns.json");
+    const codexLaunchLogPath = path.join(parent, "codex-launches.json");
+
+    writeFileSync(
+      claudeTurnPath,
+      JSON.stringify({
+        turn: 0,
+        responses: [
+          JSON.stringify({
+            action: "propose_task",
+            title: "Cross-kind promote without override",
+            workId: "task_ceo_xkind_work",
+            agentId: "codex-worker",
+            prompt: "Run worker with its own codex declaration.",
+            rationale: "Verify CEO claude profile does not leak to codex worker.",
+          }),
+          JSON.stringify({
+            action: "propose_task",
+            title: "Cross-kind promote with explicit override",
+            workId: "task_ceo_xkind_work",
+            agentId: "codex-worker",
+            prompt: "Run worker with explicit approve override.",
+            rationale: "Negative control: explicit override must still apply.",
+          }),
+        ],
+      }),
+    );
+    writeFileSync(codexLaunchLogPath, "");
+
+    const claudeStub = writeProviderExecutable(
+      path.join(parent, "claude.mjs"),
+      `import { readFileSync, writeFileSync } from "node:fs";
+if (process.argv[2] === "auth" || process.argv[2] === "login") process.exit(0);
+const prompt = readFileSync(0, "utf8");
+let text = "ceo claude plain reply";
+if (prompt.includes("Owner message:")) {
+  const ownerMessage = prompt.slice(prompt.lastIndexOf("Owner message:"));
+  const match = /task_[A-Za-z0-9_]+/u.exec(ownerMessage);
+  text = JSON.stringify({
+    reply: "Starting existing planned task.",
+    actions: [
+      {
+        action: "start_and_dispatch_existing",
+        taskId: match ? match[0] : "",
+        agentId: "codex-worker",
+        prompt: "Execute planned task with worker declared model.",
+        rationale: "Owner requested starting existing task.",
+      },
+    ],
+  });
+} else if (prompt.includes("The following is a delegation message from a peer.")) {
+  const statePath = ${JSON.stringify(claudeTurnPath)};
+  const state = JSON.parse(readFileSync(statePath, "utf8"));
+  text = state.responses[Math.min(state.turn, state.responses.length - 1)] ?? "fallback";
+  state.turn += 1;
+  writeFileSync(statePath, JSON.stringify(state));
+}
+const lines = [
+  { type: "system", subtype: "init", session_id: "ceo-claude-session" },
+  { type: "assistant", session_id: "ceo-claude-session", message: { content: [{ type: "text", text }] } },
+  { type: "result", subtype: "success", is_error: false, session_id: "ceo-claude-session", result: text, permission_denials: [] },
+];
+lines.forEach((line, index) => setTimeout(() => console.log(JSON.stringify(line)), index * 15));
+`,
+    );
+
+    const codexStub = writeProviderExecutable(
+      path.join(parent, "codex.mjs"),
+      `import { appendFileSync, readFileSync } from "node:fs";
+if (process.argv[2] === "auth" || process.argv[2] === "login") process.exit(0);
+if (!(process.argv[2] === "exec" && process.argv.includes("--json"))) process.exit(9);
+readFileSync(0, "utf8");
+appendFileSync(${JSON.stringify(codexLaunchLogPath)}, JSON.stringify(process.argv.slice(2)) + "\\n");
+const lines = [
+  { type: "thread.started", thread_id: "worker-codex-session" },
+  { type: "item.completed", item: { id: "msg", type: "agent_message", text: "codex worker completed" } },
+  { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } },
+];
+lines.forEach((line, index) => setTimeout(() => console.log(JSON.stringify(line)), index * 15));
+`,
+    );
+
+    const claudeInstallation = {
+      installationId: "ceo-xkind-claude",
+      kindId: "claude" as const,
+      executablePath: claudeStub,
+      version: "2.1.305 (Claude Code)",
+      observedAt: new Date().toISOString(),
+    };
+    const codexInstallation = {
+      installationId: "ceo-xkind-codex",
+      kindId: "codex" as const,
+      executablePath: codexStub,
+      version: "codex-cli 0.159.1",
+      observedAt: new Date().toISOString(),
+    };
+
+    initIngressRepo(rootDir, process.getuid?.() ?? 0);
+    registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+    signInPolicyTestUser(userRoot, "person_bob", [repoId], "admin");
+    const host = await openDaemonHost({
+      daemonId: repoId,
+      userRoot,
+      runtimeDiscover: () => [claudeInstallation, codexInstallation],
+    });
+    t.after(async () => {
+      await host.close();
+      removeTempRepository(parent);
+    });
+    await host.attachmentsSettled();
+
+    await registerFixtureRuntimeInstance(host, repoId, auth, {
+      instanceId: "claude-provider",
+      name: "Resident CEO Light Claude",
+      kindId: "claude",
+      installationId: claudeInstallation.installationId,
+      providerId: "anthropic",
+      models: ["ceo-light-model"],
+      authMode: "subscription",
+      claude: {},
+    });
+    await registerFixtureRuntimeInstance(host, repoId, auth, {
+      instanceId: "codex-provider",
+      name: "Worker Strong Codex",
+      kindId: "codex",
+      installationId: codexInstallation.installationId,
+      providerId: "openai",
+      models: ["worker-strong-model", "worker-override-model"],
+      authMode: "subscription",
+      codex: {},
+    });
+
+    const bobAuth = {
+      ...auth,
+      oidcPrincipal: await host.sessionPrincipal(auth, "repo.residentCeo.status", { repo: { repoId }, payload: {} }),
+    };
+    await createWorkRoot(host, userRoot, repoId, "task_ceo_xkind_work", "Cross-Kind Delegation Work", bobAuth);
+
+    const installed = await host.run(
+      repoId,
+      {
+        kind: "agent-install",
+        declaration: {
+          schema: "agent-declaration/v1",
+          id: "codex-worker",
+          name: "Codex Worker",
+          instructions: "Execute tasks strictly on codex with worker-strong-model.",
+          runtimes: [{ type: "codex", model: "worker-strong-model" }],
+        },
+        expectedVersion: 0,
+        idempotencyKey: "install-codex-worker-xkind",
+      },
+      bobAuth,
+    );
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+
+    const ceo = (operation: string, payload: Record<string, unknown> = {}) =>
+      rpc(host, bobAuth, `repo.residentCeo.${operation}`, { repo: { repoId }, payload });
+
+    // Configure Resident CEO on Claude (ceo-light-model) — different kind & model from codex-worker.
+    const configured = await ceo("config", {
+      runtimeInstanceId: "claude-provider",
+      model: "ceo-light-model",
+      heartbeatIntervalSec: 0,
+      executionPolicy: "approval-gated",
+      defaultWorkId: "task_ceo_xkind_work",
+      defaultAgentId: "codex-worker",
+    });
+    assert.equal(configured.ok, true, JSON.stringify(configured));
+
+    const readModelFlag = (argv: readonly string[]): string | null => {
+      const idx = argv.findIndex((arg) => arg === "--model" || arg === "-m");
+      return idx >= 0 ? (argv[idx + 1] ?? null) : null;
+    };
+    const readCodexLaunches = (): string[][] =>
+      readFileSync(codexLaunchLogPath, "utf8")
+        .split("\n")
+        .filter((line) => line.trim().length > 0)
+        .map((line) => JSON.parse(line) as string[]);
+
+    // 1. promote_and_dispatch without explicit overrides -> must NOT fail with agent_runtime_unavailable
+    //    and must launch codex-provider with worker-strong-model.
+    signInPolicyTestUser(userRoot, "person_alice", [repoId], "admin");
+    const aliceAuth = {
+      ...auth,
+      oidcPrincipal: await host.sessionPrincipal(auth, "repo.residentCeo.status", { repo: { repoId }, payload: {} }),
+    };
+    const delegated1 = await host.run(
+      repoId,
+      { kind: "peer-ask", requestKind: "delegate", toPersonId: "person_bob", summary: "Cross-kind promote 1" },
+      aliceAuth,
+    );
+    assert.equal(delegated1.outcome, "applied", JSON.stringify(delegated1));
+    const { request: peerReq1 } = evidence(delegated1) as { request: PeerRequestV1 };
+
+    signInPolicyTestUser(userRoot, "person_bob", [repoId], "admin");
+    assert.equal((await ceo("start")).ok, true);
+    const pending1 = await eventuallyValue(async () => {
+      const status = await ceo("status");
+      const profile = status.profile as {
+        readonly lastWake?: { readonly status?: string; readonly detail?: string | null } | null;
+        readonly proposals?: readonly ResidentCeoDelegationProposal[];
+      } | null;
+      assert.notEqual(profile?.lastWake?.status, "failed", JSON.stringify(profile?.lastWake));
+      const items = profile?.proposals ?? [];
+      return (
+        items.find((entry) => entry.peerRequestId === peerReq1.requestId && entry.status === "pending_approval") ?? null
+      );
+    }, "cross-kind proposal 1 recorded");
+
+    const approved1 = await ceo("approve", { proposalId: pending1.proposalId });
+    assert.equal(approved1.ok, true, JSON.stringify(approved1));
+    const prop1 = approved1.proposal as ResidentCeoDelegationProposal;
+    assert.equal(prop1.dispatchError, null, JSON.stringify(prop1));
+    assert.ok(prop1.dispatchRuntimeSessionId, JSON.stringify(prop1));
+    const session1 = await host.read(
+      repoId,
+      "repo.agentRuntime.sessions.read",
+      { runtimeSessionId: prop1.dispatchRuntimeSessionId },
+      bobAuth,
+    );
+    assert.equal(session1.session.instanceId, "codex-provider");
+    const launchesAfter1 = await eventuallyValue(async () => {
+      const parsed = readCodexLaunches();
+      return parsed.length >= 1 ? parsed : null;
+    }, "codex worker launch 1 recorded");
+    assert.equal(readModelFlag(launchesAfter1[0]!), "worker-strong-model");
+
+    // 2. start_and_dispatch_existing (owner-direct via human-chat) without explicit overrides ->
+    //    must launch codex-provider with worker-strong-model.
+    const plannedTaskId = "task_ceo_xkind_planned";
+    const plannedTaskRes = await host.run(
+      repoId,
+      {
+        kind: "task-create",
+        taskId: plannedTaskId,
+        title: "Planned cross-kind task",
+        parentTaskId: "task_ceo_xkind_work",
+        plan: [
+          "# Planned cross-kind task",
+          "",
+          "Task Contract: harness-task v1",
+          "",
+          "## Brief",
+          "Run planned task on codex worker.",
+          "",
+          "## Goal",
+          "Verify start_and_dispatch_existing respects worker declared runtime.",
+          "",
+          "## Cheaper Alternatives",
+          "- Manual dispatch.",
+          "",
+          "## Context",
+          "- Resident CEO uses claude-provider.",
+          "",
+          "## Required Reading",
+          "- Worker declaration.",
+          "",
+          "## Execution Surface",
+          "- Worktree.",
+          "",
+          "## Constraints",
+          "- Do not override worker model.",
+          "",
+          "## Deliverable Contract",
+          "- Task started and dispatched.",
+          "",
+          "## Evidence Protocol",
+          "- Verify codex stub launch.",
+          "",
+          "## Verification",
+          "- Assert worker-strong-model.",
+          "",
+        ].join("\n"),
+      },
+      bobAuth,
+    );
+    assert.equal(plannedTaskRes.outcome, "applied", JSON.stringify(plannedTaskRes));
+
+    const chatStart = await ceo("chat", { message: `Start planned task ${plannedTaskId}` });
+    assert.equal(chatStart.ok, true, JSON.stringify(chatStart));
+    const actionReceipts = (chatStart.actionReceipts ?? []) as readonly {
+      readonly actionKind?: string;
+      readonly outcome?: string;
+      readonly runtimeSessionId?: string | null;
+      readonly detail?: string;
+    }[];
+    const startReceipt = actionReceipts.find((entry) => entry.actionKind === "start_and_dispatch_existing");
+    assert.ok(startReceipt, JSON.stringify(chatStart));
+    assert.equal(startReceipt.outcome, "executed", JSON.stringify(startReceipt));
+    assert.ok(startReceipt.runtimeSessionId, JSON.stringify(startReceipt));
+    const session2 = await host.read(
+      repoId,
+      "repo.agentRuntime.sessions.read",
+      { runtimeSessionId: startReceipt.runtimeSessionId },
+      bobAuth,
+    );
+    assert.equal(session2.session.instanceId, "codex-provider");
+    const launchesAfter2 = await eventuallyValue(async () => {
+      const parsed = readCodexLaunches();
+      return parsed.length >= 2 ? parsed : null;
+    }, "codex worker launch 2 recorded");
+    assert.equal(readModelFlag(launchesAfter2[1]!), "worker-strong-model");
+
+    // 3. Negative control: explicit delegation-level override on approve still overrides the worker model.
+    assert.equal((await ceo("stop")).ok, true);
+    signInPolicyTestUser(userRoot, "person_alice", [repoId], "admin");
+    const delegated2 = await host.run(
+      repoId,
+      { kind: "peer-ask", requestKind: "delegate", toPersonId: "person_bob", summary: "Cross-kind promote override" },
+      aliceAuth,
+    );
+    assert.equal(delegated2.outcome, "applied", JSON.stringify(delegated2));
+    const { request: peerReq2 } = evidence(delegated2) as { request: PeerRequestV1 };
+
+    signInPolicyTestUser(userRoot, "person_bob", [repoId], "admin");
+    assert.equal((await ceo("start")).ok, true);
+    const pending2 = await eventuallyValue(async () => {
+      const status = await ceo("status");
+      const profile = status.profile as {
+        readonly lastWake?: { readonly status?: string; readonly detail?: string | null } | null;
+        readonly proposals?: readonly ResidentCeoDelegationProposal[];
+      } | null;
+      assert.notEqual(profile?.lastWake?.status, "failed", JSON.stringify(profile?.lastWake));
+      const items = profile?.proposals ?? [];
+      return (
+        items.find((entry) => entry.peerRequestId === peerReq2.requestId && entry.status === "pending_approval") ?? null
+      );
+    }, "cross-kind proposal 2 recorded");
+
+    const approvedOverride = await ceo("approve", {
+      proposalId: pending2.proposalId,
+      runtimeInstanceId: "codex-provider",
+      model: "worker-override-model",
+    });
+    assert.equal(approvedOverride.ok, true, JSON.stringify(approvedOverride));
+    const prop2 = approvedOverride.proposal as ResidentCeoDelegationProposal;
+    assert.equal(prop2.dispatchError, null, JSON.stringify(prop2));
+    assert.ok(prop2.dispatchRuntimeSessionId, JSON.stringify(prop2));
+    const launchesAfter3 = await eventuallyValue(async () => {
+      const parsed = readCodexLaunches();
+      return parsed.length >= 3 ? parsed : null;
+    }, "codex worker launch 3 (override) recorded");
+    assert.equal(readModelFlag(launchesAfter3[2]!), "worker-override-model");
+  },
+);

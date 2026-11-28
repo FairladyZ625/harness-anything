@@ -522,18 +522,19 @@ describe("resident CEO cockpit view", () => {
     });
   });
 
-  it("clarifies zero-token empty-inbox checks (30–86400s) and instance/model scope in en-US and zh-CN", async () => {
+  it("clarifies 0s event-only / 30–86400s zero-token inbox checks and CEO-only instance/model scope in en-US and zh-CN", async () => {
     const { container } = await mountCockpit();
 
     const heartbeatMeta = container.querySelector('[data-testid="resident-ceo-heartbeat-meta"]');
     expect(heartbeatMeta?.textContent).toContain("Inbox check 300s (0 tokens idle)");
-    expect(heartbeatMeta?.getAttribute("title")).toContain("programmatic only");
+    expect(heartbeatMeta?.getAttribute("title")).toContain("Set to 0 to disable scheduled polling");
+    expect(heartbeatMeta?.getAttribute("title")).toContain("programmatic checks");
     expect(heartbeatMeta?.getAttribute("title")).toContain("zero token usage");
     expect(heartbeatMeta?.getAttribute("title")).toContain("30–86400");
 
     const instanceModel = container.querySelector('[data-testid="resident-ceo-instance-model"]');
-    expect(instanceModel?.getAttribute("title")).toContain("Resident CEO's own wakes");
-    expect(instanceModel?.getAttribute("title")).toContain("local delegations");
+    expect(instanceModel?.getAttribute("title")).toContain("Used only for Resident CEO's own wakes");
+    expect(instanceModel?.getAttribute("title")).toContain("Does not override Worker Agents' declared");
 
     const heartbeatFilter = container.querySelector('[data-testid="resident-ceo-filter-heartbeat"]');
     expect(heartbeatFilter?.textContent).toContain("Inbox checks");
@@ -546,22 +547,26 @@ describe("resident CEO cockpit view", () => {
     });
 
     const modelScopeHint = container.querySelector('[data-testid="resident-ceo-config-model-scope-hint"]');
-    expect(modelScopeHint?.textContent).toContain("Resident CEO's own wakes");
-    expect(modelScopeHint?.textContent).toContain("default instance and model for local delegations");
+    expect(modelScopeHint?.textContent).toContain("Used only for Resident CEO's own wakes");
+    expect(modelScopeHint?.textContent).toContain("Does not override Worker Agents' declared");
 
     const heartbeatHint = container.querySelector('[data-testid="resident-ceo-config-heartbeat-hint"]');
-    expect(heartbeatHint?.textContent).toContain("programmatic only");
+    expect(heartbeatHint?.textContent).toContain("Set to 0 to disable scheduled polling");
+    expect(heartbeatHint?.textContent).toContain("programmatic checks");
     expect(heartbeatHint?.textContent).toContain("no model call");
     expect(heartbeatHint?.textContent).toContain("zero token usage");
     expect(heartbeatHint?.textContent).toContain("30–86400");
 
     try {
       setActiveLocale("zh-CN");
-      const { container: zhContainer } = await mountCockpit();
+      const { container: zhContainer } = await mountCockpit({
+        profile: { ...phase3Profile, heartbeatIntervalSec: 0 },
+      });
 
       const zhHeartbeatMeta = zhContainer.querySelector('[data-testid="resident-ceo-heartbeat-meta"]');
-      expect(zhHeartbeatMeta?.textContent).toContain("信箱巡检 300s（无新消息 0 消耗）");
-      expect(zhHeartbeatMeta?.getAttribute("title")).toContain("纯程序检查");
+      expect(zhHeartbeatMeta?.textContent).toContain("仅事件触发（定时巡检已关闭）");
+      expect(zhHeartbeatMeta?.getAttribute("title")).toContain("设为 0 关闭定时巡检");
+      expect(zhHeartbeatMeta?.getAttribute("title")).toContain("纯程序巡检");
       expect(zhHeartbeatMeta?.getAttribute("title")).toContain("零 token 消耗");
       expect(zhHeartbeatMeta?.getAttribute("title")).toContain("30–86400 秒");
 
@@ -575,15 +580,72 @@ describe("resident CEO cockpit view", () => {
       });
 
       const zhModelScopeHint = zhContainer.querySelector('[data-testid="resident-ceo-config-model-scope-hint"]');
-      expect(zhModelScopeHint?.textContent).toContain("用于常驻 CEO 自身唤醒");
-      expect(zhModelScopeHint?.textContent).toContain("本地委派未显式覆盖时的默认实例与模型");
+      expect(zhModelScopeHint?.textContent).toContain("仅用于常驻 CEO 自身唤醒");
+      expect(zhModelScopeHint?.textContent).toContain("不覆盖 Worker Agent 自身声明");
 
       const zhHeartbeatHint = zhContainer.querySelector('[data-testid="resident-ceo-config-heartbeat-hint"]');
-      expect(zhHeartbeatHint?.textContent).toContain("空信箱巡检为纯程序检查");
+      expect(zhHeartbeatHint?.textContent).toContain("设为 0 关闭定时巡检");
+      expect(zhHeartbeatHint?.textContent).toContain("纯程序巡检");
       expect(zhHeartbeatHint?.textContent).toContain("无新消息时不调模型、零 token 消耗");
       expect(zhHeartbeatHint?.textContent).toContain("30–86400 秒");
     } finally {
       setActiveLocale("en-US");
     }
+  });
+
+  it("allows saving heartbeatIntervalSec = 0 in config drawer while keeping 1–29, negatives, >86400, and blank disabled", async () => {
+    const { container } = await mountCockpit({
+      profile: { ...phase3Profile, heartbeatIntervalSec: 0 },
+    });
+
+    expect(container.querySelector('[data-testid="resident-ceo-heartbeat-meta"]')?.textContent).toContain(
+      "Event-driven only (polling off)",
+    );
+
+    const openBtn = container.querySelector('[data-testid="resident-ceo-open-config"]') as HTMLButtonElement;
+    await act(async () => {
+      openBtn.click();
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    });
+
+    const heartbeatInput = container.querySelector('[data-testid="resident-ceo-config-heartbeat"]') as HTMLInputElement;
+    const saveBtn = container.querySelector('[data-testid="resident-ceo-config-save"]') as HTMLButtonElement;
+    expect(heartbeatInput.value).toBe("0");
+    expect(saveBtn.disabled).toBe(false);
+
+    // Negative controls: 1, 29, -1, 86401, empty string all keep Save disabled.
+    for (const invalid of ["1", "29", "-1", "86401", ""]) {
+      await act(async () => {
+        setInputValue(heartbeatInput, invalid);
+      });
+      expect(saveBtn.disabled, `expected heartbeatIntervalSec="${invalid}" to disable Save`).toBe(true);
+    }
+
+    // Positive control: 30 re-enables Save.
+    await act(async () => {
+      setInputValue(heartbeatInput, "30");
+    });
+    expect(saveBtn.disabled).toBe(false);
+
+    // Positive control: 0 enables Save and submits heartbeatIntervalSec: 0.
+    await act(async () => {
+      setInputValue(heartbeatInput, "0");
+    });
+    expect(saveBtn.disabled).toBe(false);
+
+    api.configureResidentCeo.mockResolvedValue({
+      ok: true,
+      profile: { ...phase3Profile, heartbeatIntervalSec: 0 },
+    });
+    await act(async () => {
+      saveBtn.click();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(api.configureResidentCeo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoId: "repo-one",
+        heartbeatIntervalSec: 0,
+      }),
+    );
   });
 });

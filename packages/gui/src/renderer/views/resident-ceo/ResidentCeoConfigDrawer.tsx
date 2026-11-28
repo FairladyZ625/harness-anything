@@ -86,17 +86,15 @@ export function ResidentCeoConfigDrawer({
     [model, profile, selectedInstance?.defaultModel, selectedInstance?.instanceId, models],
   );
 
-  const parsedHeartbeat = Number(heartbeatIntervalSec);
+  const trimmedHeartbeat = heartbeatIntervalSec.trim();
+  const parsedHeartbeat = trimmedHeartbeat.length > 0 ? Number(trimmedHeartbeat) : Number.NaN;
+  const heartbeatValid =
+    Number.isSafeInteger(parsedHeartbeat) &&
+    (parsedHeartbeat === 0 || (parsedHeartbeat >= 30 && parsedHeartbeat <= 86_400));
   const parsedMinConfidence = Number(gateMinConfidence);
   const confidenceValid =
     gateMode === "off" || (Number.isFinite(parsedMinConfidence) && parsedMinConfidence > 0 && parsedMinConfidence <= 1);
-  const canSave =
-    Boolean(selectedInstance) &&
-    Boolean(selectedModel) &&
-    Number.isSafeInteger(parsedHeartbeat) &&
-    parsedHeartbeat >= 30 &&
-    parsedHeartbeat <= 86_400 &&
-    confidenceValid;
+  const canSave = Boolean(selectedInstance) && Boolean(selectedModel) && heartbeatValid && confidenceValid;
 
   const handleSubmit = () => {
     if (!canSave || !selectedInstance) return;
