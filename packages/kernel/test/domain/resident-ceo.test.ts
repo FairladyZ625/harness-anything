@@ -15,6 +15,7 @@ import {
   evaluateResidentCeoOwnerDirectApproval,
   evaluateResidentCeoTier0Access,
   isValidResidentCeoEntityId,
+  isValidResidentCeoHeartbeatIntervalSec,
   isValidResidentCeoTargetNodeId,
   parseResidentCeoDelegationDecision,
   parseResidentCeoTurnActions,
@@ -54,6 +55,28 @@ test("resident CEO profile validates its principal, provider selection, and cont
     () => createResidentCeoProfile({ ...profile, heartbeatIntervalSec: 1 }, "2026-11-24T00:00:00.000Z"),
     (error: unknown) => error instanceof ResidentCeoProfileError && error.code === "resident_ceo_invalid_profile",
   );
+  // heartbeatIntervalSec = 0 (disabled) and [30, 86400] boundaries
+  for (const validSec of [0, 30, 86_400]) {
+    assert.equal(isValidResidentCeoHeartbeatIntervalSec(validSec), true, `expected ${validSec} to be valid`);
+    const created = createResidentCeoProfile(
+      { ...profile, heartbeatIntervalSec: validSec },
+      "2026-11-24T00:00:00.000Z",
+    );
+    assert.equal(created.heartbeatIntervalSec, validSec);
+  }
+  for (const invalidSec of [-1, 1, 29, 86_401, 30.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.equal(isValidResidentCeoHeartbeatIntervalSec(invalidSec), false, `expected ${invalidSec} to be invalid`);
+    assert.throws(
+      () => createResidentCeoProfile({ ...profile, heartbeatIntervalSec: invalidSec }, "2026-11-24T00:00:00.000Z"),
+      (error: unknown) => error instanceof ResidentCeoProfileError && error.code === "resident_ceo_invalid_profile",
+    );
+  }
+  const disabledHeartbeatRunning = {
+    ...createResidentCeoProfile({ ...profile, heartbeatIntervalSec: 0 }, "2026-11-24T00:00:00.000Z"),
+    status: "running" as const,
+  };
+  assert.equal(residentCeoWakeDue(disabledHeartbeatRunning, Date.parse("2026-11-24T00:00:00.000Z")), false);
+  assert.equal(residentCeoWakeDue(disabledHeartbeatRunning, Date.parse("2026-11-25T00:00:00.000Z")), false);
 });
 
 test("heartbeat is due only for a running profile and advances from the previous receipt", () => {

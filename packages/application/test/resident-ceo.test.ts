@@ -998,3 +998,167 @@ test("Option A targetNodeId routes remote nodes to assignToNode, honors approve 
   assert.equal(failedRemote.proposal.dispatchRuntimeSessionId, null);
   assert.match(failedRemote.proposal.dispatchError ?? "", /node_assignment_rejected/u);
 });
+
+test("anti-regression: local delegation does not pass CEO profile instance/model to workers, while explicit overrides still pass through", async () => {
+  let profile: ResidentCeoProfile | null = null;
+  let seq = 0;
+  const dispatched: {
+    readonly taskId: string;
+    readonly agentId: string;
+    readonly runtimeInstanceId?: string;
+    readonly model?: string;
+  }[] = [];
+  const startedExisting: {
+    readonly taskId: string;
+    readonly agentId?: string | null;
+    readonly runtimeInstanceId?: string;
+    readonly model?: string;
+  }[] = [];
+  let runtimeWakeCount = 0;
+
+  const service = makeResidentCeoService({
+    profiles: {
+      read: async () => profile,
+      write: async (next, expectedUpdatedAt) => {
+        assert.equal(expectedUpdatedAt, profile?.updatedAt ?? null);
+        profile = next;
+      },
+    },
+    runtime: {
+      run: async () => {
+        runtimeWakeCount += 1;
+        return {
+          runtimeSessionId: `session-${runtimeWakeCount}`,
+          awaitResponse: async () => ({ response: "ok", persistentSessionId: `p-${runtimeWakeCount}` }),
+        };
+      },
+    },
+    delegation: {
+      promote: async () => ({ promotedTaskId: `task_promoted_${seq}` }),
+      dispatchAgent: async (req) => {
+        dispatched.push({
+          taskId: req.taskId,
+          agentId: req.agentId,
+          runtimeInstanceId: req.runtimeInstanceId,
+          model: req.model,
+        });
+        return { runtimeSessionId: `rt_dispatch_${dispatched.length}` };
+      },
+      startExistingTask: async (req) => {
+        startedExisting.push({
+          taskId: req.taskId,
+          agentId: req.agentId,
+          runtimeInstanceId: req.runtimeInstanceId,
+          model: req.model,
+        });
+        return {
+          taskId: req.taskId,
+          dispatchedTargetNodeId: null,
+          dispatchRuntimeSessionId: `rt_existing_${startedExisting.length}`,
+          dispatchError: null,
+        };
+      },
+      rejectPeerRequest: async () => undefined,
+      reportTerminalOutcome: async () => undefined,
+    },
+    now: () => "2026-11-28T00:00:00.000Z",
+    createId: () => `iso${++seq}abcdef0123456789`,
+  });
+
+  await service.configure("person_owner", {
+    runtimeInstanceId: "ceo-inst",
+    model: "ceo-light-model",
+    heartbeatIntervalSec: 0,
+    executionPolicy: "approval-gated",
+    defaultWorkId: "task_work_1",
+    defaultAgentId: "worker-heavy",
+  });
+  await service.start("person_owner");
+
+  // Heartbeat wake is never due when heartbeatIntervalSec === 0.
+  const hbSkipped = await service.wake("person_owner", "heartbeat", "Check inbox.");
+  assert.equal(hbSkipped.response, null);
+  assert.equal(runtimeWakeCount, 0);
+
+  // Positive control 1: promote_and_dispatch without explicit overrides leaves runtimeInstanceId & model undefined.
+  const promoteProposal = await service.recordProposal("person_owner", {
+    peerRequestId: "peer_no_override_1",
+    fromPersonId: "person_alice",
+    summary: "Run heavy worker task",
+    actionKind: "promote_and_dispatch",
+    proposedTitle: "Run heavy worker task",
+    proposedWorkId: "task_work_1",
+    proposedAgentId: "worker-heavy",
+    proposedPrompt: "Use worker declared model",
+    rationale: "Keep CEO and Worker models decoupled",
+    wakeId: "wake_1",
+  });
+  await service.approveProposal("person_owner", { proposalId: promoteProposal.proposal.proposalId });
+  assert.equal(dispatched.length, 1);
+  assert.equal(dispatched[0]?.runtimeInstanceId, undefined);
+  assert.equal(dispatched[0]?.model, undefined);
+
+  // Positive control 2: start_and_dispatch_existing without explicit overrides leaves runtimeInstanceId & model undefined.
+  const startProposal = await service.recordProposal("person_owner", {
+    peerRequestId: "peer_no_override_2",
+    fromPersonId: "person_alice",
+    summary: "Start planned task",
+    actionKind: "start_and_dispatch_existing",
+    targetTaskId: "task_planned_1",
+    proposedTitle: "Start planned task",
+    proposedWorkId: "task_work_1",
+    proposedAgentId: "worker-heavy",
+    proposedPrompt: "Run existing task with worker declared model",
+    rationale: "Keep CEO and Worker models decoupled",
+    wakeId: "wake_2",
+  });
+  await service.approveProposal("person_owner", { proposalId: startProposal.proposal.proposalId });
+  assert.equal(startedExisting.length, 1);
+  assert.equal(startedExisting[0]?.runtimeInstanceId, undefined);
+  assert.equal(startedExisting[0]?.model, undefined);
+
+  // Negative control 1: promote_and_dispatch WITH explicit overrides passes them through verbatim.
+  const promoteOverrideProposal = await service.recordProposal("person_owner", {
+    peerRequestId: "peer_explicit_override_1",
+    fromPersonId: "person_alice",
+    summary: "Run with explicit override",
+    actionKind: "promote_and_dispatch",
+    proposedTitle: "Run with explicit override",
+    proposedWorkId: "task_work_1",
+    proposedAgentId: "worker-heavy",
+    proposedPrompt: "Use explicit override",
+    rationale: "Explicit override check",
+    wakeId: "wake_3",
+  });
+  await service.approveProposal("person_owner", {
+    proposalId: promoteOverrideProposal.proposal.proposalId,
+    runtimeInstanceId: "override-inst",
+    model: "override-model",
+  });
+  assert.equal(dispatched.length, 2);
+  assert.equal(dispatched[1]?.runtimeInstanceId, "override-inst");
+  assert.equal(dispatched[1]?.model, "override-model");
+
+  // Negative control 2: start_and_dispatch_existing WITH explicit overrides passes them through verbatim.
+  const startOverrideProposal = await service.recordProposal("person_owner", {
+    peerRequestId: "peer_explicit_override_2",
+    fromPersonId: "person_alice",
+    summary: "Start existing with explicit override",
+    actionKind: "start_and_dispatch_existing",
+    targetTaskId: "task_planned_2",
+    proposedTitle: "Start existing with explicit override",
+    proposedWorkId: "task_work_1",
+    proposedAgentId: "worker-heavy",
+    proposedPrompt: "Use explicit override",
+    rationale: "Explicit override check",
+    wakeId: "wake_4",
+  });
+  await service.approveProposal("person_owner", {
+    proposalId: startOverrideProposal.proposal.proposalId,
+    runtimeInstanceId: "override-inst-2",
+    model: "override-model-2",
+  });
+  assert.equal(startedExisting.length, 2);
+  assert.equal(startedExisting[1]?.runtimeInstanceId, "override-inst-2");
+  assert.equal(startedExisting[1]?.model, "override-model-2");
+});

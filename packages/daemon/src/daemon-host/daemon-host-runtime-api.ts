@@ -657,6 +657,7 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
             };
             let afterRevision: number | undefined;
             let nextHeartbeat: number | null = null;
+            let activeHeartbeatIntervalSec: number | null = null;
             while (!signal.aborted) {
               if (context.ensureRbacResumed) await raceLifetime(context.ensureRbacResumed(), signal);
               signal.throwIfAborted();
@@ -665,8 +666,15 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
                 profile = await residentCeoProfiles(repoId, profileAuth).read(principalPersonId);
               if (profile !== null) assertResidentCeoPrincipal(profile, principalPersonId);
               if (profile?.status !== "running" || profile.repoId !== repoId) return;
-              const intervalMs = profile.heartbeatIntervalSec * 1_000;
-              nextHeartbeat ??= currentNowMs() + intervalMs;
+              const heartbeatEnabled = profile.heartbeatIntervalSec > 0;
+              const intervalMs = heartbeatEnabled ? profile.heartbeatIntervalSec * 1_000 : 0;
+              if (!heartbeatEnabled) {
+                nextHeartbeat = null;
+                activeHeartbeatIntervalSec = 0;
+              } else if (nextHeartbeat === null || activeHeartbeatIntervalSec !== profile.heartbeatIntervalSec) {
+                nextHeartbeat = currentNowMs() + intervalMs;
+                activeHeartbeatIntervalSec = profile.heartbeatIntervalSec;
+              }
               guardCenterRelocation(repoId, false);
               await context.attemptHostRecovery(repoId);
               const auth = await context.oidc.bind({ transportKind: "unix-socket" } as const, cell.status().rootDir);
@@ -757,26 +765,42 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
                 await delay(150, undefined, { signal, ref: false });
                 continue;
               }
-              const nowMs = currentNowMs();
-              if (nowMs >= nextHeartbeat) {
-                // Lightweight heartbeat check completed above with zero open peer requests:
-                // advance the next heartbeat schedule without launching an LLM runtime.
-                nextHeartbeat = nowMs + intervalMs;
-                await residentCeoService(repoId, auth)
-                  .recordHeartbeatCheck(principalPersonId, "Inbox checked: no open peer requests.", repoId)
-                  .catch(consumeKnownError);
+              if (heartbeatEnabled && nextHeartbeat !== null) {
+                const nowMs = currentNowMs();
+                if (nowMs >= nextHeartbeat) {
+                  // Lightweight heartbeat check completed above with zero open peer requests:
+                  // advance the next heartbeat schedule without launching an LLM runtime.
+                  nextHeartbeat = nowMs + intervalMs;
+                  await residentCeoService(repoId, auth)
+                    .recordHeartbeatCheck(principalPersonId, "Inbox checked: no open peer requests.", repoId)
+                    .catch(consumeKnownError);
+                }
               }
-              const waitMs = Math.max(1, Math.min(25_000, nextHeartbeat - currentNowMs()));
-              const started = Date.now();
-              const page = await context.host.read(
-                repoId,
-                "repo.events.read",
-                { afterRevision, limit: 200, waitMs },
-                eventReadAuth,
-              );
-              afterRevision = page.nextAfterRevision;
-              if (!page.events.length && Date.now() - started < waitMs)
-                await delay(Math.max(1, waitMs - (Date.now() - started)), undefined, { signal, ref: false });
+              const waitForEvents = async (waitMs: number): Promise<boolean> => {
+                const cursor: number = afterRevision ?? 0;
+                const started = Date.now();
+                const page = await context.host.read(
+                  repoId,
+                  "repo.events.read",
+                  { afterRevision: cursor, limit: 200, waitMs },
+                  eventReadAuth,
+                );
+                afterRevision = page.nextAfterRevision;
+                if (page.events.length > 0) return true;
+                if (Date.now() - started < waitMs)
+                  await delay(Math.max(1, waitMs - (Date.now() - started)), undefined, { signal, ref: false });
+                return false;
+              };
+              if (!heartbeatEnabled) {
+                // Heartbeat polling disabled (heartbeatIntervalSec === 0): remain parked on the
+                // canonical event stream without periodic inbox polling or heartbeat checks.
+                while (!signal.aborted) {
+                  if (await waitForEvents(25_000)) break;
+                }
+              } else {
+                const waitMs = Math.max(1, Math.min(25_000, nextHeartbeat! - currentNowMs()));
+                await waitForEvents(waitMs);
+              }
             }
           })(),
         signal,
@@ -876,7 +900,7 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
         return receipt(
           saved,
           saved
-            ? `${saved.status} · ${saved.runtimeInstanceId} · ${saved.model} · ${saved.heartbeatIntervalSec}s · policy=${effectiveResidentCeoExecutionPolicy(saved)}${gateText}${pendingProposals > 0 ? ` · pendingProposals=${pendingProposals}` : ""}${saved.lastWake ? `\nLast wake: ${saved.lastWake.cause} · ${saved.lastWake.status} · ${saved.lastWake.requestedAt}` : ""}`
+            ? `${saved.status} · ${saved.runtimeInstanceId} · ${saved.model} · ${saved.heartbeatIntervalSec === 0 ? "0s (event-only)" : `${saved.heartbeatIntervalSec}s`} · policy=${effectiveResidentCeoExecutionPolicy(saved)}${gateText}${pendingProposals > 0 ? ` · pendingProposals=${pendingProposals}` : ""}${saved.lastWake ? `\nLast wake: ${saved.lastWake.cause} · ${saved.lastWake.status} · ${saved.lastWake.requestedAt}` : ""}`
             : "Resident CEO is not configured.",
         );
       }
@@ -976,7 +1000,8 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
           repoId,
           runtimeInstanceId,
           model,
-          heartbeatIntervalSec: Number(payload.heartbeatIntervalSec),
+          heartbeatIntervalSec:
+            typeof payload.heartbeatIntervalSec === "number" ? payload.heartbeatIntervalSec : Number.NaN,
           ...(executionPolicy === undefined ? {} : { executionPolicy }),
           ...(payload.defaultWorkId === null || typeof payload.defaultWorkId === "string"
             ? { defaultWorkId: payload.defaultWorkId }
