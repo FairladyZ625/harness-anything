@@ -56,6 +56,7 @@ import {
   closeProjectionConnection,
   prepareQuery,
   queryRows,
+  resolveContentBlobReader,
   runSql,
   transaction,
 } from "./rebuildable-task-projection-sql.ts";
@@ -64,7 +65,11 @@ export type { TaskProjection } from "@harness-anything/kernel";
 
 // Projection database ownership, lifetime, initialization, and schema checks.
 interface ProjectionDatabaseOwner {
-  readonly use: <A>(operation: (db: DatabaseSync) => A, onValidationProgress?: ProjectionProgress) => A;
+  readonly use: <A>(
+    operation: (db: DatabaseSync) => A,
+    onValidationProgress?: ProjectionProgress,
+    readBlob?: EventStreamPort["readContentBlob"],
+  ) => A;
   readonly adopt: (db: DatabaseSync) => void;
   readonly close: () => void;
 }
@@ -211,6 +216,7 @@ export function withDatabase<A>(
   readHead: EventStreamPort["readHead"],
   use: (db: DatabaseSync) => A,
   onValidationProgress?: ProjectionProgress,
+  readBlob?: EventStreamPort["readContentBlob"],
 ): A {
   if (
     queryOnlySession !== null &&
@@ -219,7 +225,7 @@ export function withDatabase<A>(
     queryOnlySession.readHead === readHead
   )
     return use(queryOnlySession.db);
-  return projectionDatabaseOwner(projectionPath, readHead).use(use, onValidationProgress);
+  return projectionDatabaseOwner(projectionPath, readHead).use(use, onValidationProgress, readBlob);
 }
 
 export function withQueryOnlyDatabaseSession<A>(
@@ -400,14 +406,20 @@ function projectionDatabaseOwner(
     configureDatabase(db);
     fingerprint = projectionFileFingerprint(projectionPath);
   };
-  const initialize = (onValidationProgress?: ProjectionProgress) => {
+  const initialize = (onValidationProgress?: ProjectionProgress, readBlob?: EventStreamPort["readContentBlob"]) => {
     try {
       open();
       const observed = projectionSchemaVersion(db!);
       if (
         observed !== null &&
         observed !== taskProjectionSchemaVersion &&
-        !(observed === 38 && expandDecisionListColumns(db!, readHead()))
+        !upgradeProjectionSchemaInPlace(
+          db!,
+          observed,
+          readHead(),
+          onValidationProgress,
+          readBlob ?? resolveContentBlobReader(projectionPath),
+        )
       ) {
         throw new ProjectionSchemaMismatchError(observed, projectionPath);
       }
@@ -418,14 +430,18 @@ function projectionDatabaseOwner(
       throw error;
     }
   };
-  const use = <A>(operation: (database: DatabaseSync) => A, onValidationProgress?: ProjectionProgress): A => {
+  const use = <A>(
+    operation: (database: DatabaseSync) => A,
+    onValidationProgress?: ProjectionProgress,
+    readBlob?: EventStreamPort["readContentBlob"],
+  ): A => {
     // A query operation can call back into this same owner while its own `operation` is still
     // running (an event-shape migration's rewrite reads the scratch projection it is replaying
     // into, mid-round). useDepth makes that reentrant, so a nested call reuses the still-open
     // connection instead of initializing a second owner.
     if (useDepth === 0) {
       if (db !== null && fingerprint !== projectionFileFingerprint(projectionPath)) close();
-      if (db === null) initialize(onValidationProgress);
+      if (db === null) initialize(onValidationProgress, readBlob);
     }
     // initialize() verified the schema version of this file identity; only a replaced file
     // (a changed fingerprint) can carry another one, and that reopens and verifies again.
@@ -453,10 +469,36 @@ function projectionDatabaseOwner(
   return owner;
 }
 
-/** Upgrade the previous cache at its existing cut. A full replay does work proportional to the ledger. */
-function expandDecisionListColumns(db: DatabaseSync, head: ReturnType<EventStreamPort["readHead"]>): boolean {
+const stripDocumentBodyBatchSize = 2000;
+
+/** Upgrade previous caches in place without discarding and replaying the full event stream. */
+function upgradeProjectionSchemaInPlace(
+  db: DatabaseSync,
+  observed: number,
+  head: ReturnType<EventStreamPort["readHead"]>,
+  onValidationProgress?: ProjectionProgress,
+  readBlob?: EventStreamPort["readContentBlob"],
+): boolean {
+  let current = observed;
+  if (current === 38) {
+    if (!expandDecisionListColumns(db, head, readBlob)) return false;
+    current = projectionSchemaVersion(db) ?? current;
+  }
+  if (current === 39) {
+    return stripInlineDocumentBodies(db, head, onValidationProgress);
+  }
+  return current === taskProjectionSchemaVersion;
+}
+
+/** Upgrade schema 38 to 39 at its existing cut. A full replay does work proportional to the ledger. */
+function expandDecisionListColumns(
+  db: DatabaseSync,
+  head: ReturnType<EventStreamPort["readHead"]>,
+  readBlob?: EventStreamPort["readContentBlob"],
+): boolean {
   return transaction(db, () => {
-    if (projectionSchemaVersion(db) === taskProjectionSchemaVersion) return true;
+    const version = projectionSchemaVersion(db);
+    if (version !== null && version >= 39) return true;
     const columns = new Set(queryRows<{ name: string }>(db, "PRAGMA table_info(decision)").map(({ name }) => name));
     if (!columns.has("decision_sort_key")) return false;
     assertLedgerIdentity(db, head);
@@ -470,7 +512,77 @@ function expandDecisionListColumns(db: DatabaseSync, head: ReturnType<EventStrea
       db,
       "SELECT decision_id FROM decision",
     ))
-      refreshDecisionListReview(db, id);
+      refreshDecisionListReview(db, id, readBlob);
+    runSql(db, "UPDATE projection_meta SET schema_version=? WHERE singleton=1", 39);
+    return true;
+  });
+}
+
+function hasTableColumns(db: DatabaseSync, table: string, required: readonly string[]): boolean {
+  const columns = new Set(
+    queryRows<{ readonly name: string }>(db, `PRAGMA table_xinfo(${table})`).map(({ name }) => name),
+  );
+  return required.every((name) => columns.has(name));
+}
+
+/**
+ * Upgrade schema 39 to 40 in place by stripping inline `body` from `document` and `document_history`
+ * in bounded batches while preserving all metadata columns and `blobSha256`.
+ */
+function stripInlineDocumentBodies(
+  db: DatabaseSync,
+  head: ReturnType<EventStreamPort["readHead"]>,
+  onValidationProgress?: ProjectionProgress,
+): boolean {
+  return transaction(db, () => {
+    if (projectionSchemaVersion(db) === taskProjectionSchemaVersion) return true;
+    if (
+      !hasTableColumns(db, "decision", ["decision_sort_key", "list_options_json", "review_summary_json"]) ||
+      !hasTableColumns(db, "lease_cas", ["execution_id"]) ||
+      !hasTableColumns(db, "task_snapshot", ["package_disposition"]) ||
+      !hasTableColumns(db, "document", ["path", "workspace_revision", "value_json"]) ||
+      !hasTableColumns(db, "document_history", ["path", "workspace_revision", "value_json"])
+    )
+      return false;
+    assertLedgerIdentity(db, head);
+    const updateTrigger = queryRows<{ readonly sql: string }>(
+      db,
+      "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='document_artifact_update'",
+    )[0]?.sql;
+    if (updateTrigger) {
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+      db.exec("DROP TRIGGER IF EXISTS document_artifact_update");
+    }
+    const documentCount = Number(queryRows(db, "SELECT COUNT(*) AS count FROM document")[0]?.count ?? 0);
+    const historyCount = Number(queryRows(db, "SELECT COUNT(*) AS count FROM document_history")[0]?.count ?? 0);
+    const total = documentCount + historyCount;
+    let applied = 0;
+    for (const table of ["document", "document_history"] as const) {
+      let cursor = 0;
+      for (;;) {
+        const window = queryRows<{ readonly last_rowid: number | null; readonly batch_count: number }>(
+          db,
+          `SELECT MAX(rowid) AS last_rowid, COUNT(*) AS batch_count FROM (SELECT rowid FROM ${table} WHERE rowid > ? ORDER BY rowid LIMIT ?)`,
+          cursor,
+          stripDocumentBodyBatchSize,
+        )[0];
+        if (!window || Number(window.batch_count) === 0 || window.last_rowid === null) break;
+        const nextCursor = Number(window.last_rowid);
+        runSql(
+          db,
+          `UPDATE ${table} SET value_json = json_remove(value_json, '$.body') WHERE rowid > ? AND rowid <= ? AND json_type(value_json, '$.body') IS NOT NULL`,
+          cursor,
+          nextCursor,
+        );
+        cursor = nextCursor;
+        applied += Number(window.batch_count);
+        if (total > 0) onValidationProgress?.({ applied: Math.min(applied, total), total });
+      }
+    }
+    if (updateTrigger) {
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+      db.exec(updateTrigger);
+    }
     runSql(db, "UPDATE projection_meta SET schema_version=? WHERE singleton=1", taskProjectionSchemaVersion);
     return true;
   });

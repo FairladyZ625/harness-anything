@@ -128,6 +128,8 @@ function stagedImportView(input: MigrationImportRunInput): {
         return (opId: string) => outcomes.get(opId) ?? target.readCommandOutcome(opId);
       if (property === "readContentBlob")
         return (sha256: string) => content.get(sha256) ?? target.readContentBlob(sha256);
+      if (property === "readContentBlobSize")
+        return (sha256: string) => content.get(sha256)?.byteLength ?? target.readContentBlobSize(sha256);
       if (property === "read")
         return () => {
           const base = target.read();

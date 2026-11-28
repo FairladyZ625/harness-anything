@@ -1956,6 +1956,12 @@
         "order": 101
       },
       {
+        "candidateId": "action:packages/storage:packages/storage/src/store/content-objects.ts#removeCachedVerifiedObject:bb0b4241689423de080f3befed654a02",
+        "route": "repository-read",
+        "role": "support",
+        "order": 228
+      },
+      {
         "candidateId": "action:packages/storage:packages/storage/src/store/entity-store.ts#entityEventCache:3eda5cadc79f027a0385d8a26af47bca",
         "route": "repository-read",
         "role": "support",

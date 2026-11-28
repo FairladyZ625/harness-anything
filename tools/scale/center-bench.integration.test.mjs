@@ -117,7 +117,9 @@ test(
     assert.equal(report.projectionShape.document.count, report.ledger.documents + 1);
     assert.equal(report.projectionShape.event.count, report.ledger.revision);
     assert.ok(
-      Math.abs(report.projectionShape.document.jsonBytes - report.ledger.documentJsonBytes) < 5000,
+      report.projectionShape.document.largestJsonBytes <= 1024 &&
+        report.projectionShape.document.jsonBytes < report.ledger.documentJsonBytes &&
+        report.projectionShape.document.contentBytes > 0,
       JSON.stringify({ actual: report.projectionShape, expected: report.ledger.documentJsonBytes }),
     );
     assert.equal(report.campaignError, undefined, JSON.stringify(report.campaignError));

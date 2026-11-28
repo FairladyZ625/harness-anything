@@ -4,7 +4,6 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
   canonicalJson,
-  hashCanonicalJsonTextFieldChunks,
   prepareQuery,
   readStateDigest,
   withProjectionSqlHeartbeat,
@@ -85,7 +84,7 @@ test("overlapping projection opens cannot feed another repository's watchdog", a
   }
 });
 
-test("SQLite state digest preserves legacy bytes with one ordered cursor per document table", async (context) => {
+test("SQLite state digest hashes canonical document metadata + blobSha256 with one ordered cursor per document table", async (context) => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ repoId: "state-digest-equivalence", rootDir }),
@@ -93,15 +92,30 @@ test("SQLite state digest preserves legacy bytes with one ordered cursor per doc
       initialized = projection.catchUp(),
       db = new DatabaseSync(projection.path),
       escaped = 'quotes" slash/ nul\0 newline\n snow 雪',
-      large = JSON.stringify({ body: `${"x".repeat(chunkBytes - 10)}😀${escaped}${"y".repeat(chunkBytes)}` }),
-      small = JSON.stringify({ body: escaped });
+      largeBody = `${"x".repeat(chunkBytes - 10)}😀${escaped}${"y".repeat(chunkBytes)}`,
+      smallMeta = {
+        blobSha256: "a".repeat(64),
+        mediaType: "text/markdown",
+        path: "tasks/z-small.md",
+        policyId: "opaque-textual-artifact/v1",
+        size: 32,
+        workspaceRevision: 3,
+      },
+      largeMeta = {
+        blobSha256: "b".repeat(64),
+        mediaType: "text/markdown",
+        path: "tasks/a-large.md",
+        policyId: "opaque-textual-artifact/v1",
+        size: Buffer.byteLength(largeBody),
+        workspaceRevision: 4,
+      };
     try {
-      assert.equal(Buffer.byteLength(large.slice(0, large.indexOf("😀"))), chunkBytes - 1);
       assert.equal(initialized.watermark, 0);
       for (const table of ["document", "document_history"]) {
         const insert = db.prepare(`INSERT INTO ${table}(path, workspace_revision, value_json) VALUES (?, ?, ?)`);
-        insert.run("tasks/z-small.md", 3, small);
-        insert.run("tasks/a-large.md", 4, large);
+        // Seed one row with a legacy inline body and one slim row to verify body-independence.
+        insert.run("tasks/z-small.md", 3, JSON.stringify({ ...smallMeta, body: escaped }));
+        insert.run("tasks/a-large.md", 4, JSON.stringify(largeMeta));
       }
       const prepared = context.mock.method(db, "prepare");
       const actual = readStateDigest(db, 0);
@@ -114,36 +128,35 @@ test("SQLite state digest preserves legacy bytes with one ordered cursor per doc
       assert.match(documentQueries[1]!, /FROM document_history ORDER BY path$/u);
       assert.ok(documentQueries.every((sql) => !/\bsubstr\s*\(/iu.test(sql)));
       assert.notEqual(actual, null);
-      let legacy = sha256Text("task-projection-state/v1");
+
+      // Compute expected digest from canonical metadata + blobSha256 (excluding inline body).
+      let expected = sha256Text("task-projection-state/v1");
       for (const [table, order] of legacyStateDigestTables) {
-        legacy = sha256Text(`${legacy}\n${table}`);
+        expected = sha256Text(`${expected}\n${table}`);
         if (table === "document" || table === "document_history") {
-          const rows = db
-            .prepare(
-              `SELECT path, workspace_revision, length(CAST(value_json AS BLOB)) AS value_json_bytes FROM ${table} ORDER BY path`,
-            )
-            .all() as { path: string; workspace_revision: number; value_json_bytes: number }[];
-          const chunks = db.prepare(
-            `SELECT substr(CAST(value_json AS BLOB), ?, ?) AS chunk FROM ${table} WHERE path = ?`,
-          );
-          for (const row of rows) {
-            function* readLegacyChunks(): Iterable<Uint8Array> {
-              for (let offset = 0; offset < row.value_json_bytes; offset += chunkBytes)
-                yield (chunks.get(offset + 1, chunkBytes, row.path) as { chunk: Uint8Array }).chunk;
-            }
-            legacy = hashCanonicalJsonTextFieldChunks(
-              legacy,
-              { path: row.path, workspace_revision: row.workspace_revision, value_json: "" },
-              "value_json",
-              readLegacyChunks(),
-            );
+          for (const row of [
+            { path: "tasks/a-large.md", workspace_revision: 4, value_json: canonicalJson(largeMeta) },
+            { path: "tasks/z-small.md", workspace_revision: 3, value_json: canonicalJson(smallMeta) },
+          ]) {
+            expected = sha256Text(`${expected}\n${canonicalJson(row)}`);
           }
         } else {
           for (const row of db.prepare(`SELECT * FROM ${table} ORDER BY ${order}`).iterate())
-            legacy = sha256Text(`${legacy}\n${canonicalJson(row)}`);
+            expected = sha256Text(`${expected}\n${canonicalJson(row)}`);
         }
       }
-      assert.equal(actual, `sha256:${legacy}`);
+      assert.equal(actual, `sha256:${expected}`);
+
+      // Stripping legacy inline body preserves the exact digest, while changing blobSha256 changes it.
+      db.exec("UPDATE document SET value_json = json_remove(value_json, '$.body')");
+      db.exec("UPDATE document_history SET value_json = json_remove(value_json, '$.body')");
+      assert.equal(readStateDigest(db, 0), actual);
+
+      db.prepare("UPDATE document SET value_json = json_set(value_json, '$.blobSha256', ?) WHERE path = ?").run(
+        "c".repeat(64),
+        "tasks/a-large.md",
+      );
+      assert.notEqual(readStateDigest(db, 0), actual);
     } finally {
       db.close();
       projection.close();

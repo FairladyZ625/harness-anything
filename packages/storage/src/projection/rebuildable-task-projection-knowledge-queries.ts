@@ -69,8 +69,8 @@ export function knowledgeQueryApi(
       const cut = readProjectionCut(db, readHead),
         page =
           selection === "summary"
-            ? listDecisionRowsPage(db, filters, selection)
-            : listDecisionRowsPage(db, filters, selection);
+            ? listDecisionRowsPage(db, filters, selection, eventStore.readContentBlob)
+            : listDecisionRowsPage(db, filters, selection, eventStore.readContentBlob);
       return { ...cut, decisions: page.rows, ...(page.page ? { page: page.page } : {}) };
     });
   }
@@ -158,7 +158,7 @@ export function knowledgeQueryApi(
         const cut = readProjectionCut(db, readHead);
         return {
           status: cut.status,
-          decision: readDecisionRow(db, decisionId, withBody),
+          decision: readDecisionRow(db, decisionId, withBody, eventStore.readContentBlob),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };
@@ -168,7 +168,7 @@ export function knowledgeQueryApi(
         const cut = readProjectionCut(db, readHead);
         return {
           status: cut.status,
-          decisions: readDecisionRows(db, decisionIds, withBody),
+          decisions: readDecisionRows(db, decisionIds, withBody, eventStore.readContentBlob),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };

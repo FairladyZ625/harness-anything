@@ -74,6 +74,8 @@ import {
   persistContentObjects,
   readContentObject,
   readContentObjectRange,
+  readVerifiedContentObject,
+  rememberPersistedContentObjects,
   contentObjectSize,
 } from "./content-objects.ts";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
@@ -638,6 +640,8 @@ function openSqliteEventStoreInternal(
       return { rows, done: (rows.at(-1)?.revision ?? afterRevision) >= readRevision(db) };
     },
     readContentObject: (sha256) => readContentObject(objectRoot, sha256),
+    readVerifiedContentObject: (sha256) => readVerifiedContentObject([objectRoot], sha256),
+    rememberContentObjects: (blobs) => rememberPersistedContentObjects(objectRoot, blobs),
     readContentObjectRange: (sha256, offset, maxBytes) => readContentObjectRange(objectRoot, sha256, offset, maxBytes),
     readContentObjectSize: (sha256) => contentObjectSize(objectRoot, sha256),
     contentObjectDigests: () => listContentObjectDigests(objectRoot),

@@ -151,6 +151,15 @@ export const localContentObjectFileSystem = {
   exists: (inputPath: string) => existsSync(inputPath),
   readBytes: (inputPath: string): Uint8Array => readFileSync(inputPath),
   sizeBytes: (inputPath: string) => statSync(inputPath).size,
+  fileStamp: (inputPath: string): { readonly size: number; readonly stamp: string } | null => {
+    const stat = statSync(inputPath, { bigint: true, throwIfNoEntry: false });
+    return stat === undefined
+      ? null
+      : {
+          size: Number(stat.size),
+          stamp: `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`,
+        };
+  },
   replaceMany: (entries: readonly { readonly path: string; readonly body: string | Uint8Array }[]): void => {
     const directories = new Set<string>(),
       temporaryObjects: { readonly temporary: string; readonly target: string }[] = [];

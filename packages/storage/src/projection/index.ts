@@ -1,5 +1,6 @@
 export * from "./rebuildable-task-projection.ts";
 export { taskProjectionSchemaVersion } from "./projection-schema.ts";
+export { ProjectionContentBlobError } from "./rebuildable-task-projection-sql.ts";
 export { readLegacyMigrationSource } from "./cold-rebuild-source.ts";
 export type { ColdDecisionProjectionRow, ColdRebuildIssue, ColdRebuildSource } from "./cold-rebuild-source.ts";
 export {

@@ -4,6 +4,7 @@ import {
   type DecisionListSummaryRow,
 } from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
 import type { DecisionDocumentState } from "@harness-anything/kernel";
+import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import type { DatabaseSync } from "node:sqlite";
 import type { SessionProvenanceV1 } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import type {
@@ -41,14 +42,20 @@ import { decisionIdSortKey, decisionLegacyId } from "./iso-timestamp-sql.ts";
 
 export { decisionIdSortKey, decisionLegacyId };
 
-export function readDecisionRow(db: DatabaseSync, decisionId: string, withBody = true): DecisionProjectionRow | null {
-  return readDecisionRows(db, [decisionId], withBody)[0] ?? null;
+export function readDecisionRow(
+  db: DatabaseSync,
+  decisionId: string,
+  withBody = true,
+  readBlob?: EventStreamPort["readContentBlob"],
+): DecisionProjectionRow | null {
+  return readDecisionRows(db, [decisionId], withBody, readBlob)[0] ?? null;
 }
 
 export function readDecisionRows(
   db: DatabaseSync,
   decisionIds: readonly string[],
   withBody = true,
+  readBlob?: EventStreamPort["readContentBlob"],
 ): readonly DecisionProjectionRow[] {
   if (
     !Array.isArray(decisionIds) ||
@@ -62,6 +69,7 @@ export function readDecisionRows(
     [JSON.stringify(decisionIds)],
     withBody,
     false,
+    readBlob,
   );
 }
 
@@ -71,6 +79,7 @@ function readDecisionCollection(
   values: readonly (string | number)[],
   withBody: boolean,
   withReview: boolean,
+  readBlob?: EventStreamPort["readContentBlob"],
 ): readonly DecisionProjectionRow[] {
   const bodyColumn = withBody ? "COALESCE(document.value_json, document_history.value_json)" : "NULL",
     bodyJoin =
@@ -171,7 +180,9 @@ function readDecisionCollection(
       ), '[]') AS relations_json
     FROM requested_decisions JOIN decision ON decision.decision_id = requested_decisions.decision_id ${bodyJoin}
     ORDER BY requested_decisions.request_order`;
-  return queryRows<DecisionCollectionRecord>(db, sql, ...values).map((row) => decisionCollectionRow(row, withReview));
+  return queryRows<DecisionCollectionRecord>(db, sql, ...values).map((row) =>
+    decisionCollectionRow(row, withReview, readBlob),
+  );
 }
 
 interface DecisionCollectionRecord extends ProjectionSqlRow {
@@ -205,7 +216,11 @@ interface DecisionCollectionRecord extends ProjectionSqlRow {
   readonly relations_json: string;
 }
 
-function decisionCollectionRow(row: DecisionCollectionRecord, withReview: boolean): DecisionProjectionRow {
+function decisionCollectionRow(
+  row: DecisionCollectionRecord,
+  withReview: boolean,
+  readBlob?: EventStreamPort["readContentBlob"],
+): DecisionProjectionRow {
   const decisionId = row.decision_id,
     state = row.state as DecisionState,
     legacyId = decisionLegacyId(decisionId),
@@ -226,7 +241,8 @@ function decisionCollectionRow(row: DecisionCollectionRecord, withReview: boolea
     ),
     amendments = (JSON.parse(row.amendments_json) as string[]).map((value) => JSON.parse(value) as DecisionAmendmentV1),
     pins = (JSON.parse(row.pins_json) as string[]).map((value) => JSON.parse(value) as DecisionContentPinV1),
-    body = row.body_document_json === null ? null : decisionBodyFromDocument(decisionId, row.body_document_json),
+    body =
+      row.body_document_json === null ? null : decisionBodyFromDocument(decisionId, row.body_document_json, readBlob),
     reviews = (JSON.parse(row.reviews_json) as string[]).map((value) => JSON.parse(value) as DecisionReviewV1),
     reviewResponses = (JSON.parse(row.review_responses_json) as string[]).flatMap(
       (value) => JSON.parse(value) as DecisionReviewResponseV1[],
@@ -317,16 +333,19 @@ export function listDecisionRowsPage(
   db: DatabaseSync,
   filters: DecisionListFilters,
   selection: "summary",
+  readBlob?: EventStreamPort["readContentBlob"],
 ): { readonly rows: readonly DecisionListSummaryRow[]; readonly page?: ProjectionPage };
 export function listDecisionRowsPage(
   db: DatabaseSync,
   filters: DecisionListFilters,
   selection?: "review",
+  readBlob?: EventStreamPort["readContentBlob"],
 ): { readonly rows: readonly DecisionProjectionRow[]; readonly page?: ProjectionPage };
 export function listDecisionRowsPage(
   db: DatabaseSync,
   filters: DecisionListFilters,
   selection?: "summary" | "review",
+  readBlob?: EventStreamPort["readContentBlob"],
 ): { readonly rows: readonly DecisionListSummaryRow[]; readonly page?: ProjectionPage } {
   const where: string[] = [],
     values: (string | number)[] = [];
@@ -352,7 +371,7 @@ export function listDecisionRowsPage(
     where.push("EXISTS (SELECT 1 FROM json_each(decision.applies_json, '$.productLines') WHERE value=?)");
     values.push(filters.productLine);
   }
-  return listDecisionRowsPageFromIndex(db, filters, where, values, selection);
+  return listDecisionRowsPageFromIndex(db, filters, where, values, selection, readBlob);
 }
 
 function listDecisionRowsPageFromIndex(
@@ -361,6 +380,7 @@ function listDecisionRowsPageFromIndex(
   where: readonly string[],
   values: readonly (string | number)[],
   selection: "summary" | "review" | undefined,
+  readBlob?: EventStreamPort["readContentBlob"],
 ): { readonly rows: readonly DecisionListSummaryRow[]; readonly page?: ProjectionPage } {
   const paged = filters.limit !== undefined || filters.cursor !== undefined,
     pageLimit =
@@ -432,6 +452,7 @@ function listDecisionRowsPageFromIndex(
             args,
             selection !== "review" && filters.withBody === true,
             selection === "review",
+            readBlob,
           ),
     rows = pageLimit === null ? raw : raw.slice(0, pageLimit),
     last = rows.at(-1);

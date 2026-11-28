@@ -29,16 +29,13 @@ import {
   type TaskEventV1,
 } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
 import {
-  OPAQUE_TEXTUAL_POLICY_ID,
-  RAW_ARTIFACT_POLICY_ID,
-} from "@harness-anything/kernel/internal/domain/artifact-text-classification.ts";
-import {
   docByteLength,
   isDecisionEvent,
   isDocEvent,
   isFactEvent,
   isMigrationImportEvent,
   isRelationEvent,
+  isTaskEvent,
   normalizePersistedCanonicalEvent,
   normalizePersistedEventValue,
   serializePersistedCanonicalEvent,
@@ -70,11 +67,11 @@ import {
   isEntityEvent,
   ownedContentForDeclarationEvent,
 } from "@harness-anything/kernel/internal/domain/entity-event.ts";
+import { entityOwnedDocumentClaims } from "@harness-anything/kernel/internal/domain/entity-owned-content.ts";
 import {
-  ENTITY_CONTENT_POLICY_ID,
-  entityOwnedDocumentClaims,
-} from "@harness-anything/kernel/internal/domain/entity-owned-content.ts";
-import { canonicalDocumentRetirements } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
+  canonicalDocumentRetirements,
+  contentClaims,
+} from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 import { interpretReplayDeclaration } from "./entity-declaration-replay.ts";
 import {
   isTaskBootstrapEvent,
@@ -133,14 +130,18 @@ import {
 } from "./rebuildable-task-projection-runtime.ts";
 import {
   canonicalJson,
+  decisionDocumentPattern,
   prepareQuery,
   queryRows,
   runSql,
+  serializeProjectedDocument,
   transaction,
   watermark,
+  type ProjectedDocumentMetadata,
 } from "./rebuildable-task-projection-sql.ts";
 import { applyEmbeddedRelationProjectionEvents, applyRelationProjectionEvent } from "./relation-entity-projection.ts";
 import { refreshDirtyRelationFreshness } from "./relation-freshness-maintenance.ts";
+import { batchContentReaderFor } from "../store/content-objects.ts";
 import {
   bulkRebuildContext,
   insertEventIndexRow,
@@ -158,8 +159,16 @@ const UPSERT_DOCUMENT_SQL = [
   "ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision,",
   "value_json=excluded.value_json",
 ].join(" ");
-function upsertDocument(db: DatabaseSync, document: DocumentState): void {
-  runSql(db, UPSERT_DOCUMENT_SQL, document.path, document.workspaceRevision, canonicalJson(document));
+function blobByteLength(
+  sha256: string,
+  readBlob: EventStreamPort["readContentBlob"],
+  readBlobSize?: EventStreamPort["readContentBlobSize"],
+): number | null {
+  return readBlobSize ? readBlobSize(sha256) : (readBlob(sha256)?.byteLength ?? null);
+}
+
+function upsertDocument(db: DatabaseSync, document: ProjectedDocumentMetadata): void {
+  runSql(db, UPSERT_DOCUMENT_SQL, document.path, document.workspaceRevision, serializeProjectedDocument(document));
   recordDocumentUpsert(db, document.path, document);
 }
 const UPSERT_RUNTIME_INSTALLATION_SQL = [
@@ -201,10 +210,13 @@ export function applyEvent(
   event: PersistedCanonicalEventV1,
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
+  readBlobSize?: EventStreamPort["readContentBlobSize"],
+  readDecisionBlob?: EventStreamPort["readContentBlob"],
 ): void {
-  applyEventProjection(db, event, eventJson, readBlob);
+  const precomputedDecisionProse = new Map<string, string>();
+  applyEventProjection(db, event, eventJson, readBlob, readBlobSize, readDecisionBlob, precomputedDecisionProse);
   settleTerminalMaterializationForEvent(db, event);
-  refreshDecisionListReviews(db, event);
+  refreshDecisionListReviews(db, event, readDecisionBlob ?? readBlob, precomputedDecisionProse);
   if (bulkRebuildContext(db) === undefined) refreshDirtyRelationFreshness(db);
 }
 
@@ -213,6 +225,9 @@ function applyEventProjection(
   event: PersistedCanonicalEventV1,
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
+  readBlobSize?: EventStreamPort["readContentBlobSize"],
+  readDecisionBlob?: EventStreamPort["readContentBlob"],
+  precomputedDecisionProse?: Map<string, string>,
 ): void {
   const sourceDispatchKey =
     isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested" ? event.payload.dispatchKey : undefined;
@@ -273,7 +288,7 @@ function applyEventProjection(
     return;
   }
   if (isMigrationImportEvent(event)) {
-    projectMigration(db, event, eventJson, readBlob);
+    projectMigration(db, event, eventJson, readBlob, readBlobSize);
     runSql(
       db,
       "INSERT OR IGNORE INTO pinned_entities(entity_ref, pinned_at, pinned_by) " +
@@ -284,13 +299,13 @@ function applyEventProjection(
     return;
   }
   if (isEntityDocumentEvent(event) || isDossierSynthesisEvent(event)) {
-    projectEntityDocumentRematerialization(db, event, eventJson, readBlob);
+    projectEntityDocumentRematerialization(db, event, eventJson, readBlob, readBlobSize);
     return;
   }
   if (isRelationEvent(event)) {
     insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
     applyRelationProjectionEvent(db, event);
-    projectRelationDocuments(db, event, readBlob);
+    projectRelationDocuments(db, event, readBlob, readBlobSize);
     return;
   }
   if (isEntityEvent(event)) {
@@ -367,31 +382,32 @@ function applyEventProjection(
     }
     for (const owned of entityOwnedDocumentClaims(ownedContentForDeclarationEvent(event))) {
       if (owned.path === claim.path) continue;
-      const content = readBlob(owned.sha256);
-      if (!content || content.byteLength !== owned.size)
-        throw new Error(`entity owned document blob ${owned.sha256} is unavailable`);
-      const document: DocumentState = {
+      const needsSearchBody =
+        owned.policyId === DECISION_DOCUMENT_POLICY_ID || decisionDocumentPattern.test(owned.path);
+      let ownedBody: string | undefined;
+      if (needsSearchBody) {
+        const content = readBlob(owned.sha256);
+        if (!content || content.byteLength !== owned.size)
+          throw new Error(`entity owned document blob ${owned.sha256} is unavailable`);
+        ownedBody = new TextDecoder("utf-8", { fatal: true }).decode(content);
+      } else {
+        const size = blobByteLength(owned.sha256, readBlob, readBlobSize);
+        if (size !== owned.size) throw new Error(`entity owned document blob ${owned.sha256} is unavailable`);
+      }
+      const document: ProjectedDocumentMetadata = {
         path: owned.path as DocumentState["path"],
         blobSha256: owned.sha256,
-        // Raw artifacts and imported entity content are bytes, not text; only their claim is projected.
-        body:
-          owned.policyId === RAW_ARTIFACT_POLICY_ID || owned.policyId === ENTITY_CONTENT_POLICY_ID
-            ? ""
-            : new TextDecoder("utf-8", { fatal: true, ignoreBOM: owned.policyId === OPAQUE_TEXTUAL_POLICY_ID }).decode(
-                content,
-              ),
         size: docByteLength(owned.size),
         mediaType: owned.mediaType,
         policyId: owned.policyId,
         workspaceRevision: event.workspaceRevision,
       };
       upsertDocument(db, document);
-      if (owned.policyId === DECISION_DOCUMENT_POLICY_ID) refreshDecisionDocumentSearch(db, document);
+      if (needsSearchBody) refreshDecisionDocumentSearch(db, { path: owned.path, body: ownedBody });
     }
-    const document: DocumentState = {
+    const document: ProjectedDocumentMetadata = {
       path: claim.path as DocumentState["path"],
       blobSha256: claim.sha256,
-      body,
       size: docByteLength(claim.size),
       mediaType: claim.mediaType,
       policyId: claim.policyId,
@@ -557,11 +573,11 @@ function applyEventProjection(
     return;
   }
   if (isFactEvent(event)) {
-    projectFact(db, event, eventJson, readBlob);
+    projectFact(db, event, eventJson, readBlob, readBlobSize);
     return;
   }
   if (isDecisionEvent(event)) {
-    projectDecision(db, event, eventJson, readBlob);
+    projectDecision(db, event, eventJson, readBlob, readBlobSize, readDecisionBlob, precomputedDecisionProse);
     return;
   }
   if (isAgentRuntimeEvent(event)) {
@@ -644,25 +660,25 @@ function applyEventProjection(
         if (change.baseBlobSha256 !== null || base === undefined)
           throw new Error(`document base mismatch for ${change.path}`);
       }
-      const bytes = readBlob(change.candidate.sha256);
-      if (!bytes || bytes.byteLength !== change.candidate.size)
-        throw new Error(`document blob ${change.candidate.sha256} is unavailable`);
-      // A raw artifact has no text body to project. Its identity is the claim digest, which is checked
-      // above against the stored bytes, so reading it back means reading the content object, not this row.
-      let body = "";
-      if (change.policyId !== RAW_ARTIFACT_POLICY_ID)
+      const needsSearchBody =
+        change.policyId === DECISION_DOCUMENT_POLICY_ID || decisionDocumentPattern.test(change.path);
+      let body: string | undefined;
+      if (needsSearchBody) {
+        const bytes = readBlob(change.candidate.sha256);
+        if (!bytes || bytes.byteLength !== change.candidate.size)
+          throw new Error(`document blob ${change.candidate.sha256} is unavailable`);
         try {
-          body = new TextDecoder("utf-8", {
-            fatal: true,
-            ignoreBOM: change.policyId === OPAQUE_TEXTUAL_POLICY_ID,
-          }).decode(bytes);
+          body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
         } catch {
           throw new Error(`document blob ${change.candidate.sha256} is not UTF-8`);
         }
-      const document: DocumentState = {
+      } else {
+        const size = blobByteLength(change.candidate.sha256, readBlob, readBlobSize);
+        if (size !== change.candidate.size) throw new Error(`document blob ${change.candidate.sha256} is unavailable`);
+      }
+      const document: ProjectedDocumentMetadata = {
         path: change.path,
         blobSha256: change.candidate.sha256,
-        body,
         size: change.candidate.size,
         mediaType: change.candidate.mediaType,
         policyId: change.policyId,
@@ -671,25 +687,24 @@ function applyEventProjection(
       runSql(db, "DELETE FROM document_history WHERE path = ?", change.path);
       recordDocumentHistoryDelete(db, change.path);
       upsertDocument(db, document);
-      refreshDecisionDocumentSearch(db, document);
+      if (needsSearchBody) refreshDecisionDocumentSearch(db, { path: change.path, body });
     }
     return;
   }
   if (isTaskProgressEvent(event)) {
-    projectProgress(db, event, eventJson, readBlob);
+    projectProgress(db, event, eventJson, readBlob, readBlobSize);
     return;
   }
   if (isPresetSnapshotUpgradeEvent(event)) {
     const current = readSnapshotForTaskEventReduction(db, event.taskId),
       snapshotBytes = readBlob(event.payload.presetSnapshotClaim.sha256),
-      contractBytes = readBlob(event.payload.taskContractClaim.sha256);
+      contractSize = blobByteLength(event.payload.taskContractClaim.sha256, readBlob, readBlobSize);
     if (
       !current.task ||
       current.task.presetSnapshotDigest !== event.payload.previousDigest ||
       !snapshotBytes ||
       snapshotBytes.byteLength !== event.payload.presetSnapshotClaim.size ||
-      !contractBytes ||
-      contractBytes.byteLength !== event.payload.taskContractClaim.size
+      contractSize !== event.payload.taskContractClaim.size
     )
       throw new Error(`preset snapshot upgrade basis mismatch for ${event.taskId}`);
     const snapshot = normalizeHistoricalPresetSnapshot(
@@ -742,12 +757,10 @@ function applyEventProjection(
       currentShape = { ...baseTask, ...changed };
     if (!replayShapeMatches(currentShape, currentTaskForWrite(upgradedTask)))
       throw new Error(`preset snapshot upgrade changed immutable task fields for ${event.taskId}`);
-    const contractBody = new TextDecoder("utf-8", { fatal: true }).decode(contractBytes),
-      contract = event.payload.taskContractClaim,
-      document: DocumentState = {
+    const contract = event.payload.taskContractClaim,
+      document: ProjectedDocumentMetadata = {
         path: contract.path as DocumentState["path"],
         blobSha256: contract.sha256,
-        body: contractBody,
         size: contract.size as DocumentState["size"],
         mediaType: contract.mediaType,
         policyId: contract.policyId,
@@ -818,31 +831,29 @@ function applyEventProjection(
     )
       throw new Error(`preset snapshot digest ${event.payload.presetSnapshotClaim.digest} names different bytes`);
     for (const claim of event.payload.initialDocumentClaims) {
-      const bytes = readBlob(claim.sha256);
-      if (!bytes || bytes.byteLength !== claim.size) throw new Error(`document blob ${claim.sha256} is unavailable`);
-      const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-        document: DocumentState = {
-          path: claim.path as DocumentState["path"],
-          blobSha256: claim.sha256,
-          body,
-          size: claim.size as DocumentState["size"],
-          mediaType: claim.mediaType,
-          policyId: claim.policyId,
-          workspaceRevision: event.workspaceRevision,
-        };
+      const size = blobByteLength(claim.sha256, readBlob, readBlobSize);
+      if (size !== claim.size) throw new Error(`document blob ${claim.sha256} is unavailable`);
+      const document: ProjectedDocumentMetadata = {
+        path: claim.path as DocumentState["path"],
+        blobSha256: claim.sha256,
+        size: claim.size as DocumentState["size"],
+        mediaType: claim.mediaType,
+        policyId: claim.policyId,
+        workspaceRevision: event.workspaceRevision,
+      };
       runSql(
         db,
         "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?)",
         claim.path,
         event.workspaceRevision,
-        canonicalJson(document),
+        serializeProjectedDocument(document),
       );
       recordDocumentUpsert(db, claim.path, document);
     }
     return;
   }
   if (event.schema === "execution-delegation-event/v1") return;
-  applyTaskEvent(db, event, eventJson, readBlob);
+  applyTaskEvent(db, event, eventJson, readBlob, readBlobSize);
 }
 
 function markUninterpretableEntityDeclaration(
@@ -869,6 +880,7 @@ export function applyTaskEvent(
   event: TaskEventV1,
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
+  readBlobSize?: EventStreamPort["readContentBlobSize"],
 ): void {
   const snapshot = reduceTaskEvent(readSnapshotForTaskEventReduction(db, event.taskId), event);
   insertEventIndexRow(db, event.opId, event.workspaceRevision, event.taskId, eventJson, event);
@@ -935,14 +947,11 @@ export function applyTaskEvent(
     )
       throw new Error(`lifecycle document paths mismatch for ${event.taskId}`);
     for (const claim of lifecycleClaims) {
-      const bytes = readBlob(claim.sha256);
-      if (!bytes || bytes.byteLength !== claim.size)
-        throw new Error(`lifecycle document blob ${claim.sha256} is unavailable`);
-      const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-      const document: DocumentState = {
+      const size = blobByteLength(claim.sha256, readBlob, readBlobSize);
+      if (size !== claim.size) throw new Error(`lifecycle document blob ${claim.sha256} is unavailable`);
+      const document: ProjectedDocumentMetadata = {
         path: claim.path as DocumentState["path"],
         blobSha256: claim.sha256,
-        body,
         size: docByteLength(claim.size),
         mediaType: claim.mediaType,
         policyId: claim.policyId,
@@ -956,28 +965,34 @@ export function applyTaskEvent(
   // therefore restores both the task snapshot and its carried documents.
   for (const change of event.payload.carriedDocumentClaims ?? []) {
     const base = readDocumentBaseMetadata(db, change.path),
-      bytes = readBlob(change.candidate.sha256);
-    if (!bytes || bytes.byteLength !== change.candidate.size)
-      throw new Error(`carried document blob ${change.candidate.sha256} is unavailable`);
-    let body: string;
-    try {
-      body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    } catch {
-      throw new Error(`carried document blob ${change.candidate.sha256} is not UTF-8`);
+      needsSearchBody = change.policyId === DECISION_DOCUMENT_POLICY_ID || decisionDocumentPattern.test(change.path);
+    let body: string | undefined;
+    if (needsSearchBody) {
+      const bytes = readBlob(change.candidate.sha256);
+      if (!bytes || bytes.byteLength !== change.candidate.size)
+        throw new Error(`carried document blob ${change.candidate.sha256} is unavailable`);
+      try {
+        body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      } catch {
+        throw new Error(`carried document blob ${change.candidate.sha256} is not UTF-8`);
+      }
+    } else {
+      const size = blobByteLength(change.candidate.sha256, readBlob, readBlobSize);
+      if (size !== change.candidate.size)
+        throw new Error(`carried document blob ${change.candidate.sha256} is unavailable`);
     }
     if (change.baseBlobSha256 !== (base?.blobSha256 ?? null))
       throw new Error(`carried document proof mismatch for ${change.path}`);
-    const document: DocumentState = {
+    const document: ProjectedDocumentMetadata = {
       path: change.path as DocumentState["path"],
       blobSha256: change.candidate.sha256,
-      body,
       size: docByteLength(change.candidate.size),
       mediaType: change.candidate.mediaType,
       policyId: change.policyId,
       workspaceRevision: event.workspaceRevision,
     };
     upsertDocument(db, document);
-    refreshDecisionDocumentSearch(db, document);
+    if (needsSearchBody) refreshDecisionDocumentSearch(db, { path: change.path, body });
   }
   projectEmbeddedCanonicalEntities(db, event);
   const edge =
@@ -1022,10 +1037,11 @@ export function reduceBatch(
   limit: number,
   readBlob: EventStreamPort["readContentBlob"],
   head: ReturnType<EventStreamPort["readHead"]>,
+  readBlobSize?: EventStreamPort["readContentBlobSize"],
 ): ProjectionApplyReceipt {
   return transaction(db, () => {
     for (const event of events) stageEvent(db, event);
-    const reducedItems = drainDeferred(db, limit, readBlob, true);
+    const reducedItems = drainDeferred(db, limit, readBlob, true, readBlobSize);
     refreshRelationCycleAudit(db);
     const state = prepareQuery(db, SCAN_STATE_SQL, (sql) =>
       /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-event-application.sqlite-database */ db.prepare(
@@ -1123,10 +1139,29 @@ export function catchUpRound(
   }
   if (replayEvents.length > 0 && prefetch === undefined)
     throw new Error("event stream must provide a verified batch content prefetch");
-  const prefetchedContent = replayEvents.length ? prefetch!(replayEvents) : new Map<string, Uint8Array | null>();
+  const batchReader = replayEvents.length > 0 ? batchContentReaderFor(prefetch) : undefined;
+  let prefetchedBytes: ReadonlyMap<string, Uint8Array | null>;
+  let prefetchedSizes: ReadonlyMap<string, number | null> | undefined;
+  if (replayEvents.length === 0) {
+    prefetchedBytes = new Map();
+  } else if (batchReader !== undefined) {
+    const { interpretedDigests, sizeOnlyDigests } = partitionBatchContentClaims(replayEvents);
+    prefetchedBytes = interpretedDigests.size > 0 ? batchReader.prefetchBytes(interpretedDigests) : new Map();
+    prefetchedSizes = sizeOnlyDigests.size > 0 ? batchReader.prefetchSizes(sizeOnlyDigests) : new Map();
+  } else {
+    prefetchedBytes = prefetch!(replayEvents);
+  }
+  const readBatchBlob: EventStreamPort["readContentBlob"] = (sha256) => prefetchedBytes.get(sha256) ?? null;
+  const readBatchBlobSize: EventStreamPort["readContentBlobSize"] = (sha256) => {
+    if (prefetchedBytes.has(sha256)) return prefetchedBytes.get(sha256)?.byteLength ?? null;
+    if (prefetchedSizes?.has(sha256)) return prefetchedSizes.get(sha256) ?? null;
+    return null;
+  };
+  const readBatchDecisionBlob: EventStreamPort["readContentBlob"] = (sha256) =>
+    prefetchedBytes.has(sha256) ? (prefetchedBytes.get(sha256) ?? null) : eventStore.readContentBlob(sha256);
   const reducedItems = transaction(db, () => {
     if (directlyApplicable && batch !== null) {
-      applyDirectBatch(db, batch.events, prefetchedContent);
+      applyDirectBatch(db, batch.events, readBatchBlob, readBatchBlobSize, readBatchDecisionBlob);
       const last = batch.events.at(-1)!;
       runSql(db, "UPDATE projection_meta SET watermark = ? WHERE singleton = 1", last.workspaceRevision);
       if (batch.done)
@@ -1151,7 +1186,14 @@ export function catchUpRound(
         );
       else runSql(db, "UPDATE projection_meta SET scan_cursor = ? WHERE singleton = 1", batch.cursor);
     }
-    const reduced = drainDeferred(db, limit, (sha256) => prefetchedContent.get(sha256) ?? null, allowRevisionGaps);
+    const reduced = drainDeferred(
+      db,
+      limit,
+      readBatchBlob,
+      allowRevisionGaps,
+      readBatchBlobSize,
+      readBatchDecisionBlob,
+    );
     if (bulkRebuildContext(db) === undefined) refreshRelationCycleAudit(db);
     return reduced;
   });
@@ -1168,9 +1210,10 @@ export function catchUpRound(
 function applyDirectBatch(
   db: DatabaseSync,
   events: readonly PersistedCanonicalEventV1[],
-  content: ReadonlyMap<string, Uint8Array | null>,
+  readBlob: EventStreamPort["readContentBlob"],
+  readBlobSize?: EventStreamPort["readContentBlobSize"],
+  readDecisionBlob?: EventStreamPort["readContentBlob"],
 ): void {
-  const readBlob = (sha256: string) => content.get(sha256) ?? null;
   const prepared = events.map((event) => {
     const persistedEvent = canonicalizeWriteValue(event) as PersistedCanonicalEventV1,
       eventJson = persistedEventJson(event);
@@ -1196,7 +1239,7 @@ function applyDirectBatch(
         continue;
       }
     }
-    applyEvent(db, first.event, first.eventJson, readBlob);
+    applyEvent(db, first.event, first.eventJson, readBlob, readBlobSize, readDecisionBlob);
     index += 1;
   }
 }
@@ -1334,6 +1377,8 @@ function drainDeferred(
   limit: number,
   readBlob: EventStreamPort["readContentBlob"],
   allowRevisionGaps = false,
+  readBlobSize?: EventStreamPort["readContentBlobSize"],
+  readDecisionBlob?: EventStreamPort["readContentBlob"],
 ): number {
   let next = watermark(db),
     reduced = 0;
@@ -1346,11 +1391,114 @@ function drainDeferred(
     if (row === undefined) break;
     const event = JSON.parse(row.event_json) as PersistedCanonicalEventV1;
     const normalized = normalizePersistedCanonicalEvent(event);
-    applyEvent(db, normalized, row.event_json, readBlob);
+    applyEvent(db, normalized, row.event_json, readBlob, readBlobSize, readDecisionBlob);
     runSql(db, "DELETE FROM event_source WHERE workspace_revision = ?", event.workspaceRevision);
     next = event.workspaceRevision;
     reduced += 1;
   }
   runSql(db, "UPDATE projection_meta SET watermark = ? WHERE singleton = 1", next);
   return reduced;
+}
+
+function isInterpretedDecisionPath(documentPath: string, policyId?: string): boolean {
+  return policyId === DECISION_DOCUMENT_POLICY_ID || decisionDocumentPattern.test(documentPath);
+}
+
+function partitionBatchContentClaims(events: readonly PersistedCanonicalEventV1[]): {
+  readonly interpretedDigests: ReadonlySet<string>;
+  readonly sizeOnlyDigests: ReadonlySet<string>;
+} {
+  const interpreted = new Set<string>();
+  const all = new Set<string>();
+  const addInterpreted = (sha256: string | undefined) => {
+    if (typeof sha256 === "string" && sha256.length > 0) interpreted.add(sha256);
+  };
+  for (const rawEvent of events) {
+    const event = normalizeHistoricalEvent(rawEvent);
+    if (isRetiredCiRunObservationEvent(event)) continue;
+    if (
+      !canonicalEventSchemas.some((candidate) => candidate.schema === event.schema) ||
+      isUnknownForwardCanonicalEventType(event)
+    )
+      continue;
+    for (const claim of contentClaims(event)) all.add(claim.sha256);
+    if (isTaskBootstrapEvent(event)) {
+      addInterpreted(event.payload.presetSnapshotClaim?.sha256);
+      continue;
+    }
+    if (isPresetSnapshotUpgradeEvent(event)) {
+      addInterpreted(event.payload.presetSnapshotClaim?.sha256);
+      continue;
+    }
+    if (isEntityEvent(event) && isEntityDeclarationEvent(event) && event.type !== "entity_reference_declared") {
+      addInterpreted(event.payload.declarationDocumentClaim?.sha256);
+      for (const owned of entityOwnedDocumentClaims(ownedContentForDeclarationEvent(event))) {
+        if (isInterpretedDecisionPath(owned.path, owned.policyId)) addInterpreted(owned.sha256);
+      }
+      continue;
+    }
+    if (isScheduleEvent(event)) {
+      if ("declarationDocumentClaim" in event.payload) addInterpreted(event.payload.declarationDocumentClaim?.sha256);
+      continue;
+    }
+    if (isSettingsEvent(event)) {
+      addInterpreted(event.payload.harnessDocumentClaim?.sha256);
+      continue;
+    }
+    if (isVerticalDeclarationEvent(event)) {
+      addInterpreted(event.payload.declarationDocumentClaim?.sha256);
+      continue;
+    }
+    if (isRetiredPeopleEvent(event)) {
+      addInterpreted(event.payload.peopleDocumentClaim?.sha256);
+      continue;
+    }
+    if (isDecisionEvent(event)) {
+      addInterpreted(event.payload.decisionDocumentClaim?.sha256);
+      if (event.type === "decision_review_recorded") {
+        for (const change of event.payload.carriedDocumentClaims ?? []) {
+          if (isInterpretedDecisionPath(change.path, change.policyId)) addInterpreted(change.candidate?.sha256);
+        }
+      }
+      continue;
+    }
+    if (isMigrationImportEvent(event)) {
+      if (event.payload.entity.kind === "decision") addInterpreted(event.payload.entity.documentClaim?.sha256);
+      continue;
+    }
+    if (isDocEvent(event)) {
+      for (const change of event.payload.changes) {
+        if (change.candidate !== null && isInterpretedDecisionPath(change.path, change.policyId))
+          addInterpreted(change.candidate.sha256);
+      }
+      continue;
+    }
+    if (isTaskEvent(event)) {
+      for (const change of event.payload.carriedDocumentClaims ?? []) {
+        if (isInterpretedDecisionPath(change.path, change.policyId)) addInterpreted(change.candidate?.sha256);
+      }
+      continue;
+    }
+    if (isTaskProgressEvent(event)) {
+      for (const change of event.payload.carriedDocumentClaims ?? []) {
+        if (isInterpretedDecisionPath(change.path, change.policyId)) addInterpreted(change.candidate?.sha256);
+      }
+      continue;
+    }
+    if (isEntityDocumentEvent(event) || isDossierSynthesisEvent(event)) {
+      for (const claim of event.payload.documentClaims) {
+        if (isInterpretedDecisionPath(claim.path, claim.policyId)) addInterpreted(claim.sha256);
+      }
+      continue;
+    }
+    if (isRelationEvent(event)) {
+      for (const claim of event.payload.documentClaims ?? []) {
+        if (isInterpretedDecisionPath(claim.path, claim.policyId)) addInterpreted(claim.sha256);
+      }
+      continue;
+    }
+  }
+  const sizeOnly = new Set<string>();
+  for (const digest of all) if (!interpreted.has(digest)) sizeOnly.add(digest);
+  return { interpretedDigests: interpreted, sizeOnlyDigests: sizeOnly };
 }

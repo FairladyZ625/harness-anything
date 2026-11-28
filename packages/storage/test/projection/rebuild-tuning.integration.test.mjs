@@ -276,7 +276,7 @@ test("tuned offline rebuild overrides catchUpLimit: 32 to bulk 4096 with byte-id
       assert.equal(rebuildReceipt.metrics.maxBatchItems, totalRevisions);
       assert.equal(rebuildReceipt.metrics.storeTransactions, 2);
 
-      // Byte-identical stateDigest and schema_version === 39.
+      // Byte-identical stateDigest and schema_version === 40.
       const incrementalDigest = incremental.readStateDigest();
       assert.ok(incrementalDigest !== null);
       assert.equal(rebuildReceipt.stateDigest, incrementalDigest);
@@ -300,7 +300,7 @@ test("tuned offline rebuild overrides catchUpLimit: 32 to bulk 4096 with byte-id
       try {
         const meta = verifyDb.prepare("SELECT schema_version FROM projection_meta WHERE singleton = 1").get();
         assert.equal(Number(meta.schema_version), taskProjectionSchemaVersion);
-        assert.equal(taskProjectionSchemaVersion, 39);
+        assert.equal(taskProjectionSchemaVersion, 40);
       } finally {
         verifyDb.close();
       }

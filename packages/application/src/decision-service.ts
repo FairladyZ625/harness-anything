@@ -10,6 +10,7 @@ import {
   type FrozenWritePlan,
   type TaskProjection,
 } from "@harness-anything/kernel";
+import { decisionDocumentProse } from "@harness-anything/kernel/internal/domain/decision-event.ts";
 import type { DecisionListSummaryRow } from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
 import { FactServiceError } from "./fact-service.ts";
 
@@ -63,21 +64,41 @@ export function makeDecisionService(options: {
     if (existing === null) options.projection.admitDecision(event);
     const appended = options.eventStore.append(bundle);
     if (existing === null) options.projection.apply(event, bundle.plan);
-    const read = options.projection.readDecision(event.decisionId);
+    const claim = event.payload.decisionDocumentClaim;
+    const writtenBlob = existing === null ? bundle.blobs.find((blob) => blob.sha256 === claim.sha256) : undefined;
+    const read = options.projection.readDecision(event.decisionId, writtenBlob === undefined);
     if (read.status !== "ready" || !read.decision)
       throw new FactServiceError(
         "content_not_ready",
         `Decision ${event.decisionId} is not projected at revision ${appended.revision}.`,
       );
+    const decision: DecisionProjectionRow =
+      writtenBlob === undefined
+        ? read.decision
+        : {
+            ...read.decision,
+            body: {
+              path: claim.path,
+              blobSha256: claim.sha256,
+              size: claim.size,
+              mediaType: claim.mediaType,
+              body: decisionDocumentProse(
+                typeof writtenBlob.body === "string"
+                  ? writtenBlob.body
+                  : new TextDecoder("utf-8", { fatal: true }).decode(writtenBlob.body),
+              ),
+              workspaceRevision: event.workspaceRevision,
+            },
+          };
     return {
       status: "ready",
-      decision: read.decision,
+      decision,
       revision: appended.revision,
       watermark: read.watermark,
       commitSha: appended.commitSha?.sha ?? null,
       cut: appended.cut,
-      path: event.payload.decisionDocumentClaim.path,
-      documentSha256: event.payload.decisionDocumentClaim.sha256,
+      path: claim.path,
+      documentSha256: claim.sha256,
     };
   };
   function list(filters: DecisionListFilters, selection: "summary"): DecisionProjectionListRead<DecisionListSummaryRow>;

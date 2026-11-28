@@ -6,6 +6,7 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { parseCanonicalEvent } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
 import { isRetiredPeopleEvent } from "@harness-anything/kernel/internal/domain/people-event.ts";
+import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { withTempStore } from "./helpers.ts";
 
@@ -42,7 +43,11 @@ test("retired People cold replay keeps the audit and never projects current peop
       ...event,
       payload: {
         ...event.payload,
-        peopleDocumentClaim: { ...event.payload.peopleDocumentClaim, size: Buffer.byteLength(body) },
+        peopleDocumentClaim: {
+          ...event.payload.peopleDocumentClaim,
+          sha256: sha256Text(body),
+          size: Buffer.byteLength(body),
+        },
       },
     };
     const projection = projectionAt(rootDir, body, replayEvent);
@@ -82,7 +87,11 @@ test("opening a version 25 cache replays the omitted audit document without chan
       ...event,
       payload: {
         ...event.payload,
-        peopleDocumentClaim: { ...event.payload.peopleDocumentClaim, size: Buffer.byteLength(body) },
+        peopleDocumentClaim: {
+          ...event.payload.peopleDocumentClaim,
+          sha256: sha256Text(body),
+          size: Buffer.byteLength(body),
+        },
       },
     };
     const original = projectionAt(rootDir, body, replayEvent);

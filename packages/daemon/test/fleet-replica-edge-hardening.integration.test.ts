@@ -668,12 +668,20 @@ test(
     const writeFile = handlePrototype.writeFile,
       pause = TLSSocket.prototype.pause;
     let pauses = 0,
+      writtenBytes = 0,
       release!: () => void;
     const paused = new Promise<void>((resolve) => {
       release = resolve;
     });
     handlePrototype.writeFile = async function (this: unknown, ...args: unknown[]) {
-      await paused;
+      const chunk = args[0];
+      const chunkBytes =
+        typeof chunk === "string" ? Buffer.byteLength(chunk) : ArrayBuffer.isView(chunk) ? chunk.byteLength : 0;
+      writtenBytes += chunkBytes;
+      // Schema v40 base.tar.gz omits inline document bodies so the ~50MB bulk payload streams in
+      // the split object pack right after the small metadata archive; stall once staged writes
+      // cross the metadata archive so the bulk stream fills the receive window and pauses the socket.
+      if (writtenBytes > 512 * 1024) await paused;
       return writeFile.apply(this, args);
     };
     TLSSocket.prototype.pause = function (this: TLSSocket) {

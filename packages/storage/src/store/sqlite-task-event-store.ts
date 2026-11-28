@@ -30,6 +30,7 @@ import type {
 import { TaskEventStoreError } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import type { SqliteStorageBackendConfig } from "../storage-backend.ts";
 import { openSqliteEventStore } from "./sqlite-event-store.ts";
+import { registerBatchContentReader, registerVerifiedContentBlobReader } from "./content-objects.ts";
 import type { SqliteCommandOutcome, SqliteEventStore, SqliteOutboxBaseline } from "./sqlite-event-store-types.ts";
 import { assertAuthorizedReplacements } from "./task-event-store-replacement-authorization.ts";
 
@@ -141,6 +142,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
   const head = (): EventHead | null => sqlite.headIdentity();
   const cut = () => canonicalLedgerCut(options.repoId, head());
   const readContent = (sha256: string) => sqlite.readContentObject(sha256);
+  registerVerifiedContentBlobReader(readContent, (sha256) => sqlite.readVerifiedContentObject(sha256));
 
   const gitFollower = options.attachGitFollower?.({
     input,
@@ -167,6 +169,8 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       options.killpoint?.("before_event_write");
       options.killpoint?.("after_event_write");
       const receipt = options.canonicalWriter.append(bundle, { authoredRoot: latestAppendLayout.authoredRoot });
+      const committedBlobs = [...(bundle.preceding ?? []), bundle].flatMap((member) => member.blobs);
+      if (committedBlobs.length > 0) sqlite.rememberContentObjects(committedBlobs);
       try {
         options.killpoint?.("after_store_commit");
         gitFollower?.request();
@@ -386,15 +390,26 @@ export function sqliteEventBatch(
       sourceRevision: sqlite.revision(),
     })),
     next = selected.at(-1)?.workspaceRevision ?? start;
+  const prefetchContent: NonNullable<EventFileBatch["prefetchContent"]> = (replay) =>
+    new Map(replay.flatMap((event) => contentClaims(event).map((claim) => [claim.sha256, readContent(claim.sha256)])));
+  registerBatchContentReader(prefetchContent, {
+    prefetchBytes: (digests) => {
+      const map = new Map<string, Uint8Array | null>();
+      for (const sha256 of digests) map.set(sha256, readContent(sha256));
+      return map;
+    },
+    prefetchSizes: (digests) => {
+      const map = new Map<string, number | null>();
+      for (const sha256 of digests) map.set(sha256, sqlite.readContentObjectSize(sha256));
+      return map;
+    },
+  });
   return {
     sourceRevision,
     events: selected,
     cursor: selected.length ? String(next) : cursor,
     done: next >= sourceRevision,
     accessedItems: selected.length,
-    prefetchContent: (replay) =>
-      new Map(
-        replay.flatMap((event) => contentClaims(event).map((claim) => [claim.sha256, readContent(claim.sha256)])),
-      ),
+    prefetchContent,
   };
 }

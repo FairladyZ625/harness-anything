@@ -6,16 +6,16 @@ import {
   type DecisionDocumentState,
 } from "@harness-anything/kernel/internal/domain/decision-event.ts";
 import type { DecisionListReview } from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
-import type { DocumentState } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import {
   canonicalDocumentClaims,
   canonicalDocumentRetirements,
 } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
+import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import type { DecisionBodyRow } from "@harness-anything/kernel";
-import { prepareQuery } from "./rebuildable-task-projection-sql.ts";
+import { decisionDocumentPattern, hydrateDocumentRow, prepareQuery } from "./rebuildable-task-projection-sql.ts";
 
-export const decisionDocumentPattern = /^decisions\/decision-(dec_[A-Za-z0-9_-]+)\/decision\.md$/u;
+export { decisionDocumentPattern };
 
 export function changedDecisionDocuments(event: PersistedCanonicalEventV1): Set<string> {
   const owners = new Set<string>();
@@ -48,18 +48,26 @@ export function projectDecisionListReview(state: DecisionDocumentState, prose: s
   };
 }
 
-export function readDecisionBody(db: DatabaseSync, decisionId: string): DecisionBodyRow | null {
+export function readDecisionBody(
+  db: DatabaseSync,
+  decisionId: string,
+  readBlob?: EventStreamPort["readContentBlob"],
+): DecisionBodyRow | null {
   const path = `decisions/decision-${decisionId}/decision.md`,
     row = prepareQuery(
       db,
       "SELECT value_json FROM document WHERE path=? UNION ALL SELECT value_json FROM document_history WHERE path=? LIMIT 1",
     ).get(path, path) as { readonly value_json: string } | undefined;
-  return row ? decisionBodyFromDocument(decisionId, row.value_json) : null;
+  return row ? decisionBodyFromDocument(decisionId, row.value_json, readBlob) : null;
 }
 
-export function decisionBodyFromDocument(decisionId: string, valueJson: string): DecisionBodyRow {
+export function decisionBodyFromDocument(
+  decisionId: string,
+  valueJson: string,
+  readBlob?: EventStreamPort["readContentBlob"],
+): DecisionBodyRow {
   const path = `decisions/decision-${decisionId}/decision.md`,
-    document = JSON.parse(valueJson) as DocumentState;
+    document = hydrateDocumentRow(valueJson, readBlob);
   return {
     path,
     blobSha256: document.blobSha256,

@@ -91,7 +91,12 @@ import { knowledgeQueryApi } from "./rebuildable-task-projection-knowledge-queri
 import { entityQueryApi } from "./rebuildable-task-projection-entity-api.ts";
 import { runtimeLeaseApi } from "./rebuildable-task-projection-runtime-api.ts";
 import { taskQueryApi } from "./rebuildable-task-projection-task-queries.ts";
-import { readStateDigest, readProjectionCut, watermark } from "./rebuildable-task-projection-sql.ts";
+import {
+  readStateDigest,
+  readProjectionCut,
+  resolveContentBlobReader,
+  watermark,
+} from "./rebuildable-task-projection-sql.ts";
 import {
   resolveStorageBackend,
   unsupportedStorageBackendError,
@@ -174,6 +179,7 @@ export function makeTaskProjection(
         readHead,
         (db) => transaction(db, () => initializeTerminalMaterialization(db, options.eventStore.readContentBlob)),
         options.onValidationProgress,
+        options.eventStore.readContentBlob,
       );
     } catch (error) {
       if (error instanceof ProjectionSchemaMismatchError) {
@@ -238,7 +244,14 @@ export function makeTaskProjection(
         );
       // As with schema repair at open, prerequisite replay is separate from this apply receipt.
       return withDatabase(projectionPath, readHead, (db) =>
-        reduceBatch(db, [event], limit, options.eventStore.readContentBlob, options.eventStore.readHead()),
+        reduceBatch(
+          db,
+          [event],
+          limit,
+          options.eventStore.readContentBlob,
+          options.eventStore.readHead(),
+          options.eventStore.readContentBlobSize,
+        ),
       );
     },
     rebuild: () => {
@@ -321,6 +334,7 @@ export interface TaskProjectionReaderFactoryOptions {
   readonly rootDir: string;
   readonly projectionPath?: string;
   readonly now?: () => string;
+  readonly readContentBlob?: EventStreamPort["readContentBlob"];
 }
 export interface PostgresTaskProjectionReaderFactoryOptions
   extends Omit<TaskProjectionReaderFactoryOptions, "rootDir" | "storage"> {
@@ -356,7 +370,8 @@ export function makeTaskProjectionReader(
   }
   requireSqliteBackend(options);
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir ?? ""),
-    now = options.now ?? (() => new Date().toISOString());
+    now = options.now ?? (() => new Date().toISOString()),
+    readContentBlob = options.readContentBlob ?? resolveContentBlobReader(projectionPath, options.rootDir);
   let publishedHead: ReturnType<EventStreamPort["readHead"]> = null;
   const readHead = () => publishedHead,
     unavailableSource: EventStreamPort = {
@@ -364,7 +379,7 @@ export function makeTaskProjectionReader(
       readBatch: () => {
         throw new Error("query-only projection reader cannot catch up from the canonical event source");
       },
-      readContentBlob: () => null,
+      readContentBlob,
     },
     context: ProjectionContext = {
       projectionPath,
