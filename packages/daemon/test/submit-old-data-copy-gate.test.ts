@@ -11,7 +11,13 @@ import { submitTask } from "../src/daemon-host/repo-cell-submit.ts";
 import { readCloseoutSubmission } from "./closeout-submission.fixture.ts";
 import { prepareSubmissionDelivery } from "../src/daemon-host/submission-delivery.ts";
 import { preparedSubmission } from "../src/daemon-host/submission-preparation.ts";
-import { judgeOldDataCopyReceipt, oldDataCopyReceiptPath } from "../src/daemon-host/submit-old-data-copy.ts";
+import {
+  isFullOldDataCopyPath,
+  judgeOldDataCopyReceipt,
+  oldDataCopyCommand,
+  oldDataCopyReceiptPath,
+  requiredOldDataCopyTier,
+} from "../src/daemon-host/submit-old-data-copy.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const packagePath = "tasks/task-1",
@@ -237,7 +243,7 @@ test("submit refuses a migration-surface cut with no old-data-copy receipt and n
   assert.match(error.message, new RegExp(head, "u"));
   assert.equal(
     error.nextAction,
-    `node tools/old-data-copy-evidence.mjs --build . --out harness/${packagePath}/artifacts/old-data-copy-evidence`,
+    `node tools/old-data-copy-evidence.mjs --tier golden --build . --out harness/${packagePath}/artifacts/old-data-copy-evidence`,
   );
   // The same refusal reaches the real submit entry, not only its derivation.
   const submitted = await submit();
@@ -341,4 +347,81 @@ test("the receipt judge binds the cut and reports a missing failure phase honest
     receiptFor(cut, { failures: { phase: "cold-rebuild" } }),
   ])
     assert.match(judgeOldDataCopyReceipt(body, cut).reason ?? "", /does not record a failures array/u);
+});
+
+test("tiered old-data-copy routing: ordinary cuts accept golden or full; schema-format cuts require full", async (t) => {
+  // 1. Ordinary data-migration cut accepts golden, full, and legacy omitted-tier receipts.
+  const ordinary = fixture(t, {
+    changedPath: "packages/storage/src/store/content-objects.ts",
+    pathReviewers: ["data-migration packages/storage/src/store/"],
+  });
+  for (const body of [
+    receiptFor(ordinary.head, { tier: "golden" }),
+    receiptFor(ordinary.head, { tier: "full" }),
+    receiptFor(ordinary.head),
+  ]) {
+    ordinary.setReceipt(body);
+    const res = await ordinary.derive();
+    assert.equal(res.ok, true, res.ok ? "" : res.error.message);
+  }
+
+  // 2. Schema-format-changing cut escalates to tier "full": rejects golden, accepts full & legacy.
+  const schemaCut = fixture(t, {
+    changedPath: "packages/storage/src/projection/projection-schema.ts",
+    pathReviewers: ["data-migration packages/storage/src/projection/"],
+  });
+  const missingErr = await rejection(schemaCut.derive());
+  assert.equal(missingErr.code, "invalid_submission");
+  assert.match(missingErr.message, /tier "full"/u);
+  assert.equal(missingErr.nextAction, oldDataCopyCommand(packagePath, "full"));
+
+  schemaCut.setReceipt(receiptFor(schemaCut.head, { tier: "golden" }));
+  const goldenErr = await rejection(schemaCut.derive());
+  assert.equal(goldenErr.code, "invalid_submission");
+  assert.match(goldenErr.message, /is tier "golden".*requires tier "full"/u);
+  assert.equal(goldenErr.nextAction, oldDataCopyCommand(packagePath, "full"));
+
+  schemaCut.setReceipt(receiptFor(schemaCut.head, { tier: "full" }));
+  const fullRes = await schemaCut.derive();
+  assert.equal(fullRes.ok, true, fullRes.ok ? "" : fullRes.error.message);
+
+  schemaCut.setReceipt(receiptFor(schemaCut.head));
+  const legacyRes = await schemaCut.derive();
+  assert.equal(legacyRes.ok, true, legacyRes.ok ? "" : legacyRes.error.message);
+
+  // 3. Path classifier and receipt judge edge cases.
+  for (const fullPath of [
+    "packages/storage/src/projection/projection-schema.ts",
+    "packages/storage/src/projection/projection-tables.ts",
+    "packages/storage/src/pg/pg-projection-schema.ts",
+    "packages/storage/src/store/sqlite-event-store.ts",
+    "packages/storage/src/store/attach-migrations.ts",
+    "packages/storage/src/migration/sqlite-control.ts",
+    "packages\\storage\\src\\projection\\projection-schema.ts",
+  ]) {
+    assert.equal(isFullOldDataCopyPath(fullPath), true, fullPath);
+    assert.equal(requiredOldDataCopyTier([fullPath]), "full", fullPath);
+  }
+  assert.equal(requiredOldDataCopyTier(["packages/storage/src/immutable-tree-clone.ts"]), "golden");
+  assert.equal(
+    requiredOldDataCopyTier(
+      ["packages/storage/src/store/content-objects.ts"],
+      ["packages/storage/src/projection/projection-schema.ts"],
+    ),
+    "full",
+  );
+
+  const cut = "c".repeat(40);
+  assert.equal(judgeOldDataCopyReceipt(receiptFor(cut, { tier: "golden" }), cut, "golden").ok, true);
+  assert.equal(judgeOldDataCopyReceipt(receiptFor(cut, { tier: "full" }), cut, "golden").ok, true);
+  assert.equal(judgeOldDataCopyReceipt(receiptFor(cut), cut, "full").ok, true);
+  assert.match(
+    judgeOldDataCopyReceipt(receiptFor(cut, { tier: "golden" }), cut, "full").reason ?? "",
+    /requires tier "full"/u,
+  );
+  assert.match(
+    judgeOldDataCopyReceipt(receiptFor(cut, { tier: "smoke" }), cut, "golden").reason ?? "",
+    /invalid tier/u,
+  );
+  assert.match(judgeOldDataCopyReceipt(receiptFor(cut, { tier: 1 }), cut, "golden").reason ?? "", /invalid tier/u);
 });

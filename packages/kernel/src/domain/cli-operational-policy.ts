@@ -751,6 +751,26 @@ export const daemonOntologyPolicies = [
       "policy:packages/daemon:packages/daemon/src/daemon-host/attach-timeout.ts#parseDaemonAttachTimeoutMs:eef1c063d263705ec0c293bf36244bc9",
     ].map((candidateId) => ({ candidateId, route: "daemon-attach-timeout" })),
   },
+  {
+    id: "daemon-old-data-copy-tier",
+    ownerRef: "host",
+    unit: "tier vocabulary (golden | full)",
+    bounds:
+      "Ordinary data-migration cuts require at least Tier 1 (golden); cuts modifying persistent SQLite/PostgreSQL projection, ledger, or migration schema format files require Tier 2 (full). Legacy receipts omitting tier count as full; invalid tier values fail closed.",
+    defaultValue: "golden",
+    version: 1,
+    scope: "Submit-time old-data-copy evidence receipt tier routing (dec_3375D713F1A0D4F89FF269B990 CH3)",
+    reason:
+      "Keep PR old-data verification under 30s cross-platform via a deterministic full-morphology golden snapshot while requiring full live canonical verification whenever persistent schema/migration formats change, with zero net new gates.",
+    fixtures: [
+      "packages/daemon/test/submit-old-data-copy-gate.test.ts",
+      "packages/daemon/test/submit-old-data-copy-gate.integration.test.ts",
+    ],
+    sources: [
+      "policy:packages/daemon:packages/daemon/src/daemon-host/submit-old-data-copy.ts#judgeOldDataCopyReceipt:c336465dd90c17f4fd635e0a2b755f13",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/submit-old-data-copy.ts#parseReceiptTier:b8fc3c14abdefc77a9031b1dc36397fa",
+    ].map((candidateId) => ({ candidateId, route: "daemon-old-data-copy-tier" })),
+  },
 ] as const satisfies readonly OntologyPolicyDeclaration[];
 
 // dec_7E44897ECDCAEF2B92EC66A260/CH1: host-wide action catalog vocabulary and read budgets declared by the kernel.

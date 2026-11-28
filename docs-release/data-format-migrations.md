@@ -116,9 +116,14 @@ The "new code starts and reads a real old copy, and a full cold rebuild succeeds
 migration review is produced by a single command, never by hand-assembled copies:
 
 ```sh
-node tools/old-data-copy-evidence.mjs [--source <repo-root>] [--build <worktree|sha>]
+node tools/old-data-copy-evidence.mjs [--tier <golden|full>] [--source <repo-root>] [--build <worktree|sha>]
        [--out <dir>] [--keep] [--reuse-workspace <ws>] [--cold-attach] [--medium-submit]
 ```
+
+Two tiers share this single gate (`dec_3375D713F1A0D4F89FF269B990` CH3, net gate count +0):
+
+- **Tier 1 (`--tier golden`)**: deterministically generates a condensed full-morphology Gen-3 snapshot (~2,000+ events covering every registered canonical event schema, retired `ci-run-observation/v1..v4`, retired `people-event/v1`, historical retired-field normalizations, and archived Fact warm/cold parity) inside the temporary workspace and runs it through the exact same snapshot, isolated daemon attach, direct-evidence, and cold-rebuild pipeline in under 30 seconds cross-platform. Sufficient for ordinary `data-migration` PR cuts that do not modify persistent schema or migration formats.
+- **Tier 2 (`--tier full`, default when omitted)**: snapshots and cold-rebuilds the live canonical ledger. Required by `ha task submit` whenever a cut modifies `taskProjectionSchemaVersion` or persistent SQLite/PostgreSQL projection, ledger, or migration format files (`FULL_OLD_DATA_COPY_PATHS` / `FULL_OLD_DATA_COPY_PATH_PREFIXES`), and run on nightly/release cuts. A `full` receipt (as well as legacy receipts without `tier`) also satisfies a `golden` requirement.
 
 Run it from any checkout of this repository. It snapshots the live source workspace into a
 system temp directory (git local clone of `harness/`, block clone of `store/generations`,
