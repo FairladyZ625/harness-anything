@@ -317,17 +317,9 @@ test("fleet backfill and incremental writes keep unique, bounded node activity o
     ).run(JSON.stringify({ outcome: "succeeded" }), edge);
     for (let revision = 26; revision <= 37; revision++) {
       insert(revision, "runtime_dispatch_requested", "task_25", "runtime-session/runtime_edge");
-      db.prepare("INSERT INTO event_index(op_id,workspace_revision,task_id,event_json) VALUES(?, ?, ?, ?)").run(
-        `op-${revision}`,
-        revision,
-        "task_25",
-        JSON.stringify({
-          payload: {
-            dispatchId: `dispatch_${revision}`,
-            runtimeSessionId: "runtime_edge",
-          },
-        }),
-      );
+      db.prepare(
+        "INSERT INTO event_index(op_id,workspace_revision,task_id,dispatch_id,runtime_session_id) VALUES(?, ?, ?, ?, ?)",
+      ).run(`op-${revision}`, revision, "task_25", `dispatch_${revision}`, "runtime_edge");
     }
     for (let revision = 38; revision <= 108; revision++) insert(revision, "task_completed", "task_center", "local");
     const page = queries.readEventSummaries(58, 50, { fleetNodeIds: [edge] });

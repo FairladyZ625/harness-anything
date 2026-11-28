@@ -240,12 +240,12 @@ test("runtime events use the canonical envelope, head, store, and the shared pro
     try {
       const plan = db
         .prepare(
-          "EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? AND json_extract(event_json, '$.payload.definitionSnapshotRef') = ? ORDER BY workspace_revision LIMIT 1",
+          "EXPLAIN QUERY PLAN SELECT workspace_revision FROM event_index WHERE event_schema = 'agent-runtime-event/v1' AND event_type = 'runtime_dispatch_requested' AND runtime_session_id = ? AND definition_snapshot_ref = ? ORDER BY workspace_revision LIMIT 1",
         )
         .all("runtime-session-claude", session!.definitionSnapshotRef) as readonly { readonly detail: string }[];
       assert.match(
         plan.map(({ detail }) => detail).join("\n"),
-        /SEARCH event_index USING INDEX event_index_runtime_dispatch_lookup/u,
+        /SEARCH event_index USING (?:COVERING )?INDEX event_index_runtime_dispatch_lookup/u,
       );
     } finally {
       db.close();
@@ -360,15 +360,16 @@ test("historical idempotencyKey dispatch is readable by the unified dispatch key
         ...current,
         payload: { ...currentPayload, idempotencyKey: dispatchKey },
       } as unknown as AgentRuntimeEventV1;
-    // Write the current shape so the ledger head matches, then leave the cache carrying the
-    // pre-rename bytes as an existing projection does before the read-index expansion runs.
+    // Write the current shape so the ledger head matches, then re-extract the scalar row from the
+    // pre-rename historical `idempotencyKey` bytes to verify unified `dispatch_key` indexing.
     store.append(bundle(current));
     projection.apply(current);
     const db = new DatabaseSync(projection.path);
     try {
-      db.exec("DROP TRIGGER IF EXISTS runtime_dispatch_key_0; DROP TRIGGER IF EXISTS runtime_dispatch_key_1");
-      db.prepare("UPDATE event_index SET event_json=?,dispatch_key=NULL WHERE op_id=?").run(
-        serializePersistedCanonicalEvent(historical),
+      const historicalJson = serializePersistedCanonicalEvent(historical);
+      const parsed = JSON.parse(historicalJson) as { readonly payload: { readonly idempotencyKey?: string } };
+      db.prepare("UPDATE event_index SET dispatch_key = ? WHERE op_id = ?").run(
+        parsed.payload.idempotencyKey ?? "",
         current.opId,
       );
       ensureRuntimeMemberIndex(db);
@@ -383,12 +384,12 @@ test("historical idempotencyKey dispatch is readable by the unified dispatch key
     try {
       const plan = planDb
         .prepare(
-          "EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested' AND dispatch_key = ? ORDER BY workspace_revision LIMIT 1",
+          "EXPLAIN QUERY PLAN SELECT workspace_revision, dispatch_id FROM event_index WHERE event_schema = 'agent-runtime-event/v1' AND event_type = 'runtime_dispatch_requested' AND dispatch_key = ? ORDER BY workspace_revision LIMIT 1",
         )
         .all(dispatchKey) as readonly { readonly detail: string }[];
       assert.match(
         plan.map(({ detail }) => detail).join("\n"),
-        /SEARCH event_index USING INDEX event_index_runtime_dispatch_key/u,
+        /SEARCH event_index USING (?:COVERING )?INDEX event_index_runtime_dispatch_key/u,
       );
     } finally {
       planDb.close();

@@ -240,15 +240,15 @@ function applyEventProjection(
     !canonicalEventSchemas.some((candidate) => candidate.schema === event.schema) ||
     isUnknownForwardCanonicalEventType(event)
   ) {
-    runSql(
+    insertEventIndexRow(
       db,
-      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",
       event.opId,
       event.workspaceRevision,
       typeof (event as { readonly taskId?: unknown }).taskId === "string"
         ? (event as { readonly taskId: string }).taskId
         : null,
       eventJson,
+      event,
     );
     return;
   }
@@ -858,19 +858,13 @@ function applyEventProjection(
 
 function markUninterpretableEntityDeclaration(
   db: DatabaseSync,
-  event: Pick<PersistedCanonicalEventV1, "opId" | "workspaceRevision">,
+  event: PersistedCanonicalEventV1,
   eventJson: string,
   entityKind: string,
   entityId: string,
   value: unknown,
 ): void {
-  runSql(
-    db,
-    "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
-    event.opId,
-    event.workspaceRevision,
-    eventJson,
-  );
+  insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
   markEntityProjectionUninterpretable(db, entityKind, entityId, event.workspaceRevision, value);
 }
 
@@ -1316,13 +1310,31 @@ function stageEvent(db: DatabaseSync, event: PersistedCanonicalEventV1): void {
   // Historical ledger rows predate the removed fact and code/doc gates. New writes still use the
   // strict serializer.
   const eventJson = persistedEventJson(event);
-  const applied = prepareQuery(db, "SELECT event_json FROM event_index WHERE op_id = ?", (sql) =>
-    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-event-application.sqlite-database */ db.prepare(
-      sql,
-    ),
-  ).get(event.opId) as { readonly event_json: string } | undefined;
+  const applied = prepareQuery(
+    db,
+    "SELECT workspace_revision, event_schema, event_type, event_id, occurred_at FROM event_index WHERE op_id = ?",
+    (sql) =>
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-event-application.sqlite-database */ db.prepare(
+        sql,
+      ),
+  ).get(event.opId) as
+    | {
+        readonly workspace_revision: number;
+        readonly event_schema: string | null;
+        readonly event_type: string | null;
+        readonly event_id: string | null;
+        readonly occurred_at: string | null;
+      }
+    | undefined;
   if (applied !== undefined) {
-    if (applied.event_json !== eventJson) throw new Error(`projection opId ${event.opId} names different bytes`);
+    if (
+      Number(applied.workspace_revision) !== event.workspaceRevision ||
+      applied.event_schema !== event.schema ||
+      applied.event_type !== event.type ||
+      applied.event_id !== event.eventId ||
+      applied.occurred_at !== event.occurredAt
+    )
+      throw new Error(`projection opId ${event.opId} names different bytes`);
     return;
   }
   const staged = prepareQuery(

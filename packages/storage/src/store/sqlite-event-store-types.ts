@@ -188,6 +188,7 @@ export interface SqliteEventStore {
   readonly event: (opId: string) => CanonicalEventV1 | null;
   readonly eventById: (eventId: string) => CanonicalEventV1 | null;
   readonly eventAtRevision: (revision: number) => CanonicalEventV1 | null;
+  readonly eventsByRevisions: (revisions: readonly number[]) => ReadonlyMap<number, CanonicalEventV1>;
   readonly firstEntityEvent: (ref: string) => CanonicalEventV1 | null;
   readonly eventIdentity: (opId: string) => SqliteEventIdentity | null;
   readonly headIdentity: () => SqliteEventIdentity | null;

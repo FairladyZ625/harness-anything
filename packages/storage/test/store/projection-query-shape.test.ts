@@ -567,7 +567,7 @@ test("agenda source pages use covering keyset indexes and fetch only limit plus 
         updated_at TEXT NOT NULL DEFAULT '');
       CREATE TABLE task_package (task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL UNIQUE);
       CREATE TABLE task_generation (task_id TEXT PRIMARY KEY, generation TEXT NOT NULL);
-      CREATE TABLE event_index (workspace_revision INTEGER PRIMARY KEY, task_id TEXT NOT NULL, event_json TEXT NOT NULL);
+      CREATE TABLE event_index (workspace_revision INTEGER PRIMARY KEY, task_id TEXT NOT NULL, event_schema TEXT, event_type TEXT, occurred_at TEXT, migration_created_at TEXT);
       CREATE INDEX event_index_task_id ON event_index(task_id, workspace_revision);
       CREATE INDEX task_snapshot_revision_task ON task_snapshot(workspace_revision, task_id ASC);
       CREATE INDEX task_snapshot_agenda_status_pin ON task_snapshot(status, pinned DESC, task_id ASC);
@@ -642,16 +642,16 @@ test("task creation time comes from the earliest canonical event and preserves u
         status TEXT, pinned INTEGER NOT NULL GENERATED ALWAYS AS (0) STORED, updated_at TEXT NOT NULL DEFAULT '');
       CREATE TABLE task_package (task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL UNIQUE);
       CREATE TABLE task_generation (task_id TEXT PRIMARY KEY, generation TEXT NOT NULL);
-      CREATE TABLE event_index (workspace_revision INTEGER PRIMARY KEY, task_id TEXT NOT NULL, event_json TEXT NOT NULL);
+      CREATE TABLE event_index (workspace_revision INTEGER PRIMARY KEY, task_id TEXT NOT NULL, event_schema TEXT, event_type TEXT, occurred_at TEXT, migration_created_at TEXT);
       INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at) VALUES
         ('task_explicit', 4, '{}', 'planned', '2026-08-21T00:00:00.000Z'),
         ('task_fallback', 5, '{}', 'planned', '2026-08-21T00:00:00.000Z'),
         ('task_unknown', 6, '{}', 'planned', '2026-08-21T00:00:00.000Z');
-      INSERT INTO event_index VALUES
-        (1, 'task_explicit', '{"schema":"migration-import-event/v1","occurredAt":"2026-02-01T00:00:00.000Z","payload":{"createdAt":"2026-01-01T00:00:00.000Z"}}'),
-        (2, 'task_explicit', '{"occurredAt":"2025-12-01T00:00:00.000Z"}'),
-        (3, 'task_fallback', '{"occurredAt":"2026-03-01T00:00:00.000Z"}'),
-        (4, 'task_unknown', '{}');
+      INSERT INTO event_index(workspace_revision, task_id, event_schema, event_type, occurred_at, migration_created_at) VALUES
+        (1, 'task_explicit', 'migration-import-event/v1', 'entity_migrated', '2026-02-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
+        (2, 'task_explicit', 'task-event/v1', 'task_amended', '2025-12-01T00:00:00.000Z', NULL),
+        (3, 'task_fallback', 'task-event/v1', 'task_created', '2026-03-01T00:00:00.000Z', NULL),
+        (4, 'task_unknown', NULL, NULL, NULL, NULL);
     `);
     const rows = new Map(listTaskRowsNarrow(db, {}).rows.map((row) => [row.task_id, row.created_at]));
     assert.equal(rows.get("task_explicit"), "2026-01-01T00:00:00.000Z");
@@ -1324,7 +1324,7 @@ test("pinned presentation pages keep kernel cursors when roots become terminal b
     db.exec(`CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, status TEXT, snapshot_json TEXT, pinned INTEGER, workspace_revision INTEGER, updated_at TEXT);
       CREATE TABLE task_package (task_id TEXT PRIMARY KEY, package_path TEXT);
       CREATE TABLE task_generation (task_id TEXT PRIMARY KEY, generation TEXT);
-      CREATE TABLE event_index (task_id TEXT, workspace_revision INTEGER, event_json TEXT);
+      CREATE TABLE event_index (task_id TEXT, workspace_revision INTEGER, event_schema TEXT, event_type TEXT, occurred_at TEXT, migration_created_at TEXT);
       CREATE INDEX task_snapshot_parent ON task_snapshot(json_extract(snapshot_json, '$.task.metadata.parentTaskId'));`);
     const insert = db.prepare("INSERT INTO task_snapshot VALUES (?, ?, ?, ?, 1, '2026-09-30T00:00:00.000Z')");
     for (const [id, status, parent, pinned] of [
@@ -1363,7 +1363,7 @@ test("taskIds membership narrows the page before the limit and keeps cursor pagi
     db.exec(`CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, status TEXT, snapshot_json TEXT, pinned INTEGER, workspace_revision INTEGER, updated_at TEXT);
       CREATE TABLE task_package (task_id TEXT PRIMARY KEY, package_path TEXT);
       CREATE TABLE task_generation (task_id TEXT PRIMARY KEY, generation TEXT);
-      CREATE TABLE event_index (task_id TEXT, workspace_revision INTEGER, event_json TEXT);`);
+      CREATE TABLE event_index (task_id TEXT, workspace_revision INTEGER, event_schema TEXT, event_type TEXT, occurred_at TEXT, migration_created_at TEXT);`);
     const insert = db.prepare("INSERT INTO task_snapshot VALUES (?, ?, ?, 0, 1, '2026-10-08T00:00:00.000Z')"),
       // Active rows interleave the release work's members with another work's lanes, and by
       // task id the two foreign lanes open the sequence — the page shape the agenda bug hid behind.

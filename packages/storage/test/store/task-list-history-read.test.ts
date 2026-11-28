@@ -31,13 +31,16 @@ function seedLedger(db: DatabaseSync, fillerEvents: number, unrelatedTasks: numb
       op_id TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL UNIQUE,
       task_id TEXT,
-      event_json TEXT NOT NULL
+      event_schema TEXT,
+      event_type TEXT,
+      occurred_at TEXT,
+      migration_created_at TEXT
     );
     CREATE INDEX event_index_task_id ON event_index_base (task_id);
     CREATE INDEX event_index_task_created ON event_index_base (task_id, workspace_revision);
     CREATE INDEX event_index_task_completed ON event_index_base (task_id, workspace_revision)
-      WHERE json_extract(event_json, '$.schema') = 'task-event/v1'
-        AND json_extract(event_json, '$.type') = 'task_completed';
+      WHERE event_schema = 'task-event/v1'
+        AND event_type = 'task_completed';
     CREATE TABLE task_generation (
       task_id TEXT PRIMARY KEY,
       generation TEXT NOT NULL CHECK (generation IN ('v0', 'v1'))
@@ -46,14 +49,14 @@ function seedLedger(db: DatabaseSync, fillerEvents: number, unrelatedTasks: numb
   // The production derivations run against this view unchanged.
   db.exec(`
     CREATE VIEW event_index AS
-    SELECT op_id, workspace_revision, task_id, event_json FROM event_index_base
+    SELECT op_id, workspace_revision, task_id, event_schema, event_type, occurred_at, migration_created_at FROM event_index_base
     WHERE count_visit(op_id) IS NOT NULL
   `);
   const insertSnapshot = db.prepare(
       "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at) VALUES (?, ?, ?, ?, ?)",
     ),
     insertPackage = db.prepare("INSERT INTO task_package VALUES (?, ?)"),
-    insertEvent = db.prepare("INSERT INTO event_index_base VALUES (?, ?, ?, ?)");
+    insertEvent = db.prepare("INSERT INTO event_index_base VALUES (?, ?, ?, ?, ?, ?, NULL)");
   let revision = 0;
   const task = (taskId: string, status: string) =>
       JSON.stringify({
@@ -69,23 +72,7 @@ function seedLedger(db: DatabaseSync, fillerEvents: number, unrelatedTasks: numb
       }),
     event = (taskId: string, type: string, occurredAt: string) => {
       revision += 1;
-      insertEvent.run(
-        `op-${revision}`,
-        revision,
-        taskId,
-        JSON.stringify({
-          schema: "task-event/v1",
-          eventId: `event-${revision}`,
-          workspaceRevision: revision,
-          opId: `op-${revision}`,
-          taskId,
-          type,
-          actor: { principal: { personId: "history" }, executor: null },
-          source: "local",
-          occurredAt,
-          payload: { mutation: { command: "amend", reason: "fixture", fields: [] }, documentClaims: [] },
-        }),
-      );
+      insertEvent.run(`op-${revision}`, revision, taskId, "task-event/v1", type, occurredAt);
     };
   // "a-long-history" sorts first, so it is on every first page measured here.
   insertSnapshot.run("a-long-history", 1, task("a-long-history", "active"), "active", "2026-01-01T00:00:00.000Z");

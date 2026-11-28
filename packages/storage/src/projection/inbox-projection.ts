@@ -33,6 +33,7 @@ import {
   type PeerRequestRead,
   type PeerRequestV1,
 } from "@harness-anything/kernel/internal/domain/peer-collaboration.ts";
+import { hydrateEventsByRevisions, type BatchEventsByRevisionsReader } from "./rebuildable-task-projection-sql.ts";
 import { queryRows, runSql, transaction } from "./rebuildable-task-projection-sql.ts";
 
 const INBOX_TABLES = ["inbox_item", "inbox_cursor"] as const;
@@ -84,21 +85,24 @@ export function projectInboxEvent(db: DatabaseSync, event: { readonly schema: st
 }
 
 /** Refold Inbox events this cache holds but has not folded: O(unfolded Inbox events) via the type index. */
-export function catchUpInbox(db: DatabaseSync, onProgress?: (progress: { applied: number; total: number }) => void) {
+export function catchUpInbox(
+  db: DatabaseSync,
+  onProgress?: (progress: { applied: number; total: number }) => void,
+  readEventsByRevisions?: BatchEventsByRevisionsReader,
+) {
   ensureInboxModel(db);
   let applied = 0,
     total = 0;
   for (;;) {
     const after = foldedThrough(db),
-      rows = queryRows<{ event_json: string }>(
+      revisions = queryRows<{ readonly workspace_revision: number }>(
         db,
-        `SELECT i.event_json FROM event_summary s
-         JOIN event_index i ON i.workspace_revision = s.workspace_revision
+        `SELECT s.workspace_revision FROM event_summary s
          WHERE s.event_type IN (${inboxEventTypeSql}) AND s.workspace_revision > ?
          ORDER BY s.workspace_revision LIMIT ${CATCH_UP_BATCH}`,
         after,
-      );
-    if (rows.length === 0) return;
+      ).map(({ workspace_revision }) => Number(workspace_revision));
+    if (revisions.length === 0) return;
     if (total === 0)
       total = Number(
         queryRows<{ count: number }>(
@@ -107,10 +111,11 @@ export function catchUpInbox(db: DatabaseSync, onProgress?: (progress: { applied
           after,
         )[0]!.count,
       );
+    const hydrated = hydrateEventsByRevisions(revisions, readEventsByRevisions);
     transaction(db, () => {
-      for (const row of rows) projectInboxEvent(db, JSON.parse(row.event_json) as InboxEvent);
+      for (const revision of revisions) projectInboxEvent(db, hydrated.get(revision)! as InboxEvent);
     });
-    applied += rows.length;
+    applied += revisions.length;
     onProgress?.({ applied, total });
   }
 }
@@ -313,21 +318,21 @@ export function projectPeerRequestEvent(
 export function catchUpPeerRequests(
   db: DatabaseSync,
   onProgress?: (progress: { applied: number; total: number }) => void,
+  readEventsByRevisions?: BatchEventsByRevisionsReader,
 ): void {
   ensurePeerRequestModel(db);
   let applied = 0,
     total = 0;
   for (;;) {
     const after = peerFoldedThrough(db),
-      rows = queryRows<{ event_json: string }>(
+      revisions = queryRows<{ readonly workspace_revision: number }>(
         db,
-        `SELECT i.event_json FROM event_summary s
-         JOIN event_index i ON i.workspace_revision = s.workspace_revision
+        `SELECT s.workspace_revision FROM event_summary s
          WHERE s.event_type IN (${peerEventTypeSql}) AND s.workspace_revision > ?
          ORDER BY s.workspace_revision LIMIT ${CATCH_UP_BATCH}`,
         after,
-      );
-    if (rows.length === 0) return;
+      ).map(({ workspace_revision }) => Number(workspace_revision));
+    if (revisions.length === 0) return;
     if (total === 0)
       total = Number(
         queryRows<{ count: number }>(
@@ -336,10 +341,11 @@ export function catchUpPeerRequests(
           after,
         )[0]!.count,
       );
+    const hydrated = hydrateEventsByRevisions(revisions, readEventsByRevisions);
     transaction(db, () => {
-      for (const row of rows) projectPeerRequestEvent(db, JSON.parse(row.event_json) as PeerRequestEventV1);
+      for (const revision of revisions) projectPeerRequestEvent(db, hydrated.get(revision)! as PeerRequestEventV1);
     });
-    applied += rows.length;
+    applied += revisions.length;
     onProgress?.({ applied, total });
   }
 }

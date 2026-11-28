@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { DatabaseSync, StatementSync } from "node:sqlite";
 import test from "node:test";
 import { openTodoValueEquals, type AgentRuntimeEventV1 } from "@harness-anything/kernel";
+import { insertEventIndexRow } from "../../src/projection/bulk-rebuild-state.ts";
 import { createProjectionTables } from "../../src/projection/projection-tables.ts";
 import { repositoryEventQueries } from "../../src/projection/repository-event-queries.ts";
 import { countEntityProjectionRows } from "../../src/projection/rebuildable-task-projection-entities.ts";
@@ -46,22 +47,25 @@ test("type-filtered session event read returns one matching row, not the session
   const db = new DatabaseSync(":memory:");
   try {
     createProjectionTables(db);
-    const insert = db.prepare(
-        "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",
-      ),
+    const eventsByRevision = new Map<number, AgentRuntimeEventV1>(),
       sessionId = "runtime-session-bounded";
     let revision = 1;
     for (; revision <= 60; revision += 1) {
       const event = runtimeEvent(revision, "runtime_session_liveness_changed", sessionId);
-      insert.run(event.opId, revision, null, JSON.stringify(event));
+      eventsByRevision.set(revision, event);
+      insertEventIndexRow(db, event.opId, revision, null, JSON.stringify(event), event);
     }
     const outcome = runtimeEvent(revision, "runtime_session_outcome_observed", sessionId);
-    insert.run(outcome.opId, revision, null, JSON.stringify(outcome));
+    eventsByRevision.set(revision, outcome);
+    insertEventIndexRow(db, outcome.opId, revision, null, JSON.stringify(outcome), outcome);
     const otherSession = runtimeEvent(++revision, "runtime_session_outcome_observed", "runtime-session-other");
-    insert.run(otherSession.opId, revision, null, JSON.stringify(otherSession));
+    eventsByRevision.set(revision, otherSession);
+    insertEventIndexRow(db, otherSession.opId, revision, null, JSON.stringify(otherSession), otherSession);
 
-    const queries = repositoryEventQueries((read) =>
-        read(db, { status: "ready", watermark: revision, sourceRevision: revision }),
+    const queries = repositoryEventQueries(
+        (read) => read(db, { status: "ready", watermark: revision, sourceRevision: revision }),
+        (revisions) =>
+          new Map(revisions.flatMap((rev) => (eventsByRevision.has(rev) ? [[rev, eventsByRevision.get(rev)!]] : []))),
       ),
       legacy = queries.readRuntimeSessionEvents(sessionId, 0, Number.MAX_SAFE_INTEGER);
 

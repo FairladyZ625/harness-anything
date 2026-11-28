@@ -236,6 +236,8 @@ export interface CanonicalEventStore {
   readonly publication: (event: CanonicalEventV1) => CanonicalPublicationIdentity;
   readonly readEvent: (opId: string) => CanonicalEventV1 | null;
   readonly readEventAtRevision?: (revision: number) => CanonicalEventV1 | null;
+  /** Batched point lookup by workspace revision for on-demand projection event hydration. */
+  readonly readEventsByRevisions?: (revisions: readonly number[]) => ReadonlyMap<number, PersistedCanonicalEventV1>;
   readonly readEventById?: (eventId: string) => CanonicalEventV1 | null;
   readonly queryEvents?: (query: CanonicalEventQuery) => readonly CanonicalEventV1[];
   readonly readTaskEvent: (opId: string) => TaskEventV1 | null;

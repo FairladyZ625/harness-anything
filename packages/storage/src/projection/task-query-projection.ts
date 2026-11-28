@@ -394,12 +394,12 @@ function readTaskScopeRows(
  * Historical migration envelopes may carry a more explicit source createdAt;
  * otherwise their occurredAt is already the source task timestamp. */
 export function taskCreatedAtSql(taskIdExpression: string): string {
-  return `(SELECT COALESCE(CASE WHEN json_extract(origin.event_json, '$.schema') = 'migration-import-event/v1' THEN json_extract(origin.event_json, '$.payload.createdAt') END, json_extract(origin.event_json, '$.occurredAt')) FROM event_index AS origin WHERE origin.task_id = ${taskIdExpression} ORDER BY origin.workspace_revision LIMIT 1)`;
+  return `(SELECT COALESCE(CASE WHEN origin.event_schema = 'migration-import-event/v1' THEN origin.migration_created_at END, origin.occurred_at) FROM event_index AS origin WHERE origin.task_id = ${taskIdExpression} ORDER BY origin.workspace_revision LIMIT 1)`;
 }
 
 /** Authoritative completion time: the occurredAt of the first task_completed transition. */
 export function taskCompletedAtSql(taskIdExpression: string): string {
-  return `(SELECT json_extract(completion.event_json, '$.occurredAt') FROM event_index AS completion WHERE completion.task_id = ${taskIdExpression} AND json_extract(completion.event_json, '$.schema') = 'task-event/v1' AND json_extract(completion.event_json, '$.type') = 'task_completed' ORDER BY completion.workspace_revision LIMIT 1)`;
+  return `(SELECT completion.occurred_at FROM event_index AS completion WHERE completion.task_id = ${taskIdExpression} AND completion.event_schema = 'task-event/v1' AND completion.event_type = 'task_completed' ORDER BY completion.workspace_revision LIMIT 1)`;
 }
 
 /** One bounded task/runtime join. The supplied ids are filtered in memory so no

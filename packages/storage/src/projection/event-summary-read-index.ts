@@ -25,11 +25,11 @@ const nodeSourceSql = `CASE json_extract(NEW.witness_json, '$.source')
           THEN COALESCE(
             (SELECT NULLIF(execution_node_id, '') FROM runtime_session
              WHERE runtime_session_id = substr(json_extract(NEW.witness_json, '$.source'), 17)),
-            (SELECT json_extract(event_json,'$.source.nodeId') FROM event_index
-             WHERE json_extract(event_json,'$.payload.runtimeSessionId') = substr(json_extract(NEW.witness_json, '$.source'), 17)
-               AND json_extract(event_json,'$.schema')='agent-runtime-event/v1'
-               AND json_extract(event_json,'$.type')='runtime_session_started'
-               AND json_extract(event_json,'$.source.nodeId') IS NOT NULL
+            (SELECT source_node_id FROM event_index
+             WHERE runtime_session_id = substr(json_extract(NEW.witness_json, '$.source'), 17)
+               AND event_schema='agent-runtime-event/v1'
+               AND event_type='runtime_session_started'
+               AND source_node_id IS NOT NULL
                AND workspace_revision < NEW.workspace_revision
              ORDER BY workspace_revision DESC LIMIT 1)
           )
@@ -46,7 +46,7 @@ const fillColumnsSql = `
         THEN COALESCE(json_extract(NEW.summary_json, '$.taskId'), json_extract(NEW.summary_json, '$.payload.taskId')) END,
       dispatch_started_at = CASE WHEN json_extract(NEW.row_json, '$.type') = 'runtime_dispatch_requested'
         THEN COALESCE(json_extract(NEW.row_json, '$.dispatchStartedAt'),
-          (SELECT json_extract(event_json, '$.payload.startedAt') FROM event_index WHERE workspace_revision = NEW.workspace_revision),
+          (SELECT started_at FROM event_index WHERE workspace_revision = NEW.workspace_revision),
           json_extract(NEW.row_json, '$.occurredAt')) END,
       ${readIndexVersion} = 2
     WHERE workspace_revision = NEW.workspace_revision;

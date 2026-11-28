@@ -25,6 +25,8 @@ export interface EventStreamPort {
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
   /** Optional O(1) CAS stat lookup so non-interpreted documents do not load full bytes during apply/replay. */
   readonly readContentBlobSize?: (sha256: string) => number | null;
+  /** Optional batched ledger lookup by workspace revision for on-demand full event hydration. */
+  readonly readEventsByRevisions?: (revisions: readonly number[]) => ReadonlyMap<number, PersistedCanonicalEventV1>;
   /** Optional O(1)/index-backed continuity check for revisions 1..throughRevision. */
   readonly verifyRevisionContinuity?: (throughRevision: number) => EventStreamContinuityCheck;
 }

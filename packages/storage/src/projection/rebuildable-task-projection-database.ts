@@ -1,6 +1,12 @@
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
+import { resolveHarnessLayout } from "@harness-anything/kernel/internal/layout/index.ts";
+import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import path from "node:path";
-import { ensureRuntimeMemberIndex, ensureRuntimeMemberIndexColumns } from "./runtime-member-index.ts";
+import {
+  ensureRuntimeMemberIndex,
+  ensureRuntimeMemberIndexColumns,
+  installRuntimeMemberIndexDdl,
+} from "./runtime-member-index.ts";
 import { DatabaseSync } from "node:sqlite";
 import { sqliteDatabasePath } from "../store/sqlite-ledger-layout.ts";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
@@ -9,6 +15,13 @@ import {
   localRuntimeStateFileSystem,
 } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import { beginBulkRebuild, endBulkRebuild, flushBulkRebuildDerivedTables } from "./bulk-rebuild-state.ts";
+import {
+  EVENT_INDEX_INSERT_SQL,
+  EVENT_INDEX_TABLE_SQL,
+  eventIndexInsertParams,
+  extractEventIndexRow,
+  type BatchEventsByRevisionsReader,
+} from "./rebuildable-task-projection-sql.ts";
 import {
   createDecisionProjectionTables,
   DECISION_APPLIES_MODULE_BACKFILL_AND_TRIGGERS_SQL,
@@ -37,6 +50,7 @@ import { initializeTerminalMaterialization } from "./rebuildable-task-projection
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { createTaskRelationProjectionTable } from "./task-query-projection.ts";
 import {
+  EVENT_INDEX_DEFERRED_INDEXES,
   EXECUTION_SUBMISSION_COMMIT_SQL,
   ensureLeaseTaskActiveColumn,
   REPOSITORY_READ_BASE_TABLES_SQL,
@@ -53,7 +67,9 @@ import { catchUpPeerRequests, ensurePeerRequestModel } from "./inbox-projection.
 import { catchUpKbDocuments, ensureKbDocumentModel } from "./kb-document-projection.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import {
+  clearConnectionStatements,
   closeProjectionConnection,
+  markProjectionSqlProgress,
   prepareQuery,
   queryRows,
   resolveContentBlobReader,
@@ -149,6 +165,8 @@ interface QueryOnlyConnection {
   unregister: () => void;
 }
 const queryOnlyConnections = new Map<string, QueryOnlyConnection>();
+const readOnlyLedgerConnections = new Map<string, QueryOnlyConnection>();
+const projectionLedgerClosers = new Map<string, Set<() => void>>();
 let queryOnlyProjectionOpens = 0;
 
 /** Test seam: how many query-only read connections this process has opened, to pin connection reuse. */
@@ -167,10 +185,96 @@ function projectionRegistryKey(resolvedProjectionPath: string): string {
   return process.platform === "win32" ? resolvedProjectionPath.toLowerCase() : resolvedProjectionPath;
 }
 
+function closeReadOnlyLedgerForProjection(projectionKey: string): void {
+  const closers = projectionLedgerClosers.get(projectionKey);
+  if (closers === undefined || closers.size === 0) return;
+  for (const close of [...closers]) close();
+  closers.clear();
+}
+
+/**
+ * Resolve a cached, read-only `ledger.sqlite` batch event reader for query-only projection sessions
+ * (works for standard workspaces, custom localRoot layouts, and edge replica generations).
+ * Reuses one read-only connection per ledger path and closes automatically with the projection.
+ */
+export function resolveLedgerEventReader(projectionPath: string, rootDir?: string): BatchEventsByRevisionsReader {
+  const localRoots: string[] = [];
+  const addLocalRoot = (candidate: string) => {
+    const resolved = path.resolve(candidate);
+    if (!localRoots.includes(resolved)) localRoots.push(resolved);
+  };
+  if (projectionPath) addLocalRoot(path.resolve(path.dirname(projectionPath), ".."));
+  if (rootDir) addLocalRoot(resolveHarnessLayout(rootDir).localRoot);
+  const ledgerCandidates = localRoots.flatMap((localRoot) =>
+    ["3", "2", "1"].map((generation) => path.join(localRoot, "store", "generations", generation, "ledger.sqlite")),
+  );
+  const projectionKey = projectionPath ? projectionRegistryKey(canonicalProjectionPath(projectionPath)) : "";
+  const openCachedLedger = (ledgerPath: string): DatabaseSync | null => {
+    if (!localRuntimeStateFileSystem.exists(ledgerPath)) return null;
+    const canonicalLedger = canonicalProjectionPath(ledgerPath),
+      ledgerKey = projectionRegistryKey(canonicalLedger);
+    let connection = readOnlyLedgerConnections.get(ledgerKey);
+    if (connection === undefined) {
+      connection = { db: null, fingerprint: null, unregister: () => undefined };
+      readOnlyLedgerConnections.set(ledgerKey, connection);
+    }
+    const currentFingerprint = projectionFileFingerprint(canonicalLedger);
+    if (connection.db !== null && connection.fingerprint !== currentFingerprint) closeQueryOnlyConnection(connection);
+    if (connection.db === null) {
+      const db =
+        /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */ new DatabaseSync(
+          sqliteDatabasePath(canonicalLedger),
+          { readOnly: true },
+        );
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+      db.exec(`PRAGMA busy_timeout = ${projectionBusyTimeoutMs}; PRAGMA query_only = ON`);
+      connection.db = db;
+      connection.fingerprint = currentFingerprint;
+      const close = () => closeQueryOnlyConnection(connection!);
+      const registeredClosers = projectionClosers.get(ledgerKey) ?? new Set<() => void>();
+      registeredClosers.add(close);
+      projectionClosers.set(ledgerKey, registeredClosers);
+      if (projectionKey) {
+        const bound = projectionLedgerClosers.get(projectionKey) ?? new Set<() => void>();
+        bound.add(close);
+        projectionLedgerClosers.set(projectionKey, bound);
+      }
+    }
+    return connection.db;
+  };
+  return (revisions) => {
+    const result = new Map<number, PersistedCanonicalEventV1>();
+    if (revisions.length === 0) return result;
+    const unique = [...new Set(revisions)];
+    for (const candidate of ledgerCandidates) {
+      const db = openCachedLedger(candidate);
+      if (db === null) continue;
+      const rows =
+        unique.length === 1
+          ? (prepareQuery(db, "SELECT revision, event_json FROM event WHERE revision = ?").all(unique[0]!) as {
+              readonly revision: number;
+              readonly event_json: string;
+            }[])
+          : (prepareQuery(
+              db,
+              "SELECT revision, event_json FROM event WHERE revision IN (SELECT value FROM json_each(?))",
+            ).all(JSON.stringify(unique)) as {
+              readonly revision: number;
+              readonly event_json: string;
+            }[]);
+      for (const row of rows)
+        result.set(Number(row.revision), JSON.parse(String(row.event_json)) as PersistedCanonicalEventV1);
+      if (result.size === unique.length) return result;
+    }
+    return result;
+  };
+}
+
 /** Release the cached query connection when its reader owner leaves the repository. */
 export function closeQueryOnlyReader(projectionPath: string): void {
   const key = projectionRegistryKey(canonicalProjectionPath(projectionPath)),
     connection = queryOnlyConnections.get(key);
+  closeReadOnlyLedgerForProjection(key);
   if (!connection) return;
   queryOnlyConnections.delete(key);
   // A nested reader borrows the outer transaction. Retire the cache entry now, but let
@@ -182,6 +286,10 @@ export function closeQueryOnlyReader(projectionPath: string): void {
 export function closeTaskProjectionsUnder(rootDir: string): void {
   const normalizedRoot = projectionRegistryKey(canonicalProjectionPath(rootDir)),
     prefix = `${normalizedRoot}${path.sep}`;
+  for (const projectionKey of [...projectionLedgerClosers.keys()]) {
+    if (projectionKey !== normalizedRoot && !projectionKey.startsWith(prefix)) continue;
+    closeReadOnlyLedgerForProjection(projectionKey);
+  }
   for (const projectionKey of [...projectionClosers.keys()]) {
     if (projectionKey !== normalizedRoot && !projectionKey.startsWith(prefix)) continue;
     closeProjectionHandlesAt(projectionKey);
@@ -361,7 +469,9 @@ export function discardDatabase(
 // `projection.close(); rm(projection.path)` -- the documented teardown -- fail there.
 export function closeDatabase(projectionPath: string, readHead: EventStreamPort["readHead"]): void {
   const owners = projectionDatabaseOwners.get(readHead);
-  closeProjectionHandlesAt(canonicalProjectionPath(projectionPath));
+  const canonicalPath = canonicalProjectionPath(projectionPath);
+  closeReadOnlyLedgerForProjection(projectionRegistryKey(canonicalPath));
+  closeProjectionHandlesAt(canonicalPath);
   owners?.delete(projectionPath);
 }
 
@@ -423,7 +533,8 @@ function projectionDatabaseOwner(
       ) {
         throw new ProjectionSchemaMismatchError(observed, projectionPath);
       }
-      if (!schemaChecked || observed === null) createTables(db!, onValidationProgress);
+      if (!schemaChecked || observed === null)
+        createTables(db!, onValidationProgress, resolveLedgerEventReader(projectionPath));
       schemaChecked = true;
     } catch (error) {
       close();
@@ -470,6 +581,7 @@ function projectionDatabaseOwner(
 }
 
 const stripDocumentBodyBatchSize = 2000;
+const scalarizeEventIndexBatchSize = 2000;
 
 /** Upgrade previous caches in place without discarding and replaying the full event stream. */
 function upgradeProjectionSchemaInPlace(
@@ -479,15 +591,34 @@ function upgradeProjectionSchemaInPlace(
   onValidationProgress?: ProjectionProgress,
   readBlob?: EventStreamPort["readContentBlob"],
 ): boolean {
-  let current = observed;
-  if (current === 38) {
-    if (!expandDecisionListColumns(db, head, readBlob)) return false;
-    current = projectionSchemaVersion(db) ?? current;
+  const needsBulkCache = observed <= 40;
+  if (needsBulkCache) {
+    markProjectionSqlProgress();
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+    db.exec("PRAGMA cache_size = -262144; PRAGMA temp_store = MEMORY;");
   }
-  if (current === 39) {
-    return stripInlineDocumentBodies(db, head, onValidationProgress);
+  try {
+    let current = observed;
+    if (current === 38) {
+      if (!expandDecisionListColumns(db, head, readBlob)) return false;
+      current = projectionSchemaVersion(db) ?? current;
+    }
+    if (current === 39) {
+      if (!stripInlineDocumentBodies(db, head, onValidationProgress)) return false;
+      current = projectionSchemaVersion(db) ?? current;
+    }
+    if (current === 40) {
+      if (!scalarizeEventIndex(db, head, onValidationProgress)) return false;
+      current = projectionSchemaVersion(db) ?? current;
+    }
+    return current === taskProjectionSchemaVersion;
+  } finally {
+    if (needsBulkCache) {
+      markProjectionSqlProgress();
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+      db.exec("PRAGMA cache_size = -2000; PRAGMA temp_store = DEFAULT;");
+    }
   }
-  return current === taskProjectionSchemaVersion;
 }
 
 /** Upgrade schema 38 to 39 at its existing cut. A full replay does work proportional to the ledger. */
@@ -535,7 +666,8 @@ function stripInlineDocumentBodies(
   onValidationProgress?: ProjectionProgress,
 ): boolean {
   return transaction(db, () => {
-    if (projectionSchemaVersion(db) === taskProjectionSchemaVersion) return true;
+    const version = projectionSchemaVersion(db);
+    if (version !== null && version >= 40) return true;
     if (
       !hasTableColumns(db, "decision", ["decision_sort_key", "list_options_json", "review_summary_json"]) ||
       !hasTableColumns(db, "lease_cas", ["execution_id"]) ||
@@ -550,8 +682,10 @@ function stripInlineDocumentBodies(
       "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='document_artifact_update'",
     )[0]?.sql;
     if (updateTrigger) {
+      markProjectionSqlProgress();
       /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
       db.exec("DROP TRIGGER IF EXISTS document_artifact_update");
+      markProjectionSqlProgress();
     }
     const documentCount = Number(queryRows(db, "SELECT COUNT(*) AS count FROM document")[0]?.count ?? 0);
     const historyCount = Number(queryRows(db, "SELECT COUNT(*) AS count FROM document_history")[0]?.count ?? 0);
@@ -580,12 +714,174 @@ function stripInlineDocumentBodies(
       }
     }
     if (updateTrigger) {
+      markProjectionSqlProgress();
       /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
       db.exec(updateTrigger);
+      markProjectionSqlProgress();
     }
-    runSql(db, "UPDATE projection_meta SET schema_version=? WHERE singleton=1", taskProjectionSchemaVersion);
+    runSql(db, "UPDATE projection_meta SET schema_version=? WHERE singleton=1", 40);
     return true;
   });
+}
+
+/**
+ * Upgrade schema 40 to 41 in place by scalarizing `event_index` into explicit indexed columns,
+ * dropping redundant `event_json` and all `json_extract(event_json, ...)` expression indexes, and
+ * rebuilding scalar indexes and triggers in bounded batches without full event replay.
+ */
+function scalarizeEventIndex(
+  db: DatabaseSync,
+  head: ReturnType<EventStreamPort["readHead"]>,
+  onValidationProgress?: ProjectionProgress,
+): boolean {
+  const upgraded = transaction(db, () => {
+    const version = projectionSchemaVersion(db);
+    if (version !== null && version >= taskProjectionSchemaVersion) return true;
+    if (
+      !hasTableColumns(db, "decision", ["decision_sort_key", "list_options_json", "review_summary_json"]) ||
+      !hasTableColumns(db, "lease_cas", ["execution_id"]) ||
+      !hasTableColumns(db, "task_snapshot", ["package_disposition"]) ||
+      !hasTableColumns(db, "document", ["path", "workspace_revision", "value_json"]) ||
+      !hasTableColumns(db, "document_history", ["path", "workspace_revision", "value_json"])
+    )
+      return false;
+    const hasLegacyEventJson = hasTableColumns(db, "event_index", [
+      "op_id",
+      "workspace_revision",
+      "task_id",
+      "event_json",
+    ]);
+    if (!hasLegacyEventJson) {
+      if (
+        !hasTableColumns(db, "event_index", [
+          "op_id",
+          "workspace_revision",
+          "task_id",
+          "event_schema",
+          "event_type",
+          "dispatch_activity_ms",
+        ])
+      )
+        return false;
+      assertLedgerIdentity(db, head);
+      runSql(db, "UPDATE projection_meta SET schema_version=? WHERE singleton=1", taskProjectionSchemaVersion);
+      return true;
+    }
+    assertLedgerIdentity(db, head);
+    markProjectionSqlProgress();
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+    db.exec(`
+      DROP TRIGGER IF EXISTS document_artifact_insert;
+      DROP TRIGGER IF EXISTS document_artifact_update;
+      DROP TRIGGER IF EXISTS document_artifact_delete;
+      DROP TRIGGER IF EXISTS event_summary_read_index_insert;
+      DROP TRIGGER IF EXISTS event_summary_read_index_update;
+      DROP TRIGGER IF EXISTS event_summary_read_index_insert_v2;
+      DROP TRIGGER IF EXISTS event_summary_read_index_update_v2;
+      DROP TRIGGER IF EXISTS runtime_dispatch_presence_0;
+      DROP TRIGGER IF EXISTS runtime_dispatch_presence_1;
+      DROP TRIGGER IF EXISTS runtime_dispatch_key_0;
+      DROP TRIGGER IF EXISTS runtime_dispatch_key_1;
+      DROP TRIGGER IF EXISTS runtime_dispatch_session_present;
+      DROP TRIGGER IF EXISTS runtime_dispatch_session_absent;
+    `);
+    markProjectionSqlProgress();
+    const existingIndexes = queryRows<{ readonly name: string }>(
+      db,
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='event_index' AND sql IS NOT NULL",
+    );
+    for (const { name } of existingIndexes) {
+      markProjectionSqlProgress();
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+      db.exec(`DROP INDEX IF EXISTS "${name.replaceAll('"', '""')}"`);
+      markProjectionSqlProgress();
+    }
+    markProjectionSqlProgress();
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+    db.exec(
+      `DROP TABLE IF EXISTS event_index_v40_legacy; ALTER TABLE event_index RENAME TO event_index_v40_legacy; ${EVENT_INDEX_TABLE_SQL};`,
+    );
+    markProjectionSqlProgress();
+    const runtimeSessions = new Set(
+      queryRows<{ readonly runtime_session_id: string }>(db, "SELECT runtime_session_id FROM runtime_session").map(
+        ({ runtime_session_id }) => runtime_session_id,
+      ),
+    );
+    const total = Number(queryRows(db, "SELECT COUNT(*) AS count FROM event_index_v40_legacy")[0]?.count ?? 0);
+    const indexTotal = EVENT_INDEX_DEFERRED_INDEXES.length + 1;
+    const progressTotal = total + indexTotal;
+    let cursor = 0,
+      applied = 0;
+    const selectBatch =
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */ db.prepare(
+        "SELECT rowid, op_id, workspace_revision, task_id, event_json FROM event_index_v40_legacy WHERE rowid > ? ORDER BY rowid LIMIT ?",
+      );
+    for (;;) {
+      markProjectionSqlProgress();
+      const batch = selectBatch.all(cursor, scalarizeEventIndexBatchSize) as {
+        readonly rowid: number;
+        readonly op_id: string;
+        readonly workspace_revision: number;
+        readonly task_id: string | null;
+        readonly event_json: string;
+      }[];
+      if (batch.length === 0) break;
+      for (const legacyRow of batch) {
+        const extracted = extractEventIndexRow({
+          opId: legacyRow.op_id,
+          workspaceRevision: Number(legacyRow.workspace_revision),
+          taskId: legacyRow.task_id,
+          eventJson: legacyRow.event_json,
+          runtimeSessionPresent: 0,
+        });
+        const runtimeSessionPresent: 0 | 1 =
+          extracted.event_schema === "agent-runtime-event/v1" &&
+          extracted.event_type === "runtime_dispatch_requested" &&
+          extracted.runtime_session_id !== null &&
+          runtimeSessions.has(extracted.runtime_session_id)
+            ? 1
+            : 0;
+        runSql(
+          db,
+          EVENT_INDEX_INSERT_SQL,
+          ...eventIndexInsertParams({
+            ...extracted,
+            runtime_session_present: runtimeSessionPresent,
+          }),
+        );
+      }
+      cursor = Number(batch.at(-1)!.rowid);
+      applied += batch.length;
+      if (progressTotal > 0) onValidationProgress?.({ applied: Math.min(applied, total), total: progressTotal });
+    }
+    markProjectionSqlProgress();
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+    db.exec("DROP TABLE event_index_v40_legacy");
+    markProjectionSqlProgress();
+    let indexCompleted = 0;
+    for (const statement of EVENT_INDEX_DEFERRED_INDEXES) {
+      markProjectionSqlProgress();
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+      db.exec(statement);
+      markProjectionSqlProgress();
+      indexCompleted += 1;
+      onValidationProgress?.({ applied: total + indexCompleted, total: progressTotal });
+    }
+    markProjectionSqlProgress();
+    installRuntimeMemberIndexDdl(db);
+    markProjectionSqlProgress();
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+    db.exec(ARTIFACT_TIMELINE_INDEX_AND_TRIGGERS_SQL);
+    markProjectionSqlProgress();
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+    db.exec(EVENT_SUMMARY_READ_INDEX_TRIGGERS_SQL);
+    markProjectionSqlProgress();
+    runSql(db, "UPDATE projection_meta SET schema_version=? WHERE singleton=1", taskProjectionSchemaVersion);
+    onValidationProgress?.({ applied: progressTotal, total: progressTotal });
+    return true;
+  });
+  if (upgraded) clearConnectionStatements(db);
+  return upgraded;
 }
 function canonicalProjectionPath(inputPath: string): string {
   const resolved = path.resolve(inputPath),
@@ -892,6 +1188,7 @@ function finalizeRebuildDatabase(
   const totalSteps = deferredIndexes.length + 6;
   let completedSteps = 0;
   const reportStep = () => {
+    markProjectionSqlProgress();
     completedSteps += 1;
     onValidationProgress?.({ applied: completedSteps, total: totalSteps });
   };
@@ -903,19 +1200,24 @@ function finalizeRebuildDatabase(
   ensureWorkspaceTaskCensus(db);
   reportStep();
   ensureArtifactTimelineBackfill(db);
+  markProjectionSqlProgress();
   /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
   db.exec(ARTIFACT_TIMELINE_INDEX_AND_TRIGGERS_SQL);
   reportStep();
+  markProjectionSqlProgress();
   /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
   db.exec(DECISION_APPLIES_MODULE_BACKFILL_AND_TRIGGERS_SQL);
   reportStep();
   for (const statement of deferredIndexes) {
+    markProjectionSqlProgress();
     /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
     db.exec(statement);
     reportStep();
   }
+  markProjectionSqlProgress();
   /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
   db.exec(EVENT_SUMMARY_READ_INDEX_TRIGGERS_SQL);
+  markProjectionSqlProgress();
   ensureRuntimeMemberIndex(db, onValidationProgress);
   // Stamp schema_version only after every deferred index and trigger is installed so an
   // interrupted rebuild (including SIGKILL) is rejected as schema 0 on next open.
@@ -924,7 +1226,11 @@ function finalizeRebuildDatabase(
   restoreOnlinePragmas(db);
 }
 
-function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgress): void {
+function createTables(
+  db: DatabaseSync,
+  onValidationProgress?: ProjectionProgress,
+  readEventsByRevisions?: BatchEventsByRevisionsReader,
+): void {
   ensureInboxModel(db);
   ensurePeerRequestModel(db);
   ensureKbDocumentModel(db);
@@ -941,10 +1247,10 @@ function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgres
   backfillRuntimeSessionExecutionNode(db);
   ensureRuntimeMemberIndex(db, onValidationProgress);
   backfillEventSummaryReadIndex(db, onValidationProgress);
-  catchUpDispatchLifecycle(db, onValidationProgress);
-  catchUpInbox(db);
-  catchUpPeerRequests(db);
-  catchUpKbDocuments(db);
+  catchUpDispatchLifecycle(db, onValidationProgress, readEventsByRevisions);
+  catchUpInbox(db, undefined, readEventsByRevisions);
+  catchUpPeerRequests(db, undefined, readEventsByRevisions);
+  catchUpKbDocuments(db, undefined, readEventsByRevisions);
   backfillRuntimeSessionBindings(db, onValidationProgress);
   ensureArtifactTimelineBackfill(db);
   createTaskRelationProjectionTable(db);
@@ -974,11 +1280,11 @@ function backfillRuntimeSessionExecutionNode(db: DatabaseSync): void {
   runSql(
     db,
     `UPDATE runtime_session SET execution_node_id = COALESCE((
-       SELECT json_extract(event_json, '$.source.nodeId') FROM event_index
-       WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-         AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'
-         AND json_extract(event_json, '$.payload.runtimeSessionId') = runtime_session.runtime_session_id
-         AND json_extract(event_json, '$.source.nodeId') IS NOT NULL
+       SELECT source_node_id FROM event_index
+       WHERE event_schema = 'agent-runtime-event/v1'
+         AND event_type = 'runtime_dispatch_requested'
+         AND runtime_session_id = runtime_session.runtime_session_id
+         AND source_node_id IS NOT NULL
        LIMIT 1), '')
      WHERE execution_node_id = '' AND json_extract(value_json, '$.outcome') IS NULL`,
   );

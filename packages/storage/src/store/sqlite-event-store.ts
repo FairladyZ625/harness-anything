@@ -656,6 +656,19 @@ function openSqliteEventStoreInternal(
     eventById: (eventId) =>
       readEvent(query, "json_extract(event_json, '$.eventId')", eventId, "ORDER BY revision LIMIT 1"),
     eventAtRevision: (revision) => readEvent(query, "revision", revision),
+    eventsByRevisions: (revisions) => {
+      if (revisions.length === 0) return new Map();
+      const unique = [...new Set(revisions)];
+      const rows =
+        unique.length === 1
+          ? query("SELECT revision, event_json FROM event WHERE revision=?", [unique[0]!])
+          : query("SELECT revision, event_json FROM event WHERE revision IN (SELECT value FROM json_each(?))", [
+              JSON.stringify(unique),
+            ]);
+      const result = new Map<number, CanonicalEventV1>();
+      for (const row of rows) result.set(Number(row.revision), JSON.parse(String(row.event_json)) as CanonicalEventV1);
+      return result;
+    },
     firstEntityEvent: (ref) => {
       const row = query(
         "SELECT e.event_json FROM event_query_entity r JOIN event e ON e.revision=r.revision WHERE r.ref=? ORDER BY r.revision LIMIT 1",

@@ -167,11 +167,15 @@ test("previous projection DDL is replaced on reopen and hot reads use their inde
       assert.match(decisionIndexes[1]!.sql, /WHERE legacy_number IS NULL/u);
       for (const [part, args, expected] of [
         ["FROM lease_cas WHERE execution_id", ["missing"], "lease_cas_execution"],
-        ["runtime_dispatch_requested' AND json_extract", ["missing"], "event_index_runtime_session"],
-        ["WHERE workspace_revision > ? AND json_extract", [0, "missing", 10], "event_index_runtime_session"],
-        ["'schedule-event/v1' AND json_extract", ["missing"], "event_index_schedule_entity"],
+        [
+          "event_type = 'runtime_dispatch_requested' AND runtime_session_id",
+          ["missing"],
+          "event_index_runtime_session",
+        ],
+        ["WHERE workspace_revision > ? AND event_schema", [0, "missing", 10], "event_index_runtime_session"],
+        ["'schedule-event/v1' AND entity_id", ["missing"], "event_index_schedule_entity"],
         ["'schedule-event/v1' ORDER BY", [], "event_index_schedule_events"],
-        ["actor.executor.id", ["runtime-session:missing"], "event_index_actor_executor"],
+        ["actor_executor_id", ["runtime-session:missing"], "event_index_actor_executor"],
       ] as const) {
         const sql = statements.find((statement) => statement.includes(part));
         assert.ok(sql, part);
@@ -326,7 +330,7 @@ test("submission lookup survives later lifecycle events and adds its point-read 
     const db = new DatabaseSync(projection.path, { readOnly: true });
     try {
       const plan = db.prepare(`EXPLAIN QUERY PLAN ${lookupSql}`).all("task-1", "execution-1");
-      assert.match(JSON.stringify(plan), /SEARCH event_index USING INDEX event_index_submission_lookup/u);
+      assert.match(JSON.stringify(plan), /SEARCH event_index USING (?:COVERING )?INDEX event_index_submission_lookup/u);
       assert.doesNotMatch(JSON.stringify(plan), /SCAN |TEMP B-TREE/u);
     } finally {
       db.close();

@@ -300,7 +300,7 @@ test("tuned offline rebuild overrides catchUpLimit: 32 to bulk 4096 with byte-id
       try {
         const meta = verifyDb.prepare("SELECT schema_version FROM projection_meta WHERE singleton = 1").get();
         assert.equal(Number(meta.schema_version), taskProjectionSchemaVersion);
-        assert.equal(taskProjectionSchemaVersion, 40);
+        assert.equal(taskProjectionSchemaVersion, 41);
       } finally {
         verifyDb.close();
       }

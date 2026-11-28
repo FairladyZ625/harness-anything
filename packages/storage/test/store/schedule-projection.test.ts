@@ -77,8 +77,8 @@ test("Schedule definition and run view share one canonical stream and rebuild ex
       });
     }
 
-    // Version 40 strips inline document bodies from document/document_history in place.
-    assert.equal(taskProjectionSchemaVersion, 40);
+    // Version 41 scalarizes event_index and strips duplicate event_json in place.
+    assert.equal(taskProjectionSchemaVersion, 41);
     assert.equal(projection.readCut().status, "ready");
     const definition = projection.readDocument("schedules/schedule-heartbeat.json").document,
       row = projection.getEntity("schedule", "schedule-heartbeat"),

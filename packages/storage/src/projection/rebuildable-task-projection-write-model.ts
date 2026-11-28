@@ -39,10 +39,11 @@ import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/ta
 import {
   canonicalJson,
   decisionDocumentPattern,
-  prepareQuery,
+  hydrateEventsByRevisions,
   queryRows,
   runSql,
   serializeProjectedDocument,
+  type BatchEventsByRevisionsReader,
   type ProjectedDocumentMetadata,
 } from "./rebuildable-task-projection-sql.ts";
 import { projectInterpretedEntityValue } from "./rebuildable-task-projection-entities.ts";
@@ -823,6 +824,7 @@ function hasTaskSnapshot(db: DatabaseSync, taskId: string): boolean {
 export function initializeTerminalMaterialization(
   db: DatabaseSync,
   readBlob?: EventStreamPort["readContentBlob"],
+  readEventsByRevisions?: BatchEventsByRevisionsReader,
 ): void {
   const key = "terminal-materialization-v2";
   if (!queryRows(db, "SELECT 1 FROM projection_maintenance WHERE key=?", key).length) {
@@ -860,13 +862,15 @@ export function initializeTerminalMaterialization(
       archiveDocument(db, preimage.document.path, preimage.retiredAt);
   };
   for (const row of missing) {
-    const events = queryRows<{ event_json: string }>(
+    const revisions = queryRows<{ readonly workspace_revision: number }>(
       db,
-      `SELECT e.event_json FROM event_summary_entity_ref AS r JOIN event_index AS e USING(workspace_revision)
+      `SELECT r.workspace_revision FROM event_summary_entity_ref AS r
           WHERE r.entity_ref=? AND r.workspace_revision<=? ORDER BY r.workspace_revision DESC`,
       `fact/${row.fact_id}`,
       row.workspace_revision,
-    ).map(({ event_json }) => JSON.parse(event_json) as PersistedCanonicalEventV1);
+    ).map(({ workspace_revision }) => Number(workspace_revision));
+    const hydrated = hydrateEventsByRevisions(revisions, readEventsByRevisions);
+    const events = revisions.map((rev) => hydrated.get(rev)! as PersistedCanonicalEventV1);
     pending.set(`facts/${row.fact_id}.md`, {
       events: events.filter((event) => event.type === "fact_archived"),
       resolved: false,
@@ -876,28 +880,37 @@ export function initializeTerminalMaterialization(
   // once during upgrade, in revision order, without replaying reducers or buffering history.
   let remaining = pending.size;
   if (remaining) {
-    for (const row of prepareQuery(
-      db,
-      "SELECT event_json FROM event_index ORDER BY workspace_revision DESC",
-    ).iterate()) {
-      const event = JSON.parse(String(row.event_json)) as PersistedCanonicalEventV1;
-      for (const claim of [
-        ...canonicalDocumentClaims(event),
-        ...(isFactEvent(event) && event.payload.supersededFactsDocumentClaim
-          ? [event.payload.supersededFactsDocumentClaim]
-          : []),
-      ]) {
-        const target = pending.get(claim.path);
-        if (!target || target.resolved) continue;
-        const factId = claim.path.slice(6, -3),
-          preimage = archivedFactDocumentPreimage([...target.events, event], factId);
-        if (preimage) {
-          restore(factId, preimage);
-          target.resolved = true;
-          remaining--;
+    let beforeRevision = Number.MAX_SAFE_INTEGER;
+    for (;;) {
+      const revisions = queryRows<{ readonly workspace_revision: number }>(
+        db,
+        "SELECT workspace_revision FROM event_index WHERE workspace_revision < ? ORDER BY workspace_revision DESC LIMIT 256",
+        beforeRevision,
+      ).map(({ workspace_revision }) => Number(workspace_revision));
+      if (revisions.length === 0) break;
+      const hydrated = hydrateEventsByRevisions(revisions, readEventsByRevisions);
+      for (const rev of revisions) {
+        const event = hydrated.get(rev)! as PersistedCanonicalEventV1;
+        for (const claim of [
+          ...canonicalDocumentClaims(event),
+          ...(isFactEvent(event) && event.payload.supersededFactsDocumentClaim
+            ? [event.payload.supersededFactsDocumentClaim]
+            : []),
+        ]) {
+          const target = pending.get(claim.path);
+          if (!target || target.resolved) continue;
+          const factId = claim.path.slice(6, -3),
+            preimage = archivedFactDocumentPreimage([...target.events, event], factId);
+          if (preimage) {
+            restore(factId, preimage);
+            target.resolved = true;
+            remaining--;
+          }
         }
+        if (!remaining) break;
       }
       if (!remaining) break;
+      beforeRevision = revisions.at(-1)!;
     }
   }
   if (remaining)

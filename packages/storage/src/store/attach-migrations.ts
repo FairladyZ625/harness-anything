@@ -342,6 +342,16 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
       "preserving metadata + blobSha256 and hydrating body bytes on demand from CAS with fail-closed integrity checks. " +
       "Canonical events and content blobs remain byte-identical.",
   },
+  {
+    kind: "read-conclusion",
+    name: "projection.slim-event-index",
+    fields: ["Projection.event_index"],
+    attachRequired: false,
+    conclusion:
+      "SQLite scalarizes event_index columns and drops redundant event_json and json_extract expression indexes in place " +
+      "when upgrading schema 40 to 41, hydrating full canonical event payloads on demand from ledger.sqlite with fail-closed checks. " +
+      "Canonical events and content blobs remain byte-identical.",
+  },
 ]);
 
 const registeredRetiredFields = new Set(
