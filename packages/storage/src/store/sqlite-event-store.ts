@@ -414,7 +414,9 @@ function openSqliteEventStoreInternal(
         ))
     )
       throw new TaskEventStoreError("invalid_write_plan", "historical acceptance timestamps are incomplete");
-    prepareContentObjects(objectRoot, input.events, input.blobs ?? []);
+    prepareContentObjects(objectRoot, input.events, input.blobs ?? [], {
+      skipMissingObjects: Boolean(options.deferMissingObjects),
+    });
     return transaction(() => {
       if (options.migrationImportRunId !== undefined) {
         const control = readSqliteMigrationControl(db);

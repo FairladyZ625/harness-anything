@@ -552,7 +552,11 @@ export async function openRepoCellProxy(
       assertWriterEpochFenceDescriptor(request.writerEpochFence);
       const source = openFleetStorage({ ...input, deferReader: true });
       try {
-        const backup = await source.startBackup(request.directory, "", signal, { mode: request.mode });
+        const backup = await source.startBackup(request.directory, "", signal, {
+          mode: request.mode,
+          format: request.format,
+          hotSetThresholdBytes: request.hotSetThresholdBytes,
+        });
         return await backup.complete;
       } finally {
         source.close();

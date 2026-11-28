@@ -7,12 +7,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  BASEBACKUP_V4_CAPABILITY,
   BINARY_DATA_FRAME_TAG,
   BINARY_DATA_HEADER_BYTES,
   CENTER_MOVED_DETAILS_CAPABILITY,
   REPLICATION_BINARY_CHUNK_BYTES,
   REPLICATION_CHUNK_BYTES,
   REPLICATION_FRAME_BYTES,
+  REPLICATION_OBJECT_MANIFEST_BATCH,
   ReplicationDecoder,
   SNAPSHOT_BINARY_WIRE_CAPABILITY,
   SNAPSHOT_OBJECT_PACK_CAPABILITY,
@@ -557,4 +559,57 @@ test("center-moved-details/v1 capability preserves exact N-1 baseline reject/fai
   assert.deepEqual(modernReject.type === "replica.reject" ? modernReject.centerMoved : null, details);
   assert.equal(modernFailure.type, "replica.failure");
   assert.deepEqual(modernFailure.type === "replica.failure" ? modernFailure.centerMoved : null, details);
+});
+
+test("fleet-basebackup/v4 supports v4 metadata schema, hot/cold manifest tiers, and 4096-entry manifest/want batches", () => {
+  assert.equal(BASEBACKUP_V4_CAPABILITY, "fleet-basebackup/v4");
+  assert.equal(REPLICATION_OBJECT_MANIFEST_BATCH, 4096);
+  const v4Backup: ReplicationFrame = {
+    type: "replica.backup",
+    metadata: { ...metadata, schema: "fleet-basebackup/v4" },
+    size: 8192,
+    sha256: "e".repeat(64),
+    objectsMode: "pack",
+    objectCount: 4096,
+  };
+  assert.deepEqual(parseReplicationFrame(serializeReplicationFrame(v4Backup).trimEnd()), v4Backup);
+
+  const entries = Array.from({ length: 4096 }, (_, i) => ({
+    sha256: i.toString(16).padStart(64, "0"),
+    size: i + 1,
+    tier: i % 2 === 0 ? ("hot" as const) : ("cold" as const),
+  }));
+  const largeManifest: ReplicationFrame = { type: "replica.objects.manifest", entries, done: true };
+  const largeWant: ReplicationFrame = {
+    type: "replica.objects.want",
+    sha256s: entries.map((e) => e.sha256),
+  };
+  const decoder = new ReplicationDecoder();
+  const decoded = decoder.push(
+    Buffer.concat([
+      Buffer.from(serializeReplicationFrame(largeManifest)),
+      Buffer.from(serializeReplicationFrame(largeWant)),
+    ]),
+  );
+  decoder.finish();
+  assert.deepEqual(decoded, [largeManifest, largeWant]);
+
+  // Reject invalid tier values and >4096 entries.
+  assert.throws(() =>
+    parseReplicationFrame(
+      JSON.stringify({
+        type: "replica.objects.manifest",
+        entries: [{ sha256: "a".repeat(64), size: 1, tier: "warm" }],
+        done: true,
+      }),
+    ),
+  );
+  assert.throws(() =>
+    parseReplicationFrame(
+      JSON.stringify({
+        type: "replica.objects.want",
+        sha256s: [...entries.map((e) => e.sha256), "f".repeat(64)],
+      }),
+    ),
+  );
 });

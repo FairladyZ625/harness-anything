@@ -229,6 +229,19 @@ export type FleetFrameV1 =
     >
   | Msg<"fleet.receipt.get/v1", { repoId: string; opId: string }>
   | Msg<"fleet.receipt.result/v1", { inReplyTo: string; opId: string; receipt: Readonly<Record<string, unknown>> }>
+  | Msg<"fleet.blob.get/v1", { repoId: string; sha256: string; offset?: number; length?: number }>
+  | Msg<
+      "fleet.blob.get.result/v1",
+      {
+        inReplyTo: string;
+        repoId: string;
+        sha256: string;
+        totalSize: number;
+        offset: number;
+        dataBase64: string;
+        eof: boolean;
+      }
+    >
   | Msg<"fleet.upload.begin/v1", { repoId: string; opId: string; content: FleetBlob }>
   | Msg<
       "fleet.upload.ready/v1",
@@ -685,6 +698,7 @@ const base64: Check = (value) =>
   value.length > 0 &&
   Buffer.from(value, "base64").byteLength <= FLEET_CHUNK_BYTES &&
   Buffer.from(value, "base64").toString("base64") === value;
+const base64OrEmpty: Check = (value) => value === "" || base64(value);
 const cut = shape({
     revision: uint,
     headDigest: (value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/u.test(value),
@@ -1209,6 +1223,25 @@ const schemas: Readonly<Record<string, Check>> = {
   ),
   "fleet.receipt.get/v1": shape({ ...common, repoId: id, opId: id }),
   "fleet.receipt.result/v1": shape({ ...reply, opId: id, receipt: record }),
+  "fleet.blob.get/v1": optionalShape(
+    {
+      ...common,
+      repoId: id,
+      sha256: sha64,
+      offset: uint,
+      length: (value) => positiveInt(value) && Number(value) <= FLEET_CHUNK_BYTES,
+    },
+    ["schema", "messageId", "repoId", "sha256"],
+  ),
+  "fleet.blob.get.result/v1": shape({
+    ...reply,
+    repoId: id,
+    sha256: sha64,
+    totalSize: uint,
+    offset: uint,
+    dataBase64: base64OrEmpty,
+    eof: boolean,
+  }),
   "fleet.upload.begin/v1": shape({ ...common, repoId: id, opId: id, content: blob }),
   "fleet.upload.ready/v1": shape({
     ...reply,

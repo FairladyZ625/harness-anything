@@ -61,6 +61,10 @@ export interface FleetCenterOptions {
   readonly replicationSnapshotMaxPins?: number;
   /** Maximum total bytes of pinned snapshots retained across all repositories (default 16 GiB). */
   readonly replicationSnapshotMaxBytes?: number;
+  /** Fixed revision boundary spacing for center immutable v4 snapshot segments (default 50,000). */
+  readonly replicationSnapshotSegmentBoundaryRevisions?: number;
+  /** Byte threshold at or above which archived terminal-task blobs are deferred as cold in v4 (default 64 KiB). */
+  readonly replicationHotSetThresholdBytes?: number;
   /** Number of replication log commits retained for incremental receivers. */
   readonly replicationRetentionWindowCommits?: number;
   /** An idle replication stream sends `replica.progress` this often, so a dead peer is noticed. */

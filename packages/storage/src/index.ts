@@ -91,11 +91,21 @@ export type { PersistentWriterEpoch, WriterEpochFenceDescriptor, WriterEpochLeas
 export { startBaseBackup, fleetBaseBackupTrace } from "./fleet-basebackup.ts";
 export type {
   BaseBackupArchive,
+  BaseBackupFormat,
   BaseBackupInput,
   BaseBackupMetadata,
   BaseBackupMode,
   BaseBackupObjectEntry,
+  BaseBackupObjectTier,
+  BaseBackupSchema,
 } from "./fleet-basebackup.ts";
+export {
+  COLD_BLOB_SIZE_THRESHOLD_BYTES,
+  createHotSetTracker,
+  listLedgerClaimedContentObjects,
+  type HotSetTracker,
+  type HotSetTrackerOptions,
+} from "./fleet-basebackup-hotset.ts";
 export { BASE_BACKUP_ARCHIVE_ROOT } from "./fleet-basebackup-layout.ts";
 
 export * from "./durable-file.ts";

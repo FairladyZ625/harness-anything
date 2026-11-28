@@ -9,6 +9,11 @@ export function openReplicaProjection(input: {
   readonly ledgerPath: string;
   readonly projectionPath: string;
   readonly generation: number;
+  /**
+   * Optional sizes for `fleet-basebackup/v4` deferred cold raw artifacts during initial PG seed hydration.
+   * Only satisfied for `raw-artifact/v1` projection sizing; no bytes are persisted to disk or DB.
+   */
+  readonly deferredColdBlobSizes?: ReadonlyMap<string, number>;
 }) {
   const reader = openSqliteEventStore({
     repoId: input.repoId,
@@ -17,11 +22,16 @@ export function openReplicaProjection(input: {
     readOnly: true,
   });
   try {
+    const readContentBlob = (sha256: string): Uint8Array | null => {
+      const local = reader.readContentObject(sha256);
+      if (local !== null) return local;
+      const deferredSize = input.deferredColdBlobSizes?.get(sha256);
+      return deferredSize !== undefined ? new Uint8Array(deferredSize) : null;
+    };
     const events = {
         readHead: () => reader.eventIdentityAtRevision(reader.revision()),
-        readBatch: (cursor: string | null, size: number) =>
-          sqliteEventBatch(reader, cursor, size, reader.readContentObject),
-        readContentBlob: reader.readContentObject,
+        readBatch: (cursor: string | null, size: number) => sqliteEventBatch(reader, cursor, size, readContentBlob),
+        readContentBlob,
       },
       projection = makeTaskProjection({
         rootDir: input.rootDir,

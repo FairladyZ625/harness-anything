@@ -261,6 +261,8 @@ export interface RepoCellFleetBackupInput {
   readonly directory: string;
   readonly writerEpochFence: NonNullable<RepoCellBinding["writerEpochFence"]>;
   readonly mode?: import("@harness-anything/storage").BaseBackupMode;
+  readonly format?: import("@harness-anything/storage").BaseBackupFormat;
+  readonly hotSetThresholdBytes?: number;
 }
 
 export type TaskCreateReceipt = WriteReceiptDraft & {

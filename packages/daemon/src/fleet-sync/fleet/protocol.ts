@@ -19,13 +19,16 @@ export class ReplicationError extends Error {
 }
 
 export const REPLICATION_FRAME_BYTES = daemonProtocolFleetPolicy.defaultValue.fleet.frameBytes;
+export const REPLICATION_MANIFEST_FRAME_BYTES = 1024 * 1024;
 export const REPLICATION_CHUNK_BYTES = daemonProtocolFleetPolicy.defaultValue.fleet.chunkBytes;
 export const REPLICATION_BINARY_CHUNK_BYTES = REPLICATION_CHUNK_BYTES * 4;
-export const REPLICATION_OBJECT_MANIFEST_BATCH = 500;
+export const REPLICATION_OBJECT_MANIFEST_BATCH_V3 = 500;
+export const REPLICATION_OBJECT_MANIFEST_BATCH = 4096;
 export const REPLICATION_OBJECT_PACK_MAX_BYTES = 8 * 1024 * 1024;
 export const SNAPSHOT_RESUME_CAPABILITY = "snapshot-resume/v1";
 export const SNAPSHOT_BINARY_WIRE_CAPABILITY = "snapshot-binary-wire/v1";
 export const SNAPSHOT_OBJECT_PACK_CAPABILITY = "snapshot-object-pack/v1";
+export const BASEBACKUP_V4_CAPABILITY = "fleet-basebackup/v4";
 export const CENTER_MOVED_DETAILS_CAPABILITY = "center-moved-details/v1";
 export const BINARY_DATA_FRAME_TAG = 0x00;
 export const BINARY_DATA_HEADER_BYTES = 13;
@@ -85,7 +88,7 @@ export type ReplicationFrame =
   | { readonly type: "replica.backup.end" }
   | {
       readonly type: "replica.objects.manifest";
-      readonly entries: readonly { readonly sha256: string; readonly size: number }[];
+      readonly entries: readonly { readonly sha256: string; readonly size: number; readonly tier?: "hot" | "cold" }[];
       readonly done: boolean;
     }
   | { readonly type: "replica.objects.want"; readonly sha256s: readonly string[] }
@@ -205,7 +208,7 @@ export const isReplicationPosition = (value: unknown): value is ReplicationPosit
   shape(value, { history: text, sequence: uint, revision: uint });
 export const isBaseBackupMetadata = (value: unknown): value is BaseBackupMetadata =>
   shape(value, {
-    schema: (v) => v === "fleet-basebackup/v3",
+    schema: (v) => v === "fleet-basebackup/v3" || v === "fleet-basebackup/v4",
     repoId: text,
     readerProfile: (v) => v === null || shape(v, { personId: text, nodeId: text }),
     position: isReplicationPosition,
@@ -213,12 +216,32 @@ export const isBaseBackupMetadata = (value: unknown): value is BaseBackupMetadat
     projectionSchema: uint,
   });
 
+const MANIFEST_FRAME_PREFIX_A = Buffer.from('{"type":"replica.objects.manifest"');
+const MANIFEST_FRAME_PREFIX_B = Buffer.from('{"type":"replica.objects.want"');
+
+function isLargeManifestPendingBuffer(pending: Buffer): boolean {
+  return (
+    pending.subarray(0, MANIFEST_FRAME_PREFIX_A.length).equals(MANIFEST_FRAME_PREFIX_A) ||
+    pending.subarray(0, MANIFEST_FRAME_PREFIX_B.length).equals(MANIFEST_FRAME_PREFIX_B)
+  );
+}
+
+function isManifestObjectEntry(value: unknown): boolean {
+  return optionalShape(value, { sha256: hash, size: uint }, { tier: (v) => v === "hot" || v === "cold" });
+}
+
 export function parseReplicationFrame(line: string): ReplicationFrame {
   const bytes = Buffer.byteLength(line);
   let value: unknown;
   try {
-    if (bytes > REPLICATION_FRAME_BYTES) throw new Error("replication frame exceeds capacity");
+    if (bytes > REPLICATION_MANIFEST_FRAME_BYTES) throw new Error("replication frame exceeds capacity");
     value = JSON.parse(line);
+    const frameType = object(value) ? value.type : null;
+    const capacity =
+      frameType === "replica.objects.manifest" || frameType === "replica.objects.want"
+        ? REPLICATION_MANIFEST_FRAME_BYTES
+        : REPLICATION_FRAME_BYTES;
+    if (bytes > capacity) throw new Error("replication frame exceeds capacity");
     return parseReplicationFrameValue(value);
   } catch (error) {
     const failure = error instanceof Error ? error : new Error(String(error)),
@@ -255,11 +278,11 @@ function parseReplicationFrameValue(value: unknown): ReplicationFrame {
     "replica.backup.end": {},
     "replica.objects.manifest": {
       entries: (v) =>
-        Array.isArray(v) && v.length <= 1024 && v.every((entry) => shape(entry, { sha256: hash, size: uint })),
+        Array.isArray(v) && v.length <= REPLICATION_OBJECT_MANIFEST_BATCH && v.every(isManifestObjectEntry),
       done: (v) => typeof v === "boolean",
     },
     "replica.objects.want": {
-      sha256s: (v) => Array.isArray(v) && v.length <= 1024 && v.every(hash),
+      sha256s: (v) => Array.isArray(v) && v.length <= REPLICATION_OBJECT_MANIFEST_BATCH && v.every(hash),
     },
     "replica.objects.pack": { totalBytes: uint, count: uint },
     "replica.objects.pack.end": {},
@@ -293,7 +316,11 @@ export function serializeReplicationFrame(frame: ReplicationFrame): string {
     throw new Error("replica.data.bin requires binary wire serialization");
   }
   const line = JSON.stringify(frame);
-  if (Buffer.byteLength(line) > REPLICATION_FRAME_BYTES) throw new Error("replication frame exceeds capacity");
+  const capacity =
+    frame.type === "replica.objects.manifest" || frame.type === "replica.objects.want"
+      ? REPLICATION_MANIFEST_FRAME_BYTES
+      : REPLICATION_FRAME_BYTES;
+  if (Buffer.byteLength(line) > capacity) throw new Error("replication frame exceeds capacity");
   return `${line}\n`;
 }
 
@@ -363,7 +390,8 @@ export class ReplicationDecoder {
     if (
       this.#pending.length > 0 &&
       this.#pending[0] !== BINARY_DATA_FRAME_TAG &&
-      this.#pending.length > REPLICATION_FRAME_BYTES
+      this.#pending.length >
+        (isLargeManifestPendingBuffer(this.#pending) ? REPLICATION_MANIFEST_FRAME_BYTES : REPLICATION_FRAME_BYTES)
     )
       throw new Error(`replication pending frame exceeds capacity; frameBytes=${this.#pending.length}`);
     return frames;

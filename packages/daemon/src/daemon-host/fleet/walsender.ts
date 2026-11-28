@@ -6,6 +6,7 @@ import {
   replicationCommitChunks,
   replicationContentClaims,
   type BaseBackupArchive,
+  type BaseBackupFormat,
   type BaseBackupMode,
   type BaseBackupObjectEntry,
   type ReplicationCommit,
@@ -15,9 +16,11 @@ import {
 } from "@harness-anything/storage";
 import { type PersistedCanonicalEventV1 } from "@harness-anything/kernel";
 import {
+  BASEBACKUP_V4_CAPABILITY,
   REPLICATION_BINARY_CHUNK_BYTES,
   REPLICATION_CHUNK_BYTES,
   REPLICATION_OBJECT_MANIFEST_BATCH,
+  REPLICATION_OBJECT_MANIFEST_BATCH_V3,
   REPLICATION_OBJECT_PACK_MAX_BYTES,
   SNAPSHOT_BINARY_WIRE_CAPABILITY,
   SNAPSHOT_OBJECT_PACK_CAPABILITY,
@@ -40,7 +43,7 @@ export interface ReplicationSource {
   readonly backup: (
     signal: AbortSignal,
     resumeSnapshot?: { readonly snapshotId: string; readonly offset: number },
-    options?: { readonly mode?: BaseBackupMode },
+    options?: { readonly mode?: BaseBackupMode; readonly format?: BaseBackupFormat },
   ) => Promise<
     BaseBackupArchive & {
       readonly snapshotId?: string;
@@ -160,6 +163,7 @@ export async function runWalSender(input: {
   const supportsSnapshotResume = start.capabilities?.includes(SNAPSHOT_RESUME_CAPABILITY) ?? false;
   const supportsBinaryWire = start.capabilities?.includes(SNAPSHOT_BINARY_WIRE_CAPABILITY) ?? false;
   const supportsObjectPack = start.capabilities?.includes(SNAPSHOT_OBJECT_PACK_CAPABILITY) ?? false;
+  const supportsBaseBackupV4 = start.capabilities?.includes(BASEBACKUP_V4_CAPABILITY) ?? false;
   const wireChunkBytes = supportsBinaryWire ? REPLICATION_BINARY_CHUNK_BYTES : REPLICATION_CHUNK_BYTES;
   let position = start.position;
   let pendingResumeSnapshot = supportsSnapshotResume ? start.resumeSnapshot : undefined;
@@ -179,13 +183,18 @@ export async function runWalSender(input: {
       input.onActivity?.("waiting_backup");
       const resumeRequest = position === null ? pendingResumeSnapshot : undefined;
       pendingResumeSnapshot = undefined;
-      const archive = await source.backup(signal, resumeRequest, supportsObjectPack ? { mode: "split" } : undefined);
+      const backupOptions = supportsObjectPack
+        ? { mode: "split" as const, ...(supportsBaseBackupV4 ? { format: "v4" as const } : {}) }
+        : undefined;
+      const archive = await source.backup(signal, resumeRequest, backupOptions);
       try {
         assertOwner();
         if (archive.metadata.position.history !== lease.history)
           throw new Error("replication history changed during backup");
+        const isV4Archive = supportsBaseBackupV4 && archive.metadata.schema === "fleet-basebackup/v4";
         const isSplitPack = supportsObjectPack && archive.mode === "split";
         const resumeOffset =
+          !isV4Archive &&
           supportsSnapshotResume &&
           archive.resumeOffset !== undefined &&
           archive.resumeOffset > 0 &&
@@ -216,6 +225,9 @@ export async function runWalSender(input: {
         await peer.send({ type: "replica.backup.end" });
         if (isSplitPack) {
           const allObjects: readonly BaseBackupObjectEntry[] = archive.objects ?? [];
+          const manifestBatchSize = isV4Archive
+            ? REPLICATION_OBJECT_MANIFEST_BATCH
+            : REPLICATION_OBJECT_MANIFEST_BATCH_V3;
           if (allObjects.length === 0) {
             await peer.send({ type: "replica.objects.manifest", entries: [], done: true });
             const want = await receiveExpecting();
@@ -225,10 +237,17 @@ export async function runWalSender(input: {
             let objectBytesSent = 0;
             const totalObjects = allObjects.length;
             const totalObjectBytes = allObjects.reduce((sum, entry) => sum + 72 + entry.size, 0);
-            for (let offset = 0; offset < allObjects.length; offset += REPLICATION_OBJECT_MANIFEST_BATCH) {
+            for (let offset = 0; offset < allObjects.length; offset += manifestBatchSize) {
               assertOwner();
-              const batch = allObjects.slice(offset, offset + REPLICATION_OBJECT_MANIFEST_BATCH);
-              const done = offset + REPLICATION_OBJECT_MANIFEST_BATCH >= allObjects.length;
+              const rawBatch = allObjects.slice(offset, offset + manifestBatchSize);
+              const batch = isV4Archive
+                ? rawBatch.map((entry) => ({
+                    sha256: entry.sha256,
+                    size: entry.size,
+                    ...(entry.tier ? { tier: entry.tier } : {}),
+                  }))
+                : rawBatch.map((entry) => ({ sha256: entry.sha256, size: entry.size }));
+              const done = offset + manifestBatchSize >= allObjects.length;
               await peer.send({ type: "replica.objects.manifest", entries: batch, done });
               const want = await receiveExpecting();
               if (want.type !== "replica.objects.want") throw new Error("expected replica.objects.want");

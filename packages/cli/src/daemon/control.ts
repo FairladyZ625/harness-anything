@@ -384,6 +384,10 @@ async function dispatchFleetControl(
   if (argv[at + 2] === "status") return await fleetStatusControl(argv, userRoot, daemonId, finish);
   if (argv[at + 2] === "edge" && argv[at + 3] === "repoint")
     return await fleetRepointControl(argv, userRoot, daemonId, finish);
+  if (argv[at + 2] === "edge" && argv[at + 3] === "prefetch") {
+    const { fleetPrefetchControl } = await import("./fleet-prefetch-control.ts");
+    return await fleetPrefetchControl(argv, userRoot, daemonId, finish);
+  }
   return await fleetControl(argv, at, userRoot, daemonId, finish);
 }
 async function fleetControl(
