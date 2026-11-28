@@ -927,7 +927,7 @@
         "explain": "Generic JSON-RPC protocol schema-descriptor validator checking required keys, closed field sets and primitive field types for declared wire frames.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts#validateShape:7e60241439577922c08f81812dd0a0f7",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts#validateShape:b552122d2d7884bafede71024e9615b9",
             "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-results.ts#validateShape"
           }
         ],

@@ -1316,6 +1316,7 @@ export const daemonProtocolMethods = Object.freeze([
       link: "string?",
       workspaceRoot: "string?",
       quotaBytes: "number?",
+      originUrls: "string-record?",
       transport: optionalEnum(["direct", "ssh-reverse"] as const),
       sshTarget: "string?",
     }),

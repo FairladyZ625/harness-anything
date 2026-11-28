@@ -65,7 +65,15 @@ export { builtInRuntimeProviderInputDeclaration } from "./daemon-protocol-comman
 // overhead gate refuses eager module growth — and deep kernel imports are restricted.
 // The status-vocabulary ratchet rejects a stale generated region.
 
-type RpcOptionalRule = "string?" | "string-or-empty?" | "string-null?" | "json?" | "array?" | "boolean?" | "number?";
+type RpcOptionalRule =
+  | "string?"
+  | "string-or-empty?"
+  | "string-null?"
+  | "string-record?"
+  | "json?"
+  | "array?"
+  | "boolean?"
+  | "number?";
 type RpcOptionalKeys<Fields extends RpcShape["fields"]> = {
   readonly [Key in keyof Fields]-?: Fields[Key] extends RpcOptionalRule | { readonly optional: true } ? Key : never;
 }[keyof Fields];
@@ -76,17 +84,19 @@ type RpcRuleValue<Rule> = Rule extends RpcShape
     ? Rule extends "string-null?"
       ? string | null
       : string
-    : Rule extends "number" | "number?"
-      ? number
-      : Rule extends "boolean?"
-        ? boolean
-        : Rule extends "json" | "json?"
-          ? JsonObject
-          : Rule extends "array" | "array?"
-            ? ReadonlyArray<JsonValue>
-            : Rule extends RpcEnumRule
-              ? Rule["values"][number]
-              : never;
+    : Rule extends "string-record?"
+      ? Readonly<Record<string, string>>
+      : Rule extends "number" | "number?"
+        ? number
+        : Rule extends "boolean?"
+          ? boolean
+          : Rule extends "json" | "json?"
+            ? JsonObject
+            : Rule extends "array" | "array?"
+              ? ReadonlyArray<JsonValue>
+              : Rule extends RpcEnumRule
+                ? Rule["values"][number]
+                : never;
 
 /** Compile-time counterpart of the runtime RpcShape validator. */
 export type RpcParamsFromShape<Shape extends RpcShape> = Readonly<

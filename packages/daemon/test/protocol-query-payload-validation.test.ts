@@ -140,3 +140,49 @@ test("runtime overview RPC closes collaborator scope selectors at the declared p
     ],
   );
 });
+
+test("daemon.rbac.manage validates optional originUrls as a string record", () => {
+  const base = {
+    operation: "edge-join",
+    link: "harness-edge://join/eyJ2ZXJzaW9uIjoxfQ",
+    workspaceRoot: "/tmp/harness-edge",
+  };
+
+  // Omitted originUrls preserves existing behavior.
+  assert.deepEqual(validateDaemonRpcCall({ method: "daemon.rbac.manage", params: base }), []);
+
+  // Valid string maps (named repositories, wildcard key, or empty map) pass validation.
+  for (const originUrls of [
+    { canonical: "https://example.test/org/repo.git" },
+    { "*": "https://example.test/org/repo.git" },
+    { "repo-a": "https://example.test/org/repo-a.git", "repo-b": "ssh://git@example.test/org/repo-b.git" },
+    {},
+  ]) {
+    assert.deepEqual(
+      validateDaemonRpcCall({ method: "daemon.rbac.manage", params: { ...base, originUrls } }),
+      [],
+      JSON.stringify(originUrls),
+    );
+  }
+
+  // Non-object values and non-string map entries are rejected.
+  for (const originUrls of [
+    "https://example.test/org/repo.git",
+    ["https://example.test/org/repo.git"],
+    null,
+    42,
+    true,
+    { canonical: 123 },
+    { canonical: null },
+    { canonical: true },
+    { canonical: ["https://example.test/org/repo.git"] },
+    { canonical: { url: "https://example.test/org/repo.git" } },
+    { "repo-a": "https://example.test/org/repo-a.git", "repo-b": 404 },
+  ]) {
+    assert.deepEqual(
+      validateDaemonRpcCall({ method: "daemon.rbac.manage", params: { ...base, originUrls } }),
+      ["params.originUrls must be string record"],
+      JSON.stringify(originUrls),
+    );
+  }
+});
