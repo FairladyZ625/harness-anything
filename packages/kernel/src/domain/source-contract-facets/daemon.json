@@ -1229,10 +1229,10 @@
       {
         "id": "daemon/src/submit-old-data-copy.ts#assertOldDataCopyReceipt",
         "symbol": "packages/daemon/src/daemon-host/submit-old-data-copy.ts#assertOldDataCopyReceipt",
-        "explain": "Submit-time artifact receipt check verifying `old-data-copy-evidence/v1` JSON binds the submitted commit SHA with zero failures when `data-migration` path reviewers match.",
+        "explain": "Submit-time artifact receipt check verifying `old-data-copy-evidence/v1` JSON binds the submitted commit SHA, satisfies the required tier (`golden` or `full`), and records zero failures when `data-migration` path reviewers match.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/submit-old-data-copy.ts#assertOldDataCopyReceipt:2869abb0bf811e7fdd1ba672252833e9",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/submit-old-data-copy.ts#assertOldDataCopyReceipt:753fcaa902c1cfb8553ae58eae499bd6",
             "route": "packages/daemon/src/daemon-host/submit-old-data-copy.ts#assertOldDataCopyReceipt"
           }
         ],

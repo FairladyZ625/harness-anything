@@ -92,6 +92,12 @@ test("pure helpers: receipt parsing strips injections, rss parsing, source deriv
   assert.equal(parsePeakRssBytes("\t123456789  maximum resident set size\n", "darwin"), 123456789);
   assert.equal(parsePeakRssBytes("Maximum resident set size (kbytes): 4096\n", "linux"), 4096 * 1024);
   assert.equal(parsePeakRssBytes("unrelated", "darwin"), null);
+  assert.equal(parseArgs([]).tier, "full");
+  assert.equal(parseArgs(["--tier", "golden"]).tier, "golden");
+  assert.equal(parseArgs(["--tier", "full"]).tier, "full");
+  for (const invalidTier of [[], ["smoke"], ["--keep"]]) {
+    assert.throws(() => parseArgs(["--tier", ...invalidTier]), /--tier must be 'golden' or 'full'/u);
+  }
   assert.equal(parseArgs([]).mediumSubmit, false);
   assert.equal(parseArgs(["--medium-submit"]).mediumSubmit, true);
   assert.equal(parseArgs([]).attachTimeoutMs, 900_000);
@@ -376,6 +382,7 @@ test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receip
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
     const receipt = JSON.parse(result.stdout);
     assert.equal(receipt.ok, true, JSON.stringify(receipt.failures));
+    assert.equal(receipt.tier, "full");
     assert.deepEqual(receipt.failures, []);
     assert.equal(receipt.copy.generation, "3");
     assert.equal(
@@ -741,6 +748,7 @@ test("snapshot and one-command work when harness/ is a plain edge directory with
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
     const receipt = JSON.parse(result.stdout);
     assert.equal(receipt.ok, true, JSON.stringify(receipt.failures));
+    assert.equal(receipt.tier, "full");
     assert.deepEqual(receipt.failures, []);
     assert.equal(receipt.attach.record.event, "repo_attach_completed");
     assert.equal(receipt.coldRebuild.watermark, 1);
@@ -869,6 +877,7 @@ test("remote-edge workspace resolves fleet-basebackup/v3 replica store without l
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
     const receipt = JSON.parse(result.stdout);
     assert.equal(receipt.ok, true, JSON.stringify(receipt.failures));
+    assert.equal(receipt.tier, "full");
     assert.deepEqual(receipt.failures, []);
     assert.equal(receipt.copy.sourceRevision, 1);
     assert.equal(receipt.coldRebuild.watermark, 1);
