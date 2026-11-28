@@ -78,7 +78,6 @@ import {
   withDatabase,
   withQueryOnlyDatabaseSession,
 } from "./rebuildable-task-projection-database.ts";
-import { resolveContentBlobReader } from "./document-projection-content.ts";
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { reduceBatch } from "./rebuildable-task-projection-event-application.ts";
 import { requiresEventShapeReplay } from "./event-shape-replay.ts";
@@ -92,7 +91,12 @@ import { knowledgeQueryApi } from "./rebuildable-task-projection-knowledge-queri
 import { entityQueryApi } from "./rebuildable-task-projection-entity-api.ts";
 import { runtimeLeaseApi } from "./rebuildable-task-projection-runtime-api.ts";
 import { taskQueryApi } from "./rebuildable-task-projection-task-queries.ts";
-import { readStateDigest, readProjectionCut, watermark } from "./rebuildable-task-projection-sql.ts";
+import {
+  readStateDigest,
+  readProjectionCut,
+  resolveContentBlobReader,
+  watermark,
+} from "./rebuildable-task-projection-sql.ts";
 import {
   resolveStorageBackend,
   unsupportedStorageBackendError,
@@ -175,6 +179,7 @@ export function makeTaskProjection(
         readHead,
         (db) => transaction(db, () => initializeTerminalMaterialization(db, options.eventStore.readContentBlob)),
         options.onValidationProgress,
+        options.eventStore.readContentBlob,
       );
     } catch (error) {
       if (error instanceof ProjectionSchemaMismatchError) {

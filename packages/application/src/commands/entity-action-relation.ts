@@ -115,7 +115,8 @@ export function executeRelationAction(input: {
       replay.decisionId === supersedingDecisionTargetId,
     supersededDecisionId =
       supersedingDecisionTargetId &&
-      (input.projection.readDecision(supersedingDecisionTargetId).decision?.state === "proposed" || supersedingReplay)
+      (input.projection.readDecision(supersedingDecisionTargetId, false).decision?.state === "proposed" ||
+        supersedingReplay)
         ? supersedingDecisionTargetId
         : null,
     current = input.projection.readRelationEdge(requestedRelationId),
@@ -184,7 +185,7 @@ export function executeRelationAction(input: {
       derivesRelationClause(sourceRef!) === null
     ) {
       const ref = parseEntityRef(sourceRef!),
-        decision = ref?.kind === "decision" ? input.projection.readDecision(ref.id).decision : null,
+        decision = ref?.kind === "decision" ? input.projection.readDecision(ref.id, false).decision : null,
         hint =
           ref?.kind === "decision"
             ? [...(decision?.chosen ?? []), ...(decision?.claims ?? [])].map(({ id }) => `decision/${ref.id}/${id}`)
@@ -199,7 +200,7 @@ export function executeRelationAction(input: {
     }
     if (!replay && action.relationType === "evidenced-by") {
       const ref = parseEntityRef(sourceRef!),
-        claims = ref?.kind === "decision" ? input.projection.readDecision(ref.id).decision?.claims : undefined;
+        claims = ref?.kind === "decision" ? input.projection.readDecision(ref.id, false).decision?.claims : undefined;
       if (claims && !claims.some((claim) => claim.id === ref?.anchor))
         reject(
           "relation_source_anchor_invalid",

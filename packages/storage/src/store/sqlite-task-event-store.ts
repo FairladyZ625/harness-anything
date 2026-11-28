@@ -30,7 +30,7 @@ import type {
 import { TaskEventStoreError } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import type { SqliteStorageBackendConfig } from "../storage-backend.ts";
 import { openSqliteEventStore } from "./sqlite-event-store.ts";
-import { registerBatchContentReader } from "../projection/document-projection-content.ts";
+import { registerBatchContentReader, registerVerifiedContentBlobReader } from "./content-objects.ts";
 import type { SqliteCommandOutcome, SqliteEventStore, SqliteOutboxBaseline } from "./sqlite-event-store-types.ts";
 import { assertAuthorizedReplacements } from "./task-event-store-replacement-authorization.ts";
 
@@ -142,6 +142,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
   const head = (): EventHead | null => sqlite.headIdentity();
   const cut = () => canonicalLedgerCut(options.repoId, head());
   const readContent = (sha256: string) => sqlite.readContentObject(sha256);
+  registerVerifiedContentBlobReader(readContent, (sha256) => sqlite.readVerifiedContentObject(sha256));
 
   const gitFollower = options.attachGitFollower?.({
     input,
@@ -168,6 +169,8 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       options.killpoint?.("before_event_write");
       options.killpoint?.("after_event_write");
       const receipt = options.canonicalWriter.append(bundle, { authoredRoot: latestAppendLayout.authoredRoot });
+      const committedBlobs = [...(bundle.preceding ?? []), bundle].flatMap((member) => member.blobs);
+      if (committedBlobs.length > 0) sqlite.rememberContentObjects(committedBlobs);
       try {
         options.killpoint?.("after_store_commit");
         gitFollower?.request();

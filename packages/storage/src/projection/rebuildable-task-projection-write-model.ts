@@ -1,7 +1,10 @@
 import type { DossierSynthesisEventV1 } from "@harness-anything/kernel/internal/domain/dossier-synthesis-event.ts";
 import { assertTaskProgressReferences } from "@harness-anything/kernel/internal/domain/storage-replay-policy.ts";
 import { FACT_DOCUMENT_POLICY_ID } from "@harness-anything/kernel/internal/domain/fact-event.ts";
-import { DECISION_DOCUMENT_POLICY_ID } from "@harness-anything/kernel/internal/domain/decision-event.ts";
+import {
+  DECISION_DOCUMENT_POLICY_ID,
+  decisionDocumentProse,
+} from "@harness-anything/kernel/internal/domain/decision-event.ts";
 import { DatabaseSync } from "node:sqlite";
 import { emptyTaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
 import { currentTaskForWrite } from "@harness-anything/kernel/internal/domain/task.ts";
@@ -33,12 +36,15 @@ import { decisionMaterializationHeld, refreshMaterializationHolds } from "./deci
 import { terminalDecisionMaterializationStates } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
-import { canonicalJson, prepareQuery, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 import {
+  canonicalJson,
   decisionDocumentPattern,
+  prepareQuery,
+  queryRows,
+  runSql,
   serializeProjectedDocument,
   type ProjectedDocumentMetadata,
-} from "./document-projection-content.ts";
+} from "./rebuildable-task-projection-sql.ts";
 import { projectInterpretedEntityValue } from "./rebuildable-task-projection-entities.ts";
 import { readRuntimeSession, readSnapshot } from "./rebuildable-task-projection-runtime.ts";
 import { applyRelationProjectionEvent } from "./relation-entity-projection.ts";
@@ -244,6 +250,7 @@ export function projectDecision(
   readBlob: EventStreamPort["readContentBlob"],
   readBlobSize?: EventStreamPort["readContentBlobSize"],
   readDecisionBlob?: EventStreamPort["readContentBlob"],
+  precomputedDecisionProse?: Map<string, string>,
 ): void {
   const claim = event.payload.decisionDocumentClaim,
     previous = readDocumentBaseMetadata(db, claim.path),
@@ -255,10 +262,12 @@ export function projectDecision(
     bytes.byteLength !== claim.size
   )
     throw new Error(`decision document path, base, or blob mismatch for ${event.decisionId}`);
-  reduceDecisionEvent(db, event, readDecisionBlob ?? readBlob);
+  const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  const prose = decisionDocumentProse(body);
+  precomputedDecisionProse?.set(event.decisionId, prose);
+  reduceDecisionEvent(db, event, readDecisionBlob ?? readBlob, prose);
   const state = readDecisionDocumentState(db, event.decisionId);
   if (!state) throw new Error(`decision projection missing for ${event.decisionId}`);
-  const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   const document: ProjectedDocumentMetadata = {
     path: claim.path as DocumentState["path"],
     blobSha256: claim.sha256,

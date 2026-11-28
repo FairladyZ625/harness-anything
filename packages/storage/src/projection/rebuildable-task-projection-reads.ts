@@ -3,7 +3,7 @@ import { taskAttributionRows } from "./event-summary-read-index.ts";
 import type { TaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
 import type { TaskV2 } from "@harness-anything/kernel/internal/domain/task.ts";
 import type { DatabaseSync } from "node:sqlite";
-import { hydrateDocumentRow } from "./document-projection-content.ts";
+import { hydrateDocumentRow } from "./rebuildable-task-projection-sql.ts";
 import { localRuntimeStateFileSystem } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import {
   auditRelationCycles,

@@ -35,6 +35,7 @@ import {
   isFactEvent,
   isMigrationImportEvent,
   isRelationEvent,
+  isTaskEvent,
   normalizePersistedCanonicalEvent,
   normalizePersistedEventValue,
   serializePersistedCanonicalEvent,
@@ -67,7 +68,10 @@ import {
   ownedContentForDeclarationEvent,
 } from "@harness-anything/kernel/internal/domain/entity-event.ts";
 import { entityOwnedDocumentClaims } from "@harness-anything/kernel/internal/domain/entity-owned-content.ts";
-import { canonicalDocumentRetirements } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
+import {
+  canonicalDocumentRetirements,
+  contentClaims,
+} from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 import { interpretReplayDeclaration } from "./entity-declaration-replay.ts";
 import {
   isTaskBootstrapEvent,
@@ -126,21 +130,18 @@ import {
 } from "./rebuildable-task-projection-runtime.ts";
 import {
   canonicalJson,
+  decisionDocumentPattern,
   prepareQuery,
   queryRows,
   runSql,
+  serializeProjectedDocument,
   transaction,
   watermark,
+  type ProjectedDocumentMetadata,
 } from "./rebuildable-task-projection-sql.ts";
 import { applyEmbeddedRelationProjectionEvents, applyRelationProjectionEvent } from "./relation-entity-projection.ts";
 import { refreshDirtyRelationFreshness } from "./relation-freshness-maintenance.ts";
-import {
-  batchContentReaderFor,
-  decisionDocumentPattern,
-  partitionBatchContentClaims,
-  serializeProjectedDocument,
-  type ProjectedDocumentMetadata,
-} from "./document-projection-content.ts";
+import { batchContentReaderFor } from "../store/content-objects.ts";
 import {
   bulkRebuildContext,
   insertEventIndexRow,
@@ -212,9 +213,10 @@ export function applyEvent(
   readBlobSize?: EventStreamPort["readContentBlobSize"],
   readDecisionBlob?: EventStreamPort["readContentBlob"],
 ): void {
-  applyEventProjection(db, event, eventJson, readBlob, readBlobSize, readDecisionBlob);
+  const precomputedDecisionProse = new Map<string, string>();
+  applyEventProjection(db, event, eventJson, readBlob, readBlobSize, readDecisionBlob, precomputedDecisionProse);
   settleTerminalMaterializationForEvent(db, event);
-  refreshDecisionListReviews(db, event, readDecisionBlob ?? readBlob);
+  refreshDecisionListReviews(db, event, readDecisionBlob ?? readBlob, precomputedDecisionProse);
   if (bulkRebuildContext(db) === undefined) refreshDirtyRelationFreshness(db);
 }
 
@@ -225,6 +227,7 @@ function applyEventProjection(
   readBlob: EventStreamPort["readContentBlob"],
   readBlobSize?: EventStreamPort["readContentBlobSize"],
   readDecisionBlob?: EventStreamPort["readContentBlob"],
+  precomputedDecisionProse?: Map<string, string>,
 ): void {
   const sourceDispatchKey =
     isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested" ? event.payload.dispatchKey : undefined;
@@ -574,7 +577,7 @@ function applyEventProjection(
     return;
   }
   if (isDecisionEvent(event)) {
-    projectDecision(db, event, eventJson, readBlob, readBlobSize, readDecisionBlob);
+    projectDecision(db, event, eventJson, readBlob, readBlobSize, readDecisionBlob, precomputedDecisionProse);
     return;
   }
   if (isAgentRuntimeEvent(event)) {
@@ -1395,4 +1398,107 @@ function drainDeferred(
   }
   runSql(db, "UPDATE projection_meta SET watermark = ? WHERE singleton = 1", next);
   return reduced;
+}
+
+function isInterpretedDecisionPath(documentPath: string, policyId?: string): boolean {
+  return policyId === DECISION_DOCUMENT_POLICY_ID || decisionDocumentPattern.test(documentPath);
+}
+
+function partitionBatchContentClaims(events: readonly PersistedCanonicalEventV1[]): {
+  readonly interpretedDigests: ReadonlySet<string>;
+  readonly sizeOnlyDigests: ReadonlySet<string>;
+} {
+  const interpreted = new Set<string>();
+  const all = new Set<string>();
+  const addInterpreted = (sha256: string | undefined) => {
+    if (typeof sha256 === "string" && sha256.length > 0) interpreted.add(sha256);
+  };
+  for (const rawEvent of events) {
+    const event = normalizeHistoricalEvent(rawEvent);
+    if (isRetiredCiRunObservationEvent(event)) continue;
+    if (
+      !canonicalEventSchemas.some((candidate) => candidate.schema === event.schema) ||
+      isUnknownForwardCanonicalEventType(event)
+    )
+      continue;
+    for (const claim of contentClaims(event)) all.add(claim.sha256);
+    if (isTaskBootstrapEvent(event)) {
+      addInterpreted(event.payload.presetSnapshotClaim?.sha256);
+      continue;
+    }
+    if (isPresetSnapshotUpgradeEvent(event)) {
+      addInterpreted(event.payload.presetSnapshotClaim?.sha256);
+      continue;
+    }
+    if (isEntityEvent(event) && isEntityDeclarationEvent(event) && event.type !== "entity_reference_declared") {
+      addInterpreted(event.payload.declarationDocumentClaim?.sha256);
+      for (const owned of entityOwnedDocumentClaims(ownedContentForDeclarationEvent(event))) {
+        if (isInterpretedDecisionPath(owned.path, owned.policyId)) addInterpreted(owned.sha256);
+      }
+      continue;
+    }
+    if (isScheduleEvent(event)) {
+      if ("declarationDocumentClaim" in event.payload) addInterpreted(event.payload.declarationDocumentClaim?.sha256);
+      continue;
+    }
+    if (isSettingsEvent(event)) {
+      addInterpreted(event.payload.harnessDocumentClaim?.sha256);
+      continue;
+    }
+    if (isVerticalDeclarationEvent(event)) {
+      addInterpreted(event.payload.declarationDocumentClaim?.sha256);
+      continue;
+    }
+    if (isRetiredPeopleEvent(event)) {
+      addInterpreted(event.payload.peopleDocumentClaim?.sha256);
+      continue;
+    }
+    if (isDecisionEvent(event)) {
+      addInterpreted(event.payload.decisionDocumentClaim?.sha256);
+      if (event.type === "decision_review_recorded") {
+        for (const change of event.payload.carriedDocumentClaims ?? []) {
+          if (isInterpretedDecisionPath(change.path, change.policyId)) addInterpreted(change.candidate?.sha256);
+        }
+      }
+      continue;
+    }
+    if (isMigrationImportEvent(event)) {
+      if (event.payload.entity.kind === "decision") addInterpreted(event.payload.entity.documentClaim?.sha256);
+      continue;
+    }
+    if (isDocEvent(event)) {
+      for (const change of event.payload.changes) {
+        if (change.candidate !== null && isInterpretedDecisionPath(change.path, change.policyId))
+          addInterpreted(change.candidate.sha256);
+      }
+      continue;
+    }
+    if (isTaskEvent(event)) {
+      for (const change of event.payload.carriedDocumentClaims ?? []) {
+        if (isInterpretedDecisionPath(change.path, change.policyId)) addInterpreted(change.candidate?.sha256);
+      }
+      continue;
+    }
+    if (isTaskProgressEvent(event)) {
+      for (const change of event.payload.carriedDocumentClaims ?? []) {
+        if (isInterpretedDecisionPath(change.path, change.policyId)) addInterpreted(change.candidate?.sha256);
+      }
+      continue;
+    }
+    if (isEntityDocumentEvent(event) || isDossierSynthesisEvent(event)) {
+      for (const claim of event.payload.documentClaims) {
+        if (isInterpretedDecisionPath(claim.path, claim.policyId)) addInterpreted(claim.sha256);
+      }
+      continue;
+    }
+    if (isRelationEvent(event)) {
+      for (const claim of event.payload.documentClaims ?? []) {
+        if (isInterpretedDecisionPath(claim.path, claim.policyId)) addInterpreted(claim.sha256);
+      }
+      continue;
+    }
+  }
+  const sizeOnly = new Set<string>();
+  for (const digest of all) if (!interpreted.has(digest)) sizeOnly.add(digest);
+  return { interpretedDigests: interpreted, sizeOnlyDigests: sizeOnly };
 }

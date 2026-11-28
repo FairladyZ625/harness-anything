@@ -23,6 +23,7 @@ import { emptyTaskLifecycleSnapshot } from "@harness-anything/kernel/internal/do
 import type { CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 
 import { withDatabase } from "../../src/projection/rebuildable-task-projection-database.ts";
+import { hydrateDocumentRow } from "../../src/projection/rebuildable-task-projection-sql.ts";
 import { projectProgress } from "../../src/projection/rebuildable-task-projection-write-model.ts";
 import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
@@ -114,7 +115,10 @@ test("historically accepted delegated progress remains replayable", async () => 
         );
         assert.doesNotThrow(() => replay(compiled.event));
         const document = db.prepare("SELECT value_json FROM document WHERE path = ?").get(compiled.path);
-        assert.equal(JSON.parse(String(document?.value_json)).body, compiled.body);
+        const projected = JSON.parse(String(document?.value_json)) as Record<string, unknown>;
+        assert.equal(projected.body, undefined);
+        assert.equal(projected.blobSha256, compiled.event.payload.resultDocumentClaim.sha256);
+        assert.equal(hydrateDocumentRow(String(document?.value_json), readBlob).body, compiled.body);
         assert.equal(db.prepare("SELECT COUNT(*) AS count FROM task_progress").get()?.count, 1);
       },
     );

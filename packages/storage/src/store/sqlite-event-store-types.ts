@@ -3,6 +3,7 @@ import type { receiptAcceptanceStatuses } from "@harness-anything/kernel/interna
 import type { CanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import type { CanonicalContentBlob } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import type { HarnessLayoutInput } from "@harness-anything/kernel/internal/layout/index.ts";
+import type { VerifiedContentBlob } from "./content-objects.ts";
 import type { ReplicationPosition, ReplicationCommit } from "./replication-log.ts";
 
 export interface SqliteWriterFence {
@@ -177,6 +178,8 @@ export interface SqliteEventStore {
     readonly done: boolean;
   };
   readonly readContentObject: (sha256: string) => Uint8Array | null;
+  readonly readVerifiedContentObject: (sha256: string) => VerifiedContentBlob | null;
+  readonly rememberContentObjects: (blobs: readonly CanonicalContentBlob[]) => void;
   readonly readContentObjectRange: (sha256: string, offset: number, maxBytes: number) => Uint8Array | null;
   readonly readContentObjectSize: (sha256: string) => number | null;
   readonly contentObjectDigests: () => readonly string[];

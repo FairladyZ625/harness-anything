@@ -1,10 +1,24 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import path from "node:path";
 import type * as ReadSet from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { DatabaseSync } from "node:sqlite";
 import type { SQLOutputValue, StatementSync } from "node:sqlite";
+import {
+  OPAQUE_TEXTUAL_POLICY_ID,
+  RAW_ARTIFACT_POLICY_ID,
+} from "@harness-anything/kernel/internal/domain/artifact-text-classification.ts";
+import type { DocumentState } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
+import { ENTITY_CONTENT_POLICY_ID } from "@harness-anything/kernel/internal/domain/entity-owned-content.ts";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
-import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
+import { sha256Bytes, sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
+import { resolveHarnessLayout } from "@harness-anything/kernel/internal/layout/index.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
+import {
+  readContentObject,
+  readVerifiedContentObject,
+  registerVerifiedContentBlobReader,
+  verifiedContentBlobReaderFor,
+} from "../store/content-objects.ts";
 import {
   canonicalJson,
   hashCanonicalJsonTextFieldChunks,
@@ -160,19 +174,15 @@ export function readStateDigest(db: DatabaseSync, sourceRevision: number): `sha2
 function digestDocumentRows(db: DatabaseSync, digest: string, table: "document" | "document_history"): string {
   const documents = prepareQuery(
     db,
-    `SELECT path, workspace_revision, value_json FROM ${table} ORDER BY path`,
+    `SELECT path, workspace_revision, CASE WHEN json_type(value_json, '$.body') IS NULL THEN value_json ELSE json_remove(value_json, '$.body') END AS metadata_json FROM ${table} ORDER BY path`,
   ).iterate() as Iterable<{
     readonly path: string;
     readonly workspace_revision: number;
-    readonly value_json: string;
+    readonly metadata_json: string;
   }>;
-  for (const { path, workspace_revision, value_json } of documents) {
+  for (const { path, workspace_revision, metadata_json } of documents) {
     markProjectionSqlProgress();
-    const parsed = JSON.parse(value_json) as Record<string, unknown>;
-    const metadata: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(parsed)) {
-      if (key !== "body") metadata[key] = value;
-    }
+    const metadata = JSON.parse(metadata_json) as Record<string, unknown>;
     digest = sha256Text(
       `${digest}\n${canonicalJson({
         path,
@@ -286,4 +296,164 @@ export function queryPreparedRows<Row extends ProjectionSqlRow = ProjectionSqlRo
   ...values: readonly SqlValue[]
 ): readonly Row[] {
   return statement.all(...values) as Row[];
+}
+
+export const decisionDocumentPattern = /^decisions\/decision-(dec_[A-Za-z0-9_-]+)\/decision\.md$/u;
+
+export type ProjectionContentBlobErrorCode = "content_blob_missing" | "content_blob_digest_mismatch";
+
+export class ProjectionContentBlobError extends Error {
+  readonly code: ProjectionContentBlobErrorCode;
+  readonly documentPath: string;
+  readonly blobSha256: string;
+
+  constructor(code: ProjectionContentBlobErrorCode, documentPath: string, blobSha256: string, message: string) {
+    super(message);
+    this.name = "ProjectionContentBlobError";
+    this.code = code;
+    this.documentPath = documentPath;
+    this.blobSha256 = blobSha256;
+  }
+}
+
+export type ProjectedDocumentMetadata = Omit<DocumentState, "body">;
+
+export function stripDocumentBody(
+  document: ProjectedDocumentMetadata & { readonly body?: unknown },
+): ProjectedDocumentMetadata {
+  return {
+    path: document.path,
+    blobSha256: document.blobSha256,
+    size: document.size,
+    mediaType: document.mediaType,
+    policyId: document.policyId,
+    workspaceRevision: document.workspaceRevision,
+  };
+}
+
+export function serializeProjectedDocument(document: ProjectedDocumentMetadata & { readonly body?: unknown }): string {
+  return canonicalJson(stripDocumentBody(document));
+}
+
+export function isNonTextualDocumentPolicy(policyId: string | null | undefined): boolean {
+  return policyId === RAW_ARTIFACT_POLICY_ID || policyId === ENTITY_CONTENT_POLICY_ID;
+}
+
+/**
+ * Hydrate a projected document row into a full DocumentState.
+ * Schema v40 rows omit `body` and resolve bytes on demand from immutable CAS with strict L3
+ * fail-closed checks (missing blob or size/SHA-256/UTF-8 mismatch always throws explicitly).
+ */
+export function hydrateDocumentRow(valueJson: string, readBlob?: EventStreamPort["readContentBlob"]): DocumentState {
+  const parsed = JSON.parse(valueJson) as ProjectedDocumentMetadata & { readonly body?: unknown };
+  if (typeof parsed.body === "string") return parsed as DocumentState;
+  const documentPath = String(parsed.path ?? "");
+  const blobSha256 = String(parsed.blobSha256 ?? "");
+  const expectedSize = Number(parsed.size);
+  const verifiedReader = verifiedContentBlobReaderFor(readBlob);
+  if (verifiedReader !== undefined) {
+    const entry = verifiedReader(blobSha256);
+    if (entry === null) {
+      throw new ProjectionContentBlobError(
+        "content_blob_missing",
+        documentPath,
+        blobSha256,
+        `content blob ${blobSha256} is missing for projected document ${documentPath}`,
+      );
+    }
+    if (entry.size !== expectedSize || entry.sha256 !== blobSha256) {
+      throw new ProjectionContentBlobError(
+        "content_blob_digest_mismatch",
+        documentPath,
+        blobSha256,
+        `content blob integrity mismatch for projected document ${documentPath}: ` +
+          `expected ${blobSha256} (${expectedSize} bytes), observed ${entry.sha256} (${entry.size} bytes)`,
+      );
+    }
+    if (isNonTextualDocumentPolicy(parsed.policyId)) {
+      return { ...stripDocumentBody(parsed), body: "" };
+    }
+    const ignoreBOM = parsed.policyId === OPAQUE_TEXTUAL_POLICY_ID;
+    const cachedBody = ignoreBOM ? entry.utf8IgnoreBom : entry.utf8Default;
+    if (cachedBody !== undefined) {
+      return { ...stripDocumentBody(parsed), body: cachedBody };
+    }
+    let body: string;
+    try {
+      body = new TextDecoder("utf-8", { fatal: true, ignoreBOM }).decode(entry.bytes);
+    } catch {
+      throw new ProjectionContentBlobError(
+        "content_blob_digest_mismatch",
+        documentPath,
+        blobSha256,
+        `content blob ${blobSha256} for projected document ${documentPath} is not valid UTF-8`,
+      );
+    }
+    if (ignoreBOM) entry.utf8IgnoreBom = body;
+    else entry.utf8Default = body;
+    return { ...stripDocumentBody(parsed), body };
+  }
+  const bytes = readBlob?.(blobSha256) ?? null;
+  if (bytes === null) {
+    throw new ProjectionContentBlobError(
+      "content_blob_missing",
+      documentPath,
+      blobSha256,
+      `content blob ${blobSha256} is missing for projected document ${documentPath}`,
+    );
+  }
+  const actualSha256 = sha256Bytes(bytes);
+  if (bytes.byteLength !== expectedSize || actualSha256 !== blobSha256) {
+    throw new ProjectionContentBlobError(
+      "content_blob_digest_mismatch",
+      documentPath,
+      blobSha256,
+      `content blob integrity mismatch for projected document ${documentPath}: ` +
+        `expected ${blobSha256} (${expectedSize} bytes), observed ${actualSha256} (${bytes.byteLength} bytes)`,
+    );
+  }
+  if (isNonTextualDocumentPolicy(parsed.policyId)) {
+    return { ...stripDocumentBody(parsed), body: "" };
+  }
+  let body: string;
+  try {
+    body = new TextDecoder("utf-8", {
+      fatal: true,
+      ignoreBOM: parsed.policyId === OPAQUE_TEXTUAL_POLICY_ID,
+    }).decode(bytes);
+  } catch {
+    throw new ProjectionContentBlobError(
+      "content_blob_digest_mismatch",
+      documentPath,
+      blobSha256,
+      `content blob ${blobSha256} for projected document ${documentPath} is not valid UTF-8`,
+    );
+  }
+  return { ...stripDocumentBody(parsed), body };
+}
+
+/**
+ * Resolve a read-only CAS content-blob reader for query-only projection sessions
+ * (works for standard workspaces, custom localRoot layouts, and edge replica generations).
+ */
+export function resolveContentBlobReader(projectionPath: string, rootDir?: string): EventStreamPort["readContentBlob"] {
+  const localRoots: string[] = [];
+  const addLocalRoot = (candidate: string) => {
+    const resolved = path.resolve(candidate);
+    if (!localRoots.includes(resolved)) localRoots.push(resolved);
+  };
+  if (projectionPath) addLocalRoot(path.resolve(path.dirname(projectionPath), ".."));
+  if (rootDir) addLocalRoot(resolveHarnessLayout(rootDir).localRoot);
+  const objectRoots = localRoots.flatMap((localRoot) =>
+    ["3", "2", "1"].map((generation) => path.join(localRoot, "store", "generations", generation, "objects", "sha256")),
+  );
+  const reader: EventStreamPort["readContentBlob"] = (sha256: string): Uint8Array | null => {
+    for (const objectRoot of objectRoots) {
+      const bytes = readContentObject(objectRoot, sha256);
+      if (bytes !== null) return bytes;
+    }
+    return null;
+  };
+  registerVerifiedContentBlobReader(reader, (sha256) => readVerifiedContentObject(objectRoots, sha256));
+  return reader;
 }

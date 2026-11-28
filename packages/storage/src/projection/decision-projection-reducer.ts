@@ -21,6 +21,7 @@ export function reduceDecisionEvent(
   db: DatabaseSync,
   event: DecisionEventV1,
   readBlob?: EventStreamPort["readContentBlob"],
+  precomputedProse?: string,
 ): void {
   assertDecisionAdmission(db, event);
   const revision = event.workspaceRevision;
@@ -66,7 +67,7 @@ export function reduceDecisionEvent(
       );
     }
     applyEmbeddedRelationProjectionEvents(db, event);
-    refreshDecisionFts(db, event.decisionId, readBlob);
+    refreshDecisionFts(db, event.decisionId, readBlob, precomputedProse);
     return;
   }
   prepareQuery(db, "UPDATE decision SET workspace_revision=? WHERE decision_id=?").run(revision, event.decisionId);
@@ -96,7 +97,7 @@ export function reduceDecisionEvent(
     insertDecisionPin(db, event);
     if (["decision_accepted", "decision_rejected"].includes(event.type))
       prepareQuery(db, "DELETE FROM pinned_entities WHERE entity_ref=?").run(`decision/${event.decisionId}`);
-    refreshDecisionFts(db, event.decisionId, readBlob);
+    refreshDecisionFts(db, event.decisionId, readBlob, precomputedProse);
     return;
   }
   if (event.type === "decision_superseded" || event.type === "decision_retired") {
@@ -109,7 +110,7 @@ export function reduceDecisionEvent(
     );
     insertDecisionPin(db, event);
     prepareQuery(db, "DELETE FROM pinned_entities WHERE entity_ref=?").run(`decision/${event.decisionId}`);
-    refreshDecisionFts(db, event.decisionId, readBlob);
+    refreshDecisionFts(db, event.decisionId, readBlob, precomputedProse);
     return;
   }
   if (event.type === "decision_amended") {
@@ -150,7 +151,7 @@ export function reduceDecisionEvent(
       JSON.stringify(event.payload.amendment),
     );
     insertDecisionPin(db, event);
-    refreshDecisionFts(db, event.decisionId, readBlob);
+    refreshDecisionFts(db, event.decisionId, readBlob, precomputedProse);
     return;
   }
   if (event.type === "decision_repinned") {
@@ -212,7 +213,7 @@ export function reduceDecisionEvent(
       event.payload.loadBearing ? 1 : 0,
       revision,
     );
-    refreshDecisionFts(db, event.decisionId, readBlob);
+    refreshDecisionFts(db, event.decisionId, readBlob, precomputedProse);
     return;
   }
   if (event.type === "decision_claim_fulfillment_declared") {
@@ -254,7 +255,8 @@ export function refreshDecisionDocumentSearch(
       document.path,
     )?.[1];
   if (id && decisionState(db, id)) {
-    const prose = typeof document.body === "string" ? decisionDocumentProse(document.body) : undefined;
+    const prose =
+      typeof document.body === "string" && document.body.length > 0 ? decisionDocumentProse(document.body) : undefined;
     refreshDecisionFts(db, id, readBlob, prose);
   }
 }
@@ -263,15 +265,16 @@ export function refreshDecisionListReview(
   db: DatabaseSync,
   id: string,
   readBlob?: EventStreamPort["readContentBlob"],
+  precomputedProse?: string,
 ): void {
   const decision = readDecisionDocumentState(db, id);
   if (decision === null) return;
-  const body = readDecisionBody(db, id, readBlob);
+  const prose = precomputedProse ?? readDecisionBody(db, id, readBlob)?.body ?? null;
   runSql(
     db,
     "UPDATE decision SET list_options_json=?,review_summary_json=? WHERE decision_id=?",
     JSON.stringify({ chosen: decision.chosen, rejected: decision.rejected }),
-    body === null ? null : JSON.stringify(projectDecisionListReview(decision, body.body)),
+    prose === null ? null : JSON.stringify(projectDecisionListReview(decision, prose)),
     id,
   );
 }
@@ -280,6 +283,7 @@ export function refreshDecisionListReviews(
   db: DatabaseSync,
   event: PersistedCanonicalEventV1,
   readBlob?: EventStreamPort["readContentBlob"],
+  precomputedProseByDecisionId?: ReadonlyMap<string, string>,
 ): void {
   const owners = changedDecisionDocuments(event),
     relationIds = changedDecisionEvidenceRelations(event);
@@ -291,7 +295,7 @@ export function refreshDecisionListReviews(
       JSON.stringify(relationIds),
     ))
       owners.add(owner_ref.slice("decision/".length));
-  for (const id of owners) refreshDecisionListReview(db, id, readBlob);
+  for (const id of owners) refreshDecisionListReview(db, id, readBlob, precomputedProseByDecisionId?.get(id));
 }
 
 function refreshDecisionFts(

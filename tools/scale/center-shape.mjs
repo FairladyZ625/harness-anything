@@ -65,7 +65,9 @@ export function readProjectionShape(rootDir) {
       .prepare(
         `SELECT COUNT(*) AS count,
       SUM(LENGTH(CAST(value_json AS BLOB))) AS jsonBytes,
-      MAX(LENGTH(CAST(value_json AS BLOB))) AS largestJsonBytes FROM document`,
+      MAX(LENGTH(CAST(value_json AS BLOB))) AS largestJsonBytes,
+      SUM(COALESCE(CAST(json_extract(value_json, '$.size') AS INTEGER), 0)) AS contentBytes,
+      MAX(COALESCE(CAST(json_extract(value_json, '$.size') AS INTEGER), 0)) AS largestContentBytes FROM document`,
       )
       .get();
     const event = db

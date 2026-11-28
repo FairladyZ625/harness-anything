@@ -28,4 +28,4 @@ export type {
   PGliteTaskProjectionReaderFactoryOptions,
 } from "./rebuildable-task-projection-factory.ts";
 export { ProjectionIdentityMismatchError, closeTaskProjectionsUnder } from "./rebuildable-task-projection-database.ts";
-export { ProjectionContentBlobError } from "./document-projection-content.ts";
+export { ProjectionContentBlobError } from "./rebuildable-task-projection-sql.ts";

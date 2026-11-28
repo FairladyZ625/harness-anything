@@ -13,8 +13,7 @@ import {
 } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import type { DecisionBodyRow } from "@harness-anything/kernel";
-import { decisionDocumentPattern, hydrateDocumentRow } from "./document-projection-content.ts";
-import { prepareQuery } from "./rebuildable-task-projection-sql.ts";
+import { decisionDocumentPattern, hydrateDocumentRow, prepareQuery } from "./rebuildable-task-projection-sql.ts";
 
 export { decisionDocumentPattern };
 

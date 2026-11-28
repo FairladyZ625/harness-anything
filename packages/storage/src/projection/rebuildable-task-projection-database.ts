@@ -56,6 +56,7 @@ import {
   closeProjectionConnection,
   prepareQuery,
   queryRows,
+  resolveContentBlobReader,
   runSql,
   transaction,
 } from "./rebuildable-task-projection-sql.ts";
@@ -64,7 +65,11 @@ export type { TaskProjection } from "@harness-anything/kernel";
 
 // Projection database ownership, lifetime, initialization, and schema checks.
 interface ProjectionDatabaseOwner {
-  readonly use: <A>(operation: (db: DatabaseSync) => A, onValidationProgress?: ProjectionProgress) => A;
+  readonly use: <A>(
+    operation: (db: DatabaseSync) => A,
+    onValidationProgress?: ProjectionProgress,
+    readBlob?: EventStreamPort["readContentBlob"],
+  ) => A;
   readonly adopt: (db: DatabaseSync) => void;
   readonly close: () => void;
 }
@@ -211,6 +216,7 @@ export function withDatabase<A>(
   readHead: EventStreamPort["readHead"],
   use: (db: DatabaseSync) => A,
   onValidationProgress?: ProjectionProgress,
+  readBlob?: EventStreamPort["readContentBlob"],
 ): A {
   if (
     queryOnlySession !== null &&
@@ -219,7 +225,7 @@ export function withDatabase<A>(
     queryOnlySession.readHead === readHead
   )
     return use(queryOnlySession.db);
-  return projectionDatabaseOwner(projectionPath, readHead).use(use, onValidationProgress);
+  return projectionDatabaseOwner(projectionPath, readHead).use(use, onValidationProgress, readBlob);
 }
 
 export function withQueryOnlyDatabaseSession<A>(
@@ -400,14 +406,20 @@ function projectionDatabaseOwner(
     configureDatabase(db);
     fingerprint = projectionFileFingerprint(projectionPath);
   };
-  const initialize = (onValidationProgress?: ProjectionProgress) => {
+  const initialize = (onValidationProgress?: ProjectionProgress, readBlob?: EventStreamPort["readContentBlob"]) => {
     try {
       open();
       const observed = projectionSchemaVersion(db!);
       if (
         observed !== null &&
         observed !== taskProjectionSchemaVersion &&
-        !upgradeProjectionSchemaInPlace(db!, observed, readHead(), onValidationProgress)
+        !upgradeProjectionSchemaInPlace(
+          db!,
+          observed,
+          readHead(),
+          onValidationProgress,
+          readBlob ?? resolveContentBlobReader(projectionPath),
+        )
       ) {
         throw new ProjectionSchemaMismatchError(observed, projectionPath);
       }
@@ -418,14 +430,18 @@ function projectionDatabaseOwner(
       throw error;
     }
   };
-  const use = <A>(operation: (database: DatabaseSync) => A, onValidationProgress?: ProjectionProgress): A => {
+  const use = <A>(
+    operation: (database: DatabaseSync) => A,
+    onValidationProgress?: ProjectionProgress,
+    readBlob?: EventStreamPort["readContentBlob"],
+  ): A => {
     // A query operation can call back into this same owner while its own `operation` is still
     // running (an event-shape migration's rewrite reads the scratch projection it is replaying
     // into, mid-round). useDepth makes that reentrant, so a nested call reuses the still-open
     // connection instead of initializing a second owner.
     if (useDepth === 0) {
       if (db !== null && fingerprint !== projectionFileFingerprint(projectionPath)) close();
-      if (db === null) initialize(onValidationProgress);
+      if (db === null) initialize(onValidationProgress, readBlob);
     }
     // initialize() verified the schema version of this file identity; only a replaced file
     // (a changed fingerprint) can carry another one, and that reopens and verifies again.
@@ -461,10 +477,11 @@ function upgradeProjectionSchemaInPlace(
   observed: number,
   head: ReturnType<EventStreamPort["readHead"]>,
   onValidationProgress?: ProjectionProgress,
+  readBlob?: EventStreamPort["readContentBlob"],
 ): boolean {
   let current = observed;
   if (current === 38) {
-    if (!expandDecisionListColumns(db, head)) return false;
+    if (!expandDecisionListColumns(db, head, readBlob)) return false;
     current = projectionSchemaVersion(db) ?? current;
   }
   if (current === 39) {
@@ -474,7 +491,11 @@ function upgradeProjectionSchemaInPlace(
 }
 
 /** Upgrade schema 38 to 39 at its existing cut. A full replay does work proportional to the ledger. */
-function expandDecisionListColumns(db: DatabaseSync, head: ReturnType<EventStreamPort["readHead"]>): boolean {
+function expandDecisionListColumns(
+  db: DatabaseSync,
+  head: ReturnType<EventStreamPort["readHead"]>,
+  readBlob?: EventStreamPort["readContentBlob"],
+): boolean {
   return transaction(db, () => {
     const version = projectionSchemaVersion(db);
     if (version !== null && version >= 39) return true;
@@ -491,7 +512,7 @@ function expandDecisionListColumns(db: DatabaseSync, head: ReturnType<EventStrea
       db,
       "SELECT decision_id FROM decision",
     ))
-      refreshDecisionListReview(db, id);
+      refreshDecisionListReview(db, id, readBlob);
     runSql(db, "UPDATE projection_meta SET schema_version=? WHERE singleton=1", 39);
     return true;
   });
