@@ -38,13 +38,16 @@ interface CachedVerifiedObject {
 const verifiedObjectCache = new Map<string, CachedVerifiedObject>();
 let verifiedObjectCacheBytes = 0;
 
+function removeCachedVerifiedObject(target: string): void {
+  const existing = verifiedObjectCache.get(target);
+  if (existing === undefined) return;
+  verifiedObjectCacheBytes -= existing.entry.size;
+  verifiedObjectCache.delete(target);
+}
+
 function cacheVerifiedObject(target: string, stamp: string, entry: VerifiedContentBlob): void {
   if (entry.size > MAX_VERIFIED_OBJECT_SINGLE_BYTES) return;
-  const previous = verifiedObjectCache.get(target);
-  if (previous !== undefined) {
-    verifiedObjectCacheBytes -= previous.entry.size;
-    verifiedObjectCache.delete(target);
-  }
+  removeCachedVerifiedObject(target);
   verifiedObjectCache.set(target, { stamp, entry });
   verifiedObjectCacheBytes += entry.size;
   while (
@@ -53,9 +56,7 @@ function cacheVerifiedObject(target: string, stamp: string, entry: VerifiedConte
   ) {
     const oldestKey = verifiedObjectCache.keys().next().value;
     if (oldestKey === undefined) break;
-    const oldest = verifiedObjectCache.get(oldestKey);
-    verifiedObjectCache.delete(oldestKey);
-    if (oldest !== undefined) verifiedObjectCacheBytes -= oldest.entry.size;
+    removeCachedVerifiedObject(oldestKey);
   }
 }
 
@@ -166,26 +167,18 @@ export function readVerifiedContentObject(objectRoots: readonly string[], sha256
     const target = objectPath(objectRoot, sha256);
     const info = localContentObjectFileSystem.fileStamp(target);
     if (info === null) {
-      const stale = verifiedObjectCache.get(target);
-      if (stale !== undefined) {
-        verifiedObjectCacheBytes -= stale.entry.size;
-        verifiedObjectCache.delete(target);
-      }
+      removeCachedVerifiedObject(target);
       continue;
     }
     const cached = verifiedObjectCache.get(target);
     if (cached !== undefined && cached.stamp === info.stamp && cached.entry.sha256 === sha256) {
-      verifiedObjectCache.delete(target);
-      verifiedObjectCache.set(target, cached);
+      cacheVerifiedObject(target, cached.stamp, cached.entry);
       return cached.entry;
     }
     const bytes = localContentObjectFileSystem.readBytes(target);
     const actualSha256 = sha256Bytes(bytes);
     if (actualSha256 !== sha256) {
-      if (cached !== undefined) {
-        verifiedObjectCacheBytes -= cached.entry.size;
-        verifiedObjectCache.delete(target);
-      }
+      removeCachedVerifiedObject(target);
       return { sha256: actualSha256, size: bytes.byteLength, bytes };
     }
     const entry: VerifiedContentBlob = { sha256, size: bytes.byteLength, bytes };
