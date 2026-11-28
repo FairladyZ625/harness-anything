@@ -4,8 +4,12 @@ import path from "node:path";
 import type { ReplicationPosition } from "./store/replication-log.ts";
 import { prepareStorageWorkerContext } from "./storage-worker-context.ts";
 
+export type BaseBackupSchema = "fleet-basebackup/v3" | "fleet-basebackup/v4";
+export type BaseBackupFormat = "v3" | "v4";
+export type BaseBackupObjectTier = "hot" | "cold";
+
 export interface BaseBackupMetadata {
-  readonly schema: "fleet-basebackup/v3";
+  readonly schema: BaseBackupSchema;
   readonly readerProfile: { readonly personId: string; readonly nodeId: string } | null;
   readonly repoId: string;
   readonly position: ReplicationPosition;
@@ -16,6 +20,7 @@ export type BaseBackupMode = "monolithic" | "split";
 export interface BaseBackupObjectEntry {
   readonly sha256: string;
   readonly size: number;
+  readonly tier?: BaseBackupObjectTier;
 }
 export interface BaseBackupArchive {
   readonly metadata: BaseBackupMetadata;
@@ -25,6 +30,9 @@ export interface BaseBackupArchive {
   readonly mode?: BaseBackupMode;
   readonly objects?: readonly BaseBackupObjectEntry[];
   readonly objectCount?: number;
+  readonly hotObjectCount?: number;
+  readonly coldObjectCount?: number;
+  readonly segmentRevision?: number;
 }
 export interface SqliteBaseBackupInput {
   readonly readerProfile?: BaseBackupMetadata["readerProfile"];
@@ -32,6 +40,8 @@ export interface SqliteBaseBackupInput {
   readonly projectionPath: string;
   readonly directory: string;
   readonly mode?: BaseBackupMode;
+  readonly format?: BaseBackupFormat;
+  readonly hotSetThresholdBytes?: number;
   readonly replicaLogWindowCommits?: number;
 }
 export interface PostgresBaseBackupInput {
@@ -42,6 +52,8 @@ export interface PostgresBaseBackupInput {
   readonly repoId: string;
   readonly directory: string;
   readonly mode?: BaseBackupMode;
+  readonly format?: BaseBackupFormat;
+  readonly hotSetThresholdBytes?: number;
 }
 export type BaseBackupInput = SqliteBaseBackupInput | PostgresBaseBackupInput;
 /** Observational span lasts through archive completion, beyond the earlier writer-barrier release. */

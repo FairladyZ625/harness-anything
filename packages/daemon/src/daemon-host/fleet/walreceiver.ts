@@ -17,6 +17,7 @@ import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/stor
 import { recordReplicaHealth, type ReplicaSyncProgress } from "../../fleet-sync/fleet/replica-health.ts";
 import { hostEnvironmentFilePath, writeHostEnvironmentFile } from "../host-environment-io.ts";
 import {
+  BASEBACKUP_V4_CAPABILITY,
   CENTER_MOVED_DETAILS_CAPABILITY,
   isBaseBackupMetadata,
   ReplicationError,
@@ -26,7 +27,12 @@ import {
   type ReplicationPeer,
 } from "../../fleet-sync/fleet/protocol.ts";
 import type { BaseBackupMetadata } from "@harness-anything/storage";
-import type { ReplicaGeneration } from "../../fleet-sync/fleet/replica-generation.ts";
+import {
+  prepareStagingDirectory,
+  removeStagingDirectory,
+  type ReplicaGeneration,
+} from "../../fleet-sync/fleet/replica-generation.ts";
+import { createStreamingZstdUnpacker, v4DirectStagingDirectory } from "../../fleet-sync/fleet/replica-stream-unpack.ts";
 import { syncDirectory } from "@harness-anything/storage";
 import { REPOINT_RESUME_ONLY } from "./repoint-lineage.ts";
 
@@ -72,13 +78,14 @@ export function openWalReceiverGeneration(generation: ReplicaGeneration) {
 }
 
 export interface ReplicationTarget {
+  readonly generationsDir?: string;
   readonly position: () => ReplicationPosition | null;
   readonly install: (
     archive: string,
     metadata: BaseBackupMetadata,
     size: number,
     sha256: string,
-    options?: { readonly stagedObjectsDir?: string },
+    options?: { readonly stagedObjectsDir?: string; readonly preunpackedDir?: string },
   ) => Promise<void>;
   /** Applies a commit whose content objects were already installed through installObject. */
   readonly apply: (commit: ReplicationCommit<Iterable<SqliteEventRow>>) => void;
@@ -402,6 +409,7 @@ export async function runWalReceiver(input: {
         SNAPSHOT_RESUME_CAPABILITY,
         SNAPSHOT_BINARY_WIRE_CAPABILITY,
         SNAPSHOT_OBJECT_PACK_CAPABILITY,
+        BASEBACKUP_V4_CAPABILITY,
         CENTER_MOVED_DETAILS_CAPABILITY,
         ...(input.resumeOnly ? [REPOINT_RESUME_ONLY] : []),
       ],
@@ -465,11 +473,13 @@ export async function runWalReceiver(input: {
       if ((await peer.receive(signal)).type !== type)
         throw new ReplicationError(`expected ${type}`, "replica_protocol_error");
     };
-    const receiveSplitObjects = async (stagedObjectsDir: string) => {
+    const receiveSplitObjects = async (stagedObjectsDir: string, options?: { readonly deferColdBlobs?: boolean }) => {
       await /* @gate-identity non-state/environment-io.8192a3b4c5d6e7f8 */ mkdir(stagedObjectsDir, {
         recursive: true,
       });
       const existingRoots = findExistingObjectPaths(path.dirname(input.directory));
+      const deferColdBlobs = Boolean(options?.deferColdBlobs);
+      const coldBucket = "cold" as const;
       let cumulativeObjectsReceived = 0;
       let cumulativeObjectsTarget = 0;
       let cumulativeBytesReceived = 0;
@@ -483,6 +493,7 @@ export async function runWalReceiver(input: {
         for (const entry of manifest.entries) {
           const have = await tryReuseExistingObject(stagedObjectsDir, existingRoots, entry.sha256, entry.size);
           if (!have) {
+            if (deferColdBlobs && entry.tier === coldBucket) continue;
             wantedSizes.set(entry.sha256, entry.size);
             wantSha256s.push(entry.sha256);
             cumulativeBytesTarget += entry.size + 72;
@@ -563,7 +574,59 @@ export async function runWalReceiver(input: {
       if (frame.type === "replica.backup") {
         if (frame.size > input.quotaBytes)
           throw new ReplicationError("base backup exceeds disk quota", "replica_quota_exceeded");
-        if (frame.snapshotId) {
+        if (frame.metadata.schema === "fleet-basebackup/v4") {
+          // fleet-basebackup/v4: stream zstd archive directly into staging directory without archive.part.
+          await clearStagedSnapshots(snapshotsRoot);
+          const stagingParent = target.generationsDir ?? input.directory;
+          const stagingDir = v4DirectStagingDirectory(stagingParent, frame.sha256);
+          const stagedObjectsDir =
+            frame.objectsMode === "pack" ? path.join(input.directory, `${randomUUID()}-objects`) : undefined;
+          await removeStagingDirectory(stagingDir);
+          await prepareStagingDirectory(stagingDir);
+          const unpacker = createStreamingZstdUnpacker({
+            stagingDir,
+            quotaBytes: input.quotaBytes,
+            expectedSize: frame.size,
+            expectedSha256: frame.sha256,
+          });
+          let streamedBytes = 0;
+          publishSyncProgress({ step: "basebackup", receivedBytes: 0, totalBytes: frame.size }, true);
+          let installed = false;
+          try {
+            try {
+              await receiveBytes(peer, frame.size, signal, async (bytes) => {
+                await unpacker.pushChunk(bytes);
+                streamedBytes += bytes.length;
+                publishSyncProgress({ step: "basebackup", receivedBytes: streamedBytes, totalBytes: frame.size });
+              });
+              await expect("replica.backup.end");
+              await unpacker.finish();
+              publishSyncProgress({ step: "basebackup", receivedBytes: frame.size, totalBytes: frame.size }, true);
+            } catch (streamError) {
+              await unpacker.abort(streamError);
+              throw streamError;
+            }
+            if (stagedObjectsDir) {
+              await receiveSplitObjects(stagedObjectsDir, { deferColdBlobs: true });
+            }
+            publishSyncProgress({ step: "installing", receivedBytes: frame.size, totalBytes: frame.size }, true);
+            await target.install("", frame.metadata, frame.size, frame.sha256, {
+              preunpackedDir: stagingDir,
+              ...(stagedObjectsDir ? { stagedObjectsDir } : {}),
+            });
+            installed = true;
+            publishSyncProgress({ step: "projecting", receivedBytes: frame.size, totalBytes: frame.size }, true);
+            await ack(frame.metadata.position);
+          } finally {
+            publishSyncProgress(null, true);
+            if (!installed) {
+              await removeStagingDirectory(stagingDir).catch(consumeKnownError);
+            }
+            if (stagedObjectsDir) {
+              await removeStagingDirectory(stagedObjectsDir).catch(consumeKnownError);
+            }
+          }
+        } else if (frame.snapshotId) {
           const snapshotDir = path.join(snapshotsRoot, frame.snapshotId);
           const partFile = path.join(snapshotDir, "archive.part");
           const resumeOffset = frame.resumeOffset ?? 0;

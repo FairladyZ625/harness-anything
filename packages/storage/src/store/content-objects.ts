@@ -91,6 +91,7 @@ export function persistContentObjects(
   objectRoot: string,
   events: readonly CanonicalEventV1[],
   blobs: readonly CanonicalContentBlob[] | ReadonlyMap<string, CanonicalContentBlob>,
+  options?: { readonly skipMissingObjects?: boolean },
 ): void {
   const supplied = "get" in blobs ? blobs : new Map(blobs.map((blob) => [blob.sha256, blob])),
     pending = new Map<string, { readonly sha256: string; readonly bytes: Uint8Array }>();
@@ -100,6 +101,7 @@ export function persistContentObjects(
       if (localContentObjectFileSystem.exists(target)) continue;
       const blob = supplied.get(claim.sha256),
         bytes = blob === undefined ? null : typeof blob.body === "string" ? Buffer.from(blob.body) : blob.body;
+      if (blob === undefined && options?.skipMissingObjects) continue;
       if (!blob || !bytes || blob.size !== claim.size || bytes.byteLength !== claim.size)
         throw new TaskEventStoreError("invalid_write_plan", `event content object ${claim.sha256} is missing`);
       pending.set(target, { sha256: claim.sha256, bytes });
@@ -123,8 +125,9 @@ export function prepareContentObjects(
   objectRoot: string,
   events: readonly CanonicalEventV1[],
   blobs: readonly CanonicalContentBlob[],
+  options?: { readonly skipMissingObjects?: boolean },
 ): void {
-  persistContentObjects(objectRoot, events, blobs);
+  persistContentObjects(objectRoot, events, blobs, options);
 }
 
 /**

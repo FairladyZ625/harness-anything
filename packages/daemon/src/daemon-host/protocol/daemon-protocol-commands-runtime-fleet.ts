@@ -914,6 +914,27 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       cliInput("--allow-basebackup", "boolean", false, { code: "invalid_field" }),
     ],
   }),
+  defineHostAdminCommand({
+    id: "daemon-fleet-edge-prefetch",
+    actionKind: "daemon-fleet-edge-sync",
+    hostAuthority: "local-transport",
+    phase: "Fleet-Wiring",
+    path: ["daemon", "fleet", "edge", "prefetch"],
+    summary: "Eagerly materialize unfetched cold blobs from the fleet center for offline-complete local reads.",
+    method: "daemon.fleet.edge.sync",
+    inputs: [
+      cliInput("--all", "boolean", true, { code: "missing_field" }),
+      cliInput("--root", "single", false, { code: "invalid_field" }, { pathKind: "host-path" }),
+      cliInput("--repo", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput(
+        "--timeout-ms",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: "^[1-9][0-9]{0,9}$" },
+      ),
+    ],
+  }),
 ] as const);
 
 const scheduleIdInput = () =>

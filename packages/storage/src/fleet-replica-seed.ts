@@ -1,5 +1,6 @@
 import path from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync } from "node:fs";
+import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
 import type { BaseBackupMetadata } from "./fleet-basebackup.ts";
 import { BASE_BACKUP_ARCHIVE_ROOT } from "./fleet-basebackup-layout.ts";
@@ -22,6 +23,12 @@ interface SeedCheckpoint {
   readonly processedOutcomes: number;
 }
 
+interface ParsedReplicaSeed {
+  readonly events: readonly SqliteEventRow[];
+  readonly outcomes: readonly SqliteCommandOutcome[];
+  readonly writer: SqliteWriterFence;
+}
+
 function readSeedCheckpoint(checkpointPath: string): number {
   if (!existsSync(checkpointPath)) return 0;
   try {
@@ -36,6 +43,38 @@ function readSeedCheckpoint(checkpointPath: string): number {
   }
 }
 
+async function readNdjsonReplicaSeed(ndjsonPath: string): Promise<ParsedReplicaSeed> {
+  const events: SqliteEventRow[] = [];
+  const outcomes: SqliteCommandOutcome[] = [];
+  let writer: SqliteWriterFence | null = null;
+  const reader = createInterface({
+    input: createReadStream(ndjsonPath, { encoding: "utf8" }),
+    crlfDelay: Number.POSITIVE_INFINITY,
+  });
+  for await (const rawLine of reader) {
+    const line = rawLine.trim();
+    if (line.length === 0) continue;
+    const record = JSON.parse(line) as
+      | { readonly kind: "header"; readonly schema: string; readonly writer: SqliteWriterFence }
+      | { readonly kind: "event"; readonly row: SqliteEventRow }
+      | { readonly kind: "outcome"; readonly row: SqliteCommandOutcome };
+    if (record.kind === "header") {
+      if (record.schema !== "canonical-seed-ndjson/v1") {
+        throw new Error(`unsupported canonical seed NDJSON schema: ${record.schema}`);
+      }
+      writer = record.writer;
+    } else if (record.kind === "event") {
+      events.push(record.row);
+    } else if (record.kind === "outcome") {
+      outcomes.push(record.row);
+    } else {
+      throw new Error("invalid canonical seed NDJSON record");
+    }
+  }
+  if (!writer) throw new Error("canonical seed NDJSON is missing its header");
+  return { events, outcomes, writer };
+}
+
 /** Runs only on the receiving edge, before its ordinary generation readers validate and publish. */
 export async function hydrateReplicaSeed(rootDir: string, metadata: BaseBackupMetadata): Promise<void> {
   const ledgerPath = path.join(
@@ -46,20 +85,24 @@ export async function hydrateReplicaSeed(rootDir: string, metadata: BaseBackupMe
       String(metadata.ledgerGeneration),
       "ledger.sqlite",
     ),
-    seedPath = path.join(path.dirname(ledgerPath), "canonical-seed.json"),
+    ndjsonSeedPath = path.join(path.dirname(ledgerPath), "canonical-seed.ndjson"),
+    jsonSeedPath = path.join(path.dirname(ledgerPath), "canonical-seed.json"),
     checkpointPath = path.join(path.dirname(ledgerPath), "canonical-seed.checkpoint.json");
-  if (!existsSync(seedPath)) return;
-  const seed = JSON.parse(readFileSync(seedPath, "utf8")) as {
-      readonly events: readonly SqliteEventRow[];
-      readonly outcomes: readonly SqliteCommandOutcome[];
-      readonly writer: SqliteWriterFence;
-    },
+  const activeSeedPath = existsSync(ndjsonSeedPath) ? ndjsonSeedPath : existsSync(jsonSeedPath) ? jsonSeedPath : null;
+  if (activeSeedPath === null) return;
+  const seed: ParsedReplicaSeed =
+    activeSeedPath === ndjsonSeedPath
+      ? await readNdjsonReplicaSeed(ndjsonSeedPath)
+      : (JSON.parse(readFileSync(jsonSeedPath, "utf8")) as ParsedReplicaSeed);
+  const deferColdBlobs = metadata.schema === "fleet-basebackup/v4",
+    deferredColdBlobSizes = new Map<string, number>(),
     startIndex = Math.min(readSeedCheckpoint(checkpointPath), seed.outcomes.length),
     importer = openSqliteEventStore({
       repoId: metadata.repoId,
       databasePath: ledgerPath,
       generation: 3,
       conversionSourceGeneration: 2,
+      deferMissingObjects: deferColdBlobs,
     });
   try {
     for (let offset = startIndex; offset < seed.outcomes.length; offset += 100) {
@@ -73,25 +116,33 @@ export async function hydrateReplicaSeed(rootDir: string, metadata: BaseBackupMe
               canonicalEventContentClaims(event as never).map((claim) => [claim.sha256, claim] as const),
             ),
           );
+        const blobs = [...claims.values()].flatMap((claim) => {
+          const objectFile = path.join(
+            path.dirname(ledgerPath),
+            "objects",
+            "sha256",
+            claim.sha256.slice(0, 2),
+            claim.sha256.slice(2),
+          );
+          if (deferColdBlobs && !existsSync(objectFile)) {
+            deferredColdBlobSizes.set(claim.sha256, claim.size);
+            return [];
+          }
+          return [
+            {
+              ...claim,
+              mediaType: "application/octet-stream",
+              body: readFileSync(objectFile),
+            },
+          ];
+        });
         importer.appendCommand(
           {
             fence: seed.writer,
             intent: { opId: outcome.opId, intentDigest: outcome.intentDigest, summary: outcome.summary },
             events: events as never,
             rejectionCode: outcome.rejectionCode ?? undefined,
-            blobs: [...claims.values()].map((claim) => ({
-              ...claim,
-              mediaType: "application/octet-stream",
-              body: readFileSync(
-                path.join(
-                  path.dirname(ledgerPath),
-                  "objects",
-                  "sha256",
-                  claim.sha256.slice(0, 2),
-                  claim.sha256.slice(2),
-                ),
-              ),
-            })),
+            blobs,
             historicalRecord: { recordedAt: outcome.recordedAt, eventRecordedAt: rows.map((row) => row.recordedAt) },
           },
           // Keep future event bytes verbatim. The receiving ledger is an archival copy and
@@ -128,6 +179,7 @@ export async function hydrateReplicaSeed(rootDir: string, metadata: BaseBackupMe
     ledgerPath,
     projectionPath: path.join(rootDir, BASE_BACKUP_ARCHIVE_ROOT, "cache", "task.sqlite"),
     generation: 3,
+    ...(deferredColdBlobSizes.size > 0 ? { deferredColdBlobSizes } : {}),
   });
   try {
     await model.projection.catchUpAsync?.();
@@ -135,5 +187,5 @@ export async function hydrateReplicaSeed(rootDir: string, metadata: BaseBackupMe
     model.close();
   }
   if (existsSync(checkpointPath)) removeFileDurably(checkpointPath);
-  removeFileDurably(seedPath);
+  removeFileDurably(activeSeedPath);
 }

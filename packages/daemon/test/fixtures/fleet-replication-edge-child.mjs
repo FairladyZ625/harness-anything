@@ -186,6 +186,7 @@ async function runOneSession() {
     });
   }
   const target = {
+    generationsDir: `${mirrorRoot}/generations`,
     position: () => (opened ? opened.position() : null),
     install: async (archive, metadata, size, sha256, installOptions) => {
       maybeKill("after-package-verified-before-install");
@@ -197,6 +198,7 @@ async function runOneSession() {
         size,
         quotaBytes,
         ...(installOptions?.stagedObjectsDir ? { stagedObjectsDir: installOptions.stagedObjectsDir } : {}),
+        ...(installOptions?.preunpackedDir ? { preunpackedDir: installOptions.preunpackedDir } : {}),
       });
       const generation = readReplicaGeneration(mirrorRoot);
       emit({

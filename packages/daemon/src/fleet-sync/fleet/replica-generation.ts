@@ -41,6 +41,7 @@ export interface InstallReplicaGenerationInput {
   readonly size: number;
   readonly quotaBytes: number;
   readonly stagedObjectsDir?: string;
+  readonly preunpackedDir?: string;
   readonly onProgress?: (progress: ReplicaInstallProgress) => void;
 }
 
@@ -69,7 +70,8 @@ const isGenerationPointer = (value: unknown): value is { id: string; metadata: B
   typeof value === "object" &&
   typeof (value as { id?: unknown }).id === "string" &&
   /^[A-Za-z0-9-]+$/u.test((value as { id: string }).id) &&
-  (value as { metadata?: { schema?: unknown } | null }).metadata?.schema === "fleet-basebackup/v3";
+  ((value as { metadata?: { schema?: unknown } | null }).metadata?.schema === "fleet-basebackup/v3" ||
+    (value as { metadata?: { schema?: unknown } | null }).metadata?.schema === "fleet-basebackup/v4");
 
 /** A pointer of any other shape (the retired cut/pull replica's current.json) names no generation. */
 export function readReplicaGeneration(root: string): ReplicaGeneration | null {

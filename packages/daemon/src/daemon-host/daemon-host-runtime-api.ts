@@ -55,6 +55,7 @@ import {
   prepareFleetCenterAdmission,
   startFleetCenterAdmission,
   syncFleetEdgeMirror,
+  prefetchFleetEdgeMirror,
   repointFleetEdgeMirror,
   type FleetCenterAdmissionRequest,
   type FleetEdgeSyncRequest,
@@ -1615,12 +1616,27 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
         }
       },
       edgeSync: async (payload, auth) => {
-        const request = payload as unknown as FleetEdgeSyncRequest["payload"] & { readonly repoint?: unknown },
+        const request = payload as unknown as FleetEdgeSyncRequest["payload"] & {
+            readonly repoint?: unknown;
+            readonly prefetch?: unknown;
+          },
           repoint = request.repoint === true,
+          prefetch = request.prefetch === true,
           registered = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
             (repo) => repo.repoId === request.repoId && repo.state === "enabled",
           ),
           registeredRoot = registered?.canonicalRoot;
+        if (
+          prefetch &&
+          (!registered ||
+            registered.mode !== "remote-edge" ||
+            typeof registeredRoot !== "string" ||
+            canonicalRoot(request.workspaceRoot) !== canonicalRoot(registeredRoot))
+        )
+          throw context.hostCodedError(
+            "repo_mode_read_only",
+            "Fleet edge prefetch requires the matching enabled remote-edge registration.",
+          );
         if (
           !registered ||
           registered.mode !== "remote-edge" ||
@@ -1641,6 +1657,26 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
           await context.startInitialAttachments();
         const persistedConfig = readFleetEdgeConfig(context.input.userRoot, request.repoId),
           edgeRoot = registeredRoot as string;
+        if (prefetch) {
+          const readPrefetchToken = persistedConfig
+            ? createFleetReplicaAccessTokenReader({
+                config: persistedConfig,
+                configDir: fleetEdgeConfigDir(context.input.userRoot, request.repoId),
+                readUserAccessToken: async () => resolveBoundAccessToken(await context.oidc.bind(auth, edgeRoot)),
+              })
+            : undefined;
+          return prefetchFleetEdgeMirror(
+            {
+              userRoot: context.input.userRoot,
+              workspaceRoot: edgeRoot,
+              payload: {
+                repoId: request.repoId,
+                ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
+              },
+            },
+            readPrefetchToken,
+          );
+        }
         if (repoint) {
           const { workspaceRoot: _workspaceRoot, repoint: _repoint, ...repointPayload } = request;
           return repointFleetEdgeMirror(

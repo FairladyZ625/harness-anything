@@ -31,6 +31,8 @@ export function makeRepoCellFleetBackup(
         try {
           return await source.startBackup(request.directory, cell.projection.path, signal, {
             mode: request.mode,
+            format: request.format,
+            hotSetThresholdBytes: request.hotSetThresholdBytes,
           });
         } finally {
           source.close();

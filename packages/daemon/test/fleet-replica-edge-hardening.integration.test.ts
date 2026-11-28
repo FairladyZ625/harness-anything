@@ -633,11 +633,15 @@ test("each base backup owns a directory that keeps only its archive", { timeout:
   assert.match(repoBackups[0]!, /^[0-9a-f-]{36}$/u, "a backup directory is named for that backup, not shared");
   assert.deepEqual(
     readdirSync(path.join(backupsRoot, replicationRepoId, repoBackups[0]!)).sort(),
-    ["base.tar.gz", "pin.json"],
+    ["base.tar.zst", "pin.json"],
     "only the archive and its pin metadata are kept",
   );
   edge.control({ control: "release-acks" });
-  await waitForState(() => readdirSync(backupsRoot).length === 0, "last backup user to release its archive");
+  await edge.waitForEvent("ack");
+  // An immutable v4 segment stays cached while its position is still in the WAL; once a later
+  // commit is acknowledged and the replication log prunes past it, the superseded archive is removed.
+  await pressure(fixture, 1);
+  await waitForState(() => readdirSync(backupsRoot).length === 0, "superseded backup archive to be released");
 });
 
 test(

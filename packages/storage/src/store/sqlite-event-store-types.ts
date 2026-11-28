@@ -249,5 +249,7 @@ export type SqliteEventStoreOpenOptions = {
   /** Offline generation conversion only; ordinary writers cannot backfill acceptance time. */
   readonly conversionSourceGeneration?: 1 | 2;
   readonly migrationImportRunId?: string;
+  /** Used only by fleet-basebackup/v4 seed hydration where cold blobs remain deferred on disk. */
+  readonly deferMissingObjects?: boolean;
   readonly onOpenProgress?: (progress: { readonly applied: number; readonly total: number }) => void;
 };

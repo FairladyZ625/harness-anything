@@ -13,6 +13,7 @@ import {
   type ReplicaGeneration,
 } from "../fleet-sync/fleet/replica-generation.ts";
 import { FLEET_SESSION_CAPABILITY } from "./fleet/command-protocol.ts";
+import { prefetchReplicaBlobs } from "./fleet/blob-fetch.ts";
 import { FleetRemoteError, readFleetLoginAuthorityClient, readFleetRepositoryMetadataClient } from "./fleet/peer.ts";
 import {
   failFleetReplicaSync,
@@ -806,6 +807,64 @@ function readReplicaLedgerCut(generation: ReplicaGeneration, repoId: string): Re
   } finally {
     ledger.close();
   }
+}
+
+export interface FleetEdgePrefetchRequest {
+  readonly userRoot: string;
+  readonly workspaceRoot: string;
+  readonly payload: {
+    readonly repoId: string;
+    readonly timeoutMs?: number;
+  };
+}
+
+/** Eagerly materializes 100% of unfetched cold blobs for an edge replica so offline reads succeed completely. */
+export async function prefetchFleetEdgeMirror(
+  input: FleetEdgePrefetchRequest,
+  readAccessToken?: () => Promise<string | undefined>,
+  signal?: AbortSignal,
+): Promise<Record<string, unknown>> {
+  const edge = readFleetEdgeConfig(input.userRoot, input.payload.repoId);
+  if (!edge || edge.repoId !== input.payload.repoId) {
+    throw new FleetEdgeConfigError(
+      "fleet_edge_config_invalid",
+      "A matching fleet-edge.json is required before prefetching cold blobs.",
+    );
+  }
+  const edgeDir = fleetEdgeConfigDir(input.userRoot, input.payload.repoId),
+    caPath = path.isAbsolute(edge.caPath) ? edge.caPath : path.resolve(edgeDir, edge.caPath),
+    viewRoot = path.isAbsolute(edge.viewRoot) ? edge.viewRoot : path.resolve(input.workspaceRoot, edge.viewRoot),
+    viewDir = path.join(viewRoot, "repos", edge.repoId, "views", edge.nodeId),
+    timeoutMs = input.payload.timeoutMs ?? 300_000,
+    timeoutSignal = AbortSignal.timeout(timeoutMs),
+    deadline = signal ? AbortSignal.any([timeoutSignal, signal]) : timeoutSignal;
+  const result = await prefetchReplicaBlobs({
+    viewDir,
+    peer: {
+      hostname: edge.host,
+      port: edge.port,
+      ca: material(caPath, "--ca"),
+      ...(edge.servername ? { servername: edge.servername } : {}),
+      ...(edge.spkiSha256 ? { spkiSha256: edge.spkiSha256 } : {}),
+      ...(edge.spkiPinOnly ? { spkiPinOnly: true } : {}),
+      nodeId: edge.nodeId,
+      credential: edge.credential,
+      repoId: edge.repoId,
+      readAccessToken,
+      timeoutMs,
+      signal: deadline,
+    },
+  });
+  return {
+    schema: "command-receipt/v2",
+    ok: true,
+    command: "daemon-fleet-edge-prefetch",
+    outcome: "applied",
+    status: "fleet.replica.prefetched/v1",
+    repoId: edge.repoId,
+    viewId: edge.nodeId,
+    ...result,
+  };
 }
 
 function persistEdgeConnection(

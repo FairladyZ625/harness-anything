@@ -10,7 +10,7 @@ import { makeTaskProjectionReader } from "./projection/rebuildable-task-projecti
 import { openSqliteEventStore } from "./store/sqlite-event-store.ts";
 import { createSqlTaskQueryReader } from "./pg/sql-task-query-reader.ts";
 import { retainPGliteOwner } from "./pglite/query-owner.ts";
-import { startBaseBackup, type BaseBackupMode } from "./fleet-basebackup.ts";
+import { startBaseBackup, type BaseBackupFormat, type BaseBackupMode } from "./fleet-basebackup.ts";
 import type { ReplicationPosition, ReplicationCommit } from "./store/replication-log.ts";
 import {
   canonicalDaemonRegistryRoot,
@@ -282,8 +282,23 @@ export function openFleetStorage(input: {
         directory: string,
         _projectionPath: string,
         signal?: AbortSignal,
-        backupOptions?: { readonly mode?: BaseBackupMode },
-      ) => startBaseBackup({ repoId: input.repoId, storage, directory, mode: backupOptions?.mode }, signal),
+        backupOptions?: {
+          readonly mode?: BaseBackupMode;
+          readonly format?: BaseBackupFormat;
+          readonly hotSetThresholdBytes?: number;
+        },
+      ) =>
+        startBaseBackup(
+          {
+            repoId: input.repoId,
+            storage,
+            directory,
+            mode: backupOptions?.mode,
+            format: backupOptions?.format,
+            hotSetThresholdBytes: backupOptions?.hotSetThresholdBytes,
+          },
+          signal,
+        ),
     };
   }
   const ledger = openSqliteEventStore({
@@ -298,10 +313,21 @@ export function openFleetStorage(input: {
       directory: string,
       projectionPath: string,
       signal?: AbortSignal,
-      backupOptions?: { readonly mode?: BaseBackupMode },
+      backupOptions?: {
+        readonly mode?: BaseBackupMode;
+        readonly format?: BaseBackupFormat;
+        readonly hotSetThresholdBytes?: number;
+      },
     ) =>
       startBaseBackup(
-        { ledgerPath: ledger.databasePath, projectionPath, directory, mode: backupOptions?.mode },
+        {
+          ledgerPath: ledger.databasePath,
+          projectionPath,
+          directory,
+          mode: backupOptions?.mode,
+          format: backupOptions?.format,
+          hotSetThresholdBytes: backupOptions?.hotSetThresholdBytes,
+        },
         signal,
       ),
   };

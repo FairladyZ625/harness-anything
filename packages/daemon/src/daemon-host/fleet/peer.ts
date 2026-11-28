@@ -343,13 +343,14 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
     const current = readReplicaGeneration(viewRoot);
     opened = current ? openWalReceiverGeneration(current) : null;
     const target = {
+      generationsDir: path.join(viewRoot, "generations"),
       position: () => opened?.position() ?? null,
       install: async (
         archive: string,
         metadata: BaseBackupMetadata,
         size: number,
         sha256: string,
-        installOptions?: { readonly stagedObjectsDir?: string },
+        installOptions?: { readonly stagedObjectsDir?: string; readonly preunpackedDir?: string },
       ) => {
         const installed = await installReplicaGeneration({
           root: viewRoot,
@@ -359,6 +360,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
           sha256,
           quotaBytes: options.diskQuotaBytes,
           ...(installOptions?.stagedObjectsDir ? { stagedObjectsDir: installOptions.stagedObjectsDir } : {}),
+          ...(installOptions?.preunpackedDir ? { preunpackedDir: installOptions.preunpackedDir } : {}),
         });
         pendingChangedPaths = null;
         const prior = opened;

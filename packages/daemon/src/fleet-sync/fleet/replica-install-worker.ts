@@ -33,6 +33,7 @@ export interface ReplicaInstallWorkerInput {
   readonly size: number;
   readonly quotaBytes: number;
   readonly stagedObjectsDir?: string;
+  readonly preunpackedDir?: string;
 }
 
 class NonResumableInstallError extends Error {}
@@ -111,14 +112,17 @@ function flushDirectoryTree(directory: string, immutableObjects = false): void {
 }
 
 async function runInstall(input: ReplicaInstallWorkerInput): Promise<void> {
-  const hash = createHash("sha256");
-  let received = 0;
-  for await (const chunk of createReadStream(input.archive)) {
-    received += chunk.length;
-    hash.update(chunk);
-  }
-  if (received !== input.size || hash.digest("hex") !== input.sha256) {
-    throw new NonResumableInstallError("base backup archive is incomplete or corrupt");
+  const preunpacked = typeof input.preunpackedDir === "string" && input.preunpackedDir.length > 0;
+  if (!preunpacked) {
+    const hash = createHash("sha256");
+    let received = 0;
+    for await (const chunk of createReadStream(input.archive)) {
+      received += chunk.length;
+      hash.update(chunk);
+    }
+    if (received !== input.size || hash.digest("hex") !== input.sha256) {
+      throw new NonResumableInstallError("base backup archive is incomplete or corrupt");
+    }
   }
 
   const stagingKey = SHA256_HEX_RE.test(input.sha256)
@@ -126,26 +130,47 @@ async function runInstall(input: ReplicaInstallWorkerInput): Promise<void> {
     : createHash("sha256").update(input.sha256).digest("hex");
   const generationsDir = path.join(input.root, "generations");
   const stagingDirName = `${stagingKey}.staging`;
-  const temporary = path.join(generationsDir, stagingDirName);
+  const temporary = preunpacked ? input.preunpackedDir! : path.join(generationsDir, stagingDirName);
   const checkpointPath = path.join(temporary, STAGING_CHECKPOINT_FILE);
 
   await prepareStagingDirectory(generationsDir);
   for (const entry of readdirSync(generationsDir, { withFileTypes: true })) {
-    if (entry.isDirectory() && entry.name.endsWith(".staging") && entry.name !== stagingDirName) {
-      await removeStagingDirectory(path.join(generationsDir, entry.name));
+    const fullEntry = path.join(generationsDir, entry.name);
+    if (entry.isDirectory() && entry.name.endsWith(".staging") && fullEntry !== temporary) {
+      await removeStagingDirectory(fullEntry);
     }
   }
 
-  const existingCheckpoint = readMatchingCheckpoint(temporary, stagingDirName, input);
-  if (existsSync(temporary) && !existingCheckpoint) {
+  const existingCheckpoint = preunpacked ? null : readMatchingCheckpoint(temporary, stagingDirName, input);
+  if (!preunpacked && existsSync(temporary) && !existingCheckpoint) {
     await removeStagingDirectory(temporary);
   }
   await prepareStagingDirectory(temporary);
 
-  let phase: ReplicaStagingPhase = existingCheckpoint?.phase ?? "unpacking";
+  let phase: ReplicaStagingPhase = preunpacked ? "hydrating" : (existingCheckpoint?.phase ?? "unpacking");
   let skippedObjects = 0;
 
   try {
+    if (preunpacked && input.stagedObjectsDir) {
+      const targetObjectsDir = path.join(
+        temporary,
+        BASE_BACKUP_ARCHIVE_ROOT,
+        "store",
+        "generations",
+        String(input.metadata.ledgerGeneration),
+        "objects",
+        "sha256",
+      );
+      try {
+        installStagedObjects(input.stagedObjectsDir, targetObjectsDir, input.quotaBytes);
+      } catch (error) {
+        if (error instanceof Error && error.message === "base backup exceeds disk quota") {
+          throw new NonResumableInstallError(error.message);
+        }
+        throw error;
+      }
+      writeCheckpoint(checkpointPath, input, "hydrating");
+    }
     if (phase === "unpacking") {
       writeCheckpoint(checkpointPath, input, "unpacking");
       parentPort!.postMessage({ kind: "progress", phase: "unpacking", skippedObjects });

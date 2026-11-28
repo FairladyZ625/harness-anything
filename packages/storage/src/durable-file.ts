@@ -4,6 +4,7 @@ import {
   constants,
   copyFileSync,
   cpSync,
+  createWriteStream,
   fstatSync,
   fsyncSync,
   linkSync,
@@ -23,6 +24,8 @@ import {
   writeFileSync,
   writeSync,
 } from "node:fs";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import {
   copyFile,
   cp,
@@ -38,6 +41,7 @@ import {
   unlink,
 } from "node:fs/promises";
 import path from "node:path";
+import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 
 /** Shared physical filesystem binding for immutable-CAS hardlink cloning within packages/storage. */
 export const localImmutableCloneFileSystem = {
@@ -144,6 +148,42 @@ export function writeFileDurably(file: string, body: string | Uint8Array, mode?:
     mode,
     withFence,
   );
+}
+
+/**
+ * Streams chunks into a sibling temp file, fsyncs, and atomically renames into `file`.
+ * If `chunks` throws (e.g. SHA-256 or byte-length mismatch), the temp file is removed
+ * and `file` is never created or modified.
+ */
+export async function writeFileDurablyStream(
+  file: string,
+  chunks: AsyncIterable<Uint8Array>,
+  mode?: number,
+): Promise<void> {
+  const directory = path.dirname(file);
+  await /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ mkdir(directory, {
+    recursive: true,
+  });
+  const temp = `${file}.${randomUUID()}.tmp`;
+  let committed = false;
+  try {
+    const out =
+      /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ createWriteStream(
+        temp,
+        { flags: "wx", mode: mode ?? 0o600 },
+      );
+    await pipeline(Readable.from(chunks), out);
+    syncFile(temp);
+    renameReplacingSync(temp, file);
+    syncDirectory(directory);
+    committed = true;
+  } finally {
+    if (!committed) {
+      await /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ rmAsync(temp, {
+        force: true,
+      }).catch(consumeKnownError);
+    }
+  }
 }
 
 /** Publish incrementally-produced bytes with the same atomic replacement as a complete body. */
