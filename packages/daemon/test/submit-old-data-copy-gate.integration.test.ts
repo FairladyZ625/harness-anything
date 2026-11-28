@@ -13,10 +13,11 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const migrationFile = "packages/storage/src/store/schema.ts",
+  schemaFormatFile = "packages/storage/src/projection/projection-schema.ts",
   receiptTarget = (packagePath: string) =>
     `${packagePath}/artifacts/old-data-copy-evidence/old-data-copy-evidence-receipt.json`,
-  commandFor = (packagePath: string) =>
-    `node tools/old-data-copy-evidence.mjs --build . --out harness/${packagePath}/artifacts/old-data-copy-evidence`;
+  commandFor = (packagePath: string, tier: "golden" | "full" = "golden") =>
+    `node tools/old-data-copy-evidence.mjs --tier ${tier} --build . --out harness/${packagePath}/artifacts/old-data-copy-evidence`;
 
 /** One real cell, one real task package: the receipt is written into the bound package and
  *  accepted by the same `ha task submit` doc sync the reviewer later reads. */
@@ -38,7 +39,7 @@ async function fixture(t: TestContext, options: { readonly pathReviewers: boolea
       settingsPath,
       readFileSync(settingsPath, "utf8").replace(
         "  scaffolds:",
-        "  review:\n    pathReviewers:\n      - data-migration packages/storage/src/store/\n  scaffolds:",
+        "  review:\n    pathReviewers:\n      - data-migration packages/storage/src/store/\n      - data-migration packages/storage/src/projection/\n  scaffolds:",
       ),
     );
     git(rootDir, "add", "harness/harness.yaml");
@@ -122,7 +123,7 @@ test("a migration-surface cut submits only with an old-data-copy receipt bound t
   const stale = refusal(await submit());
   assert.match(stale, new RegExp(`is bound to cut ${baseline}, not the submitted cut ${cut}`, "u"));
 
-  writeReceipt(cut);
+  writeReceipt(cut, { tier: "golden" });
   const applied = await submit();
   assert.equal(applied.outcome, "applied", JSON.stringify(applied));
   const shown = await cell.run({ kind: "task-show", taskId }, owner),
@@ -158,4 +159,22 @@ test("a cut that misses the data-migration lane submits without a receipt", asyn
     evidence.executions.find((execution) => execution.executionId === executionId)?.submission?.commitSha,
     cut,
   );
+});
+
+test("a schema-format-changing cut refuses a golden receipt and accepts a full receipt", async (t) => {
+  const { packagePath, cut, submit, writeReceipt } = await fixture(t, {
+    pathReviewers: true,
+    changedPath: schemaFormatFile,
+  });
+  const missing = refusal(await submit());
+  assert.ok(missing.includes(commandFor(packagePath, "full")), missing);
+
+  writeReceipt(cut, { tier: "golden" });
+  const tooWeak = refusal(await submit());
+  assert.match(tooWeak, /is tier "golden".*requires tier "full"/u);
+  assert.ok(tooWeak.includes(commandFor(packagePath, "full")), tooWeak);
+
+  writeReceipt(cut, { tier: "full" });
+  const applied = await submit();
+  assert.equal(applied.outcome, "applied", JSON.stringify(applied));
 });
