@@ -106,6 +106,7 @@ export interface CachedBackupEntry {
   size: number;
   positionHistory: string | null;
   positionSequence: number | null;
+  positionRevision: number | null;
   queueStatus: import("../../fleet-sync/fleet/basebackup-queue.ts").BaseBackupQueueStatus | null;
   releaseRetention: () => void;
 }
@@ -148,6 +149,7 @@ export function buildCachedBackupFromPin(input: {
     size: pin.size,
     positionHistory: pin.position.history,
     positionSequence: pin.position.sequence,
+    positionRevision: pin.position.revision,
     queueStatus: null,
     releaseRetention: () => {
       if (!retained) return;
@@ -234,22 +236,135 @@ export function reusableImmutableSegment(input: {
   );
 }
 
+export function cachedBackupPosition(candidate: {
+  readonly positionHistory: string | null;
+  readonly positionSequence: number | null;
+  readonly positionRevision: number | null;
+}): ReplicationPosition | null {
+  if (candidate.positionHistory === null || candidate.positionSequence === null || candidate.positionRevision === null)
+    return null;
+  return {
+    history: candidate.positionHistory,
+    sequence: candidate.positionSequence,
+    revision: candidate.positionRevision,
+  };
+}
+
+export function pinCachedBackupRetention(
+  cached: CachedBackupEntry,
+  pin: (position: ReplicationPosition) => () => void,
+  position: ReplicationPosition,
+): void {
+  cached.releaseRetention();
+  const unpin = pin(position);
+  let retained = true;
+  cached.releaseRetention = () => {
+    if (!retained) return;
+    retained = false;
+    unpin();
+  };
+}
+
+export function cachedBackupMeetsSlotAck(
+  cached: CachedBackupEntry,
+  priorSlotAck: { readonly durable: ReplicationPosition; readonly applied: ReplicationPosition } | null,
+  history: string,
+): boolean {
+  if (cached.building || !priorSlotAck || priorSlotAck.durable.history !== history) return Boolean(true);
+  const minRequired = Math.max(priorSlotAck.durable.sequence, priorSlotAck.applied.sequence);
+  return cached.positionSequence !== null && cached.positionSequence >= minRequired;
+}
+
+export function walSuffixStatus(
+  cached: CachedBackupEntry,
+  readNextCommit: (position: ReplicationPosition) => unknown | null,
+): "available" | "pruned" {
+  const pos = cachedBackupPosition(cached);
+  if (!pos) return "pruned";
+  return readNextCommit(pos) !== null ? "available" : "pruned";
+}
+
+export function buildSnapshotPinRecord(input: {
+  readonly snapshotId: string;
+  readonly repoId: string;
+  readonly mode: BaseBackupMode;
+  readonly format: BaseBackupFormat;
+  readonly segmentRevision: number | null;
+  readonly built: import("@harness-anything/storage").BaseBackupArchive;
+  readonly createdAtMs: number;
+  readonly expiresAtMs: number;
+}): SnapshotPinRecord {
+  const { snapshotId, repoId, mode, format, segmentRevision, built, createdAtMs, expiresAtMs } = input;
+  return {
+    schema: "fleet-snapshot-pin/v1",
+    snapshotId,
+    repoId,
+    mode,
+    format,
+    ...(segmentRevision !== null ? { segmentRevision } : {}),
+    metadata: { ...built.metadata, readerProfile: null },
+    position: built.metadata.position,
+    size: built.size,
+    sha256: built.sha256,
+    archiveFile: path.basename(built.file),
+    ...(built.objects ? { objects: built.objects } : {}),
+    ...(built.objectCount !== undefined ? { objectCount: built.objectCount } : {}),
+    createdAt: new Date(createdAtMs).toISOString(),
+    expiresAt: new Date(expiresAtMs).toISOString(),
+  };
+}
+
+export function backupCacheReuseAction(input: {
+  readonly cached: CachedBackupEntry | undefined;
+  readonly format: BaseBackupFormat;
+  readonly currentHead: ReplicationPosition;
+  readonly priorSlotAck: { readonly durable: ReplicationPosition; readonly applied: ReplicationPosition } | null;
+  readonly history: string;
+  readonly walAvailable: boolean;
+  readonly boundaryRevisions: number;
+  readonly retentionWindowCommits: number;
+  readonly nowMs: number;
+}): "reuse" | "rebuild" {
+  const {
+    cached,
+    format,
+    currentHead,
+    priorSlotAck,
+    history,
+    walAvailable,
+    boundaryRevisions,
+    retentionWindowCommits,
+    nowMs,
+  } = input;
+  if (!cached || cached.retired || nowMs >= cached.expiresAtMs || !walAvailable) return "rebuild";
+  if (!cachedBackupMeetsSlotAck(cached, priorSlotAck, history)) return "rebuild";
+  const needsImmutableCheck = format === "v4" && !cached.building;
+  if (
+    needsImmutableCheck &&
+    !reusableImmutableSegment({ candidate: cached, currentHead, boundaryRevisions, retentionWindowCommits, nowMs })
+  )
+    return "rebuild";
+  return "reuse";
+}
+
 /**
  * Ephemeral v3 snapshots are retired as soon as their last user finishes and ACKs.
  * Immutable v4 segments stay cached across edge joins until their revision boundary advances,
- * their WAL suffix falls outside retention, or TTL/LRU eviction reclaims them.
+ * their WAL suffix falls outside retention or is pruned, or TTL/LRU eviction reclaims them.
  */
 export function retireableIdleBackup(input: {
   readonly candidate: ImmutableSegmentCandidate;
   readonly currentHead: ReplicationPosition | null;
+  readonly walSuffixAvailable?: boolean;
   readonly boundaryRevisions: number;
   readonly retentionWindowCommits: number;
   readonly nowMs: number;
 }): boolean {
-  const { candidate, currentHead, boundaryRevisions, retentionWindowCommits, nowMs } = input;
+  const { candidate, currentHead, walSuffixAvailable, boundaryRevisions, retentionWindowCommits, nowMs } = input;
   if (candidate.building || candidate.retired) return Boolean(false);
   if (nowMs >= candidate.expiresAtMs) return Boolean(true);
   if (candidate.format === "v4" && candidate.segmentRevision !== null) {
+    if (walSuffixAvailable === false) return Boolean(true);
     return (
       currentHead !== null &&
       !reusableImmutableSegment({

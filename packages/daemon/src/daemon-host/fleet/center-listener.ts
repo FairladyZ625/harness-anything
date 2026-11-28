@@ -99,17 +99,21 @@ import {
   SNAPSHOT_RESUME_CAPABILITY,
 } from "../../fleet-sync/fleet/protocol.ts";
 import {
+  backupCacheReuseAction,
   buildCachedBackupFromPin,
+  buildSnapshotPinRecord,
+  cachedBackupPosition,
   DEFAULT_SNAPSHOT_SEGMENT_BOUNDARY_REVISIONS,
   parseSnapshotPinRecord,
+  pinCachedBackupRetention,
   retireableIdleBackup,
-  reusableImmutableSegment,
   segmentBoundaryForRevision,
   selectIdlePinsForEviction,
   snapshotCacheKey,
+  walSuffixStatus,
   type CachedBackupEntry,
-  type SnapshotPinRecord,
 } from "./snapshot-segments.ts";
+import { readReplicationPage } from "./repoint-lineage.ts";
 import { runWalSender } from "./walsender.ts";
 import { createReplicationRetention, openReplicationSlots, replicationSlotKey } from "@harness-anything/storage";
 import { createNodeRetirementAdmission } from "./node-retirement.ts";
@@ -346,20 +350,58 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     if (cached.building) void cached.archive.then(cleanup, cleanup);
     else cleanup();
   };
-  const isIdleRetirable = (cached: CachedBackup, nowMs: number): boolean =>
-    cached.users === 0 &&
-    retireableIdleBackup({
+  const pinBackupRetention = (
+    cached: CachedBackup,
+    position: import("@harness-anything/storage").ReplicationPosition,
+  ): void => pinCachedBackupRetention(cached, (pos) => retentionFor(cached.repoId).pin(pos), position);
+  const readCachedBackupWalStatus = (
+    cached: CachedBackup,
+    activeStore?: ReturnType<typeof openFleetStorage>,
+  ): "available" | "pruned" => {
+    const targetStore =
+      activeStore ??
+      (options.host.status().repos.some((repo) => repo.repoId === cached.repoId && repo.state === "attached")
+        ? openFleetStorage({
+            rootDir: repoRoot(cached.repoId),
+            repoId: cached.repoId,
+            storage: options.storage?.[cached.repoId],
+          })
+        : null);
+    if (!targetStore) return "available";
+    try {
+      return walSuffixStatus(
+        cached,
+        (pos) => readReplicationPage({ read: (after) => targetStore.replicationCommits(after, 1) }, pos).page,
+      );
+    } finally {
+      if (!activeStore) targetStore.close();
+    }
+  };
+  const retireIdleBackupIfStale = (
+    cached: CachedBackup,
+    nowMs: number,
+    activeRepoId?: string,
+    activeStore?: ReturnType<typeof openFleetStorage>,
+  ): void => {
+    if (cached.users !== 0) return;
+    const isV4Segment = cached.format === "v4" && cached.segmentRevision !== null;
+    const matchingStore = activeRepoId === cached.repoId ? activeStore : undefined;
+    const shouldRetire = retireableIdleBackup({
       candidate: cached,
-      currentHead:
-        cached.format === "v4" && cached.segmentRevision !== null ? attachedReplicationHead(cached.repoId) : null,
+      currentHead: isV4Segment
+        ? (matchingStore?.replicationPosition() ?? attachedReplicationHead(cached.repoId))
+        : null,
+      walSuffixAvailable: isV4Segment ? readCachedBackupWalStatus(cached, matchingStore) === "available" : undefined,
       boundaryRevisions: segmentBoundaryRevisions,
       retentionWindowCommits,
       nowMs,
     });
-  const evictSnapshotsIfNeeded = (): void => {
+    if (shouldRetire) retireBackup(cached);
+  };
+  const evictSnapshotsIfNeeded = (activeRepoId?: string, activeStore?: ReturnType<typeof openFleetStorage>): void => {
     const nowMs = Date.now();
     for (const cached of [...pinnedSnapshots.values()]) {
-      if (isIdleRetirable(cached, nowMs)) retireBackup(cached);
+      retireIdleBackupIfStale(cached, nowMs, activeRepoId, activeStore);
     }
     for (const victim of selectIdlePinsForEviction(pinnedSnapshots, snapshotMaxPins, snapshotMaxBytes)) {
       retireBackup(victim);
@@ -393,7 +435,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
                   repoId,
                   snapshotDir,
                   archivePath,
-                  unpin: retentionFor(repoId).pin(validated.pin.position),
+                  unpin: validated.format === "v4" ? () => undefined : retentionFor(repoId).pin(validated.pin.position),
                 });
                 pinnedSnapshots.set(validated.pin.snapshotId, cached);
                 if (validated.format === "v4" && validated.segmentRevision !== null) {
@@ -424,7 +466,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const releaseBackupUser = (cached: CachedBackup, nodeId: string): void => {
     cached.queueListeners.delete(nodeId);
     if (cached.users > 0) cached.users -= 1;
-    if (isIdleRetirable(cached, Date.now())) retireBackup(cached);
+    if (cached.users === 0 && !cached.building) {
+      if (cached.format === "v4") cached.releaseRetention();
+      retireIdleBackupIfStale(cached, Date.now());
+    }
   };
   const listenForBackupQueue = (cached: CachedBackup, nodeId: string, repoId: string): void => {
     cached.queueListeners.set(nodeId, (status) =>
@@ -553,6 +598,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         ) {
           activeBackup.acked = true;
         }
+        evictSnapshotsIfNeeded(frame.repoId, store);
       },
       // Commits land in the repo writer process, so this process polls the head on a short timer; an
       // idle stream costs one indexed read per interval, never a spinning event loop.
@@ -607,24 +653,31 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           }
         }
         const cached = backupCache.get(cacheKey);
-        const reusable =
-          cached &&
-          !cached.retired &&
-          Date.now() < cached.expiresAtMs &&
-          (format !== "v4" ||
-            cached.building ||
-            reusableImmutableSegment({
-              candidate: cached,
-              currentHead,
-              boundaryRevisions: segmentBoundaryRevisions,
-              retentionWindowCommits,
-              nowMs: Date.now(),
-            }));
-        if (cached && reusable) {
+        const walAvailable =
+          cached && !cached.building && format === "v4"
+            ? readCachedBackupWalStatus(cached, store) === "available"
+            : true;
+        if (cached && format === "v4" && !cached.building && !walAvailable && cached.users === 0) retireBackup(cached);
+        const reuseDecision = backupCacheReuseAction({
+          cached,
+          format,
+          currentHead,
+          priorSlotAck: slots.cursor({ repoId: frame.repoId, nodeId }),
+          history: lease.history,
+          walAvailable,
+          boundaryRevisions: segmentBoundaryRevisions,
+          retentionWindowCommits,
+          nowMs: Date.now(),
+        });
+        if (cached && reuseDecision === "reuse") {
           if (cached.positionHistory !== null && cached.positionHistory !== lease.history) {
             if (!cached.building && cached.users === 0) retireBackup(cached);
           } else {
             replicaStatus.recordActivity(replicaKeyForNode, "waiting_shared_backup");
+            if (cached.format === "v4" && !cached.building && cached.users === 0) {
+              const cachedPos = cachedBackupPosition(cached);
+              if (cachedPos) pinBackupRetention(cached, cachedPos);
+            }
             cached.users += 1;
             listenForBackupQueue(cached, nodeId, frame.repoId);
             try {
@@ -662,6 +715,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             size: 0,
             positionHistory: lease.history,
             positionSequence: null,
+            positionRevision: null,
             queueStatus: null,
             releaseRetention: () => undefined,
           };
@@ -676,13 +730,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           );
           buildSignal.throwIfAborted();
           reportBackupQueue(cachedArchive, null);
-          const unpin = retention.pin(store.replicationPosition());
-          let retained = true;
-          cachedArchive.releaseRetention = () => {
-            if (!retained) return;
-            retained = false;
-            unpin();
-          };
+          pinBackupRetention(cachedArchive, store.replicationPosition());
           return options.host.replica(frame.repoId).backup(
             {
               directory,
@@ -710,25 +758,19 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             cachedArchive.size = builtWithSegment.size;
             cachedArchive.positionHistory = builtWithSegment.metadata.position.history;
             cachedArchive.positionSequence = builtWithSegment.metadata.position.sequence;
+            cachedArchive.positionRevision = builtWithSegment.metadata.position.revision;
             cachedArchive.createdAtMs = createdAtMs;
             cachedArchive.expiresAtMs = expiresAtMs;
-            const pinRecord: SnapshotPinRecord = {
-              schema: "fleet-snapshot-pin/v1",
+            const pinRecord = buildSnapshotPinRecord({
               snapshotId,
               repoId: frame.repoId,
               mode,
               format,
-              ...(segmentRevision !== null ? { segmentRevision } : {}),
-              metadata: { ...builtWithSegment.metadata, readerProfile: null },
-              position: builtWithSegment.metadata.position,
-              size: builtWithSegment.size,
-              sha256: builtWithSegment.sha256,
-              archiveFile: path.basename(builtWithSegment.file),
-              ...(builtWithSegment.objects ? { objects: builtWithSegment.objects } : {}),
-              ...(builtWithSegment.objectCount !== undefined ? { objectCount: builtWithSegment.objectCount } : {}),
-              createdAt: new Date(createdAtMs).toISOString(),
-              expiresAt: new Date(expiresAtMs).toISOString(),
-            };
+              segmentRevision,
+              built: builtWithSegment,
+              createdAtMs,
+              expiresAtMs,
+            });
             await writeHostEnvironmentFile("fleetSnapshotPin", directory, JSON.stringify(pinRecord));
             completed = true;
             pinnedSnapshots.set(snapshotId, cachedArchive);
@@ -742,8 +784,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           .finally(() => {
             cachedArchive.building = false;
             releaseSlot?.(completed);
-            if (cachedArchive.users === 0 && (!completed || isIdleRetirable(cachedArchive, Date.now()))) {
-              retireBackup(cachedArchive);
+            if (cachedArchive.users === 0) {
+              if (cachedArchive.format === "v4") cachedArchive.releaseRetention();
+              if (!completed) retireBackup(cachedArchive);
+              else retireIdleBackupIfStale(cachedArchive, Date.now());
             }
           });
         try {

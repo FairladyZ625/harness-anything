@@ -1627,6 +1627,17 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
           ),
           registeredRoot = registered?.canonicalRoot;
         if (
+          prefetch &&
+          (!registered ||
+            registered.mode !== "remote-edge" ||
+            typeof registeredRoot !== "string" ||
+            canonicalRoot(request.workspaceRoot) !== canonicalRoot(registeredRoot))
+        )
+          throw context.hostCodedError(
+            "repo_mode_read_only",
+            "Fleet edge prefetch requires the matching enabled remote-edge registration.",
+          );
+        if (
           !registered ||
           registered.mode !== "remote-edge" ||
           typeof registeredRoot !== "string" ||
@@ -1636,9 +1647,7 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
             "repo_mode_read_only",
             repoint
               ? "Fleet edge repoint requires the matching enabled remote-edge registration."
-              : prefetch
-                ? "Fleet edge prefetch requires the matching enabled remote-edge registration."
-                : "Fleet edge sync requires the matching enabled remote-edge registration.",
+              : "Fleet edge sync requires the matching enabled remote-edge registration.",
           );
         context.localOnly(auth);
         // Ensure startup repository attachments have settled before sync/repoint starts or waits on

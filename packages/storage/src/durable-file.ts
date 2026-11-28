@@ -164,7 +164,7 @@ export async function writeFileDurablyStream(
   await /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ mkdir(directory, {
     recursive: true,
   });
-  const temp = `${file}.${process.pid}.${randomUUID()}.tmp`;
+  const temp = `${file}.${randomUUID()}.tmp`;
   let committed = false;
   try {
     const out =

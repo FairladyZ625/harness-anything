@@ -4310,20 +4310,6 @@
         "order": 504
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-result-read.ts#edgeObject:450256aac14c2cad209fd0472c930018",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign",
-        "order": 768
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-result-read.ts#edgeObject:fe52197bc07b80bdd3ece44a33378632",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign",
-        "order": 767
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-result-read.ts#readEdgeRuntimeResult:fe52197bc07b80bdd3ece44a33378632",
         "route": "daemon-local-state",
         "role": "technical-port",
