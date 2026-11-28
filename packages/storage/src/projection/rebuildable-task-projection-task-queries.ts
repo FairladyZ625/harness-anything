@@ -185,6 +185,7 @@ export function taskQueryApi(
     ...repositoryEventQueries(
       (read) => withDatabase(projectionPath, readHead, (db) => read(db, readProjectionCut(db, readHead))),
       eventStore.readEventsByRevisions,
+      (read) => withDatabase(projectionPath, readHead, read),
     ),
     readTaskIndex: (query = {}) => {
       const existed = localRuntimeStateFileSystem.exists(projectionPath);

@@ -295,6 +295,7 @@ function hydrateOrderedDispatches(
 export function repositoryEventQueries(
   withRead: RepositoryReadSession,
   readEventsByRevisions?: BatchEventsByRevisionsReader,
+  withDb: <A>(read: (db: DatabaseSync) => A) => A = (read) => withRead((db) => read(db)),
 ): Pick<
   TaskProjectionQueries,
   | "readRuntimeDispatch"
@@ -327,8 +328,8 @@ export function repositoryEventQueries(
   | "readDocuments"
 > {
   return {
-    readArtifactEntityState: (kind, id) => withRead((db) => readArtifactEntityState(db, kind, id)),
-    readEventList: (query) => withRead((db) => readEventList(db, query)),
+    readArtifactEntityState: (kind, id) => withDb((db) => readArtifactEntityState(db, kind, id)),
+    readEventList: (query) => withDb((db) => readEventList(db, query)),
     readDocuments: (prefix, page) =>
       withRead((db, cut) => {
         const rows = readDocumentRows(db, prefix, page),
@@ -342,7 +343,7 @@ export function repositoryEventQueries(
         };
       }),
     readEventWitness: (revision) =>
-      withRead((db) => {
+      withDb((db) => {
         const row = queryRow(db, "SELECT witness_json FROM event_summary WHERE workspace_revision = ?", revision);
         return row
           ? (JSON.parse(String(row.witness_json)) as ReturnType<TaskProjectionQueries["readEventWitness"]>)
@@ -445,7 +446,7 @@ export function repositoryEventQueries(
         return event;
       }),
     readRuntimeDispatch: (runtimeSessionIdValue, definitionSnapshotRef) =>
-      withRead((db) => {
+      withDb((db) => {
         const row =
           definitionSnapshotRef === undefined
             ? queryRow<RevisionRow>(db, RUNTIME_DISPATCH_SESSION_SQL, runtimeSessionIdValue)
@@ -454,7 +455,7 @@ export function repositoryEventQueries(
         return hydrateOrderedDispatches([row], readEventsByRevisions)[0] ?? null;
       }),
     readRuntimeDispatchById: (dispatchId) =>
-      withRead(
+      withDb(
         (db) =>
           hydrateProjectedDispatches(
             db,
@@ -463,7 +464,7 @@ export function repositoryEventQueries(
           )[0] ?? null,
       ),
     readRuntimeDispatchByDispatchKey: (dispatchKey) =>
-      withRead((db) => {
+      withDb((db) => {
         assertRuntimeDispatchKeyIndexReady(db);
         return (
           hydrateProjectedDispatches(
@@ -474,7 +475,7 @@ export function repositoryEventQueries(
         );
       }),
     readRuntimeDispatchByResumeSource: (dispatchId) =>
-      withRead(
+      withDb(
         (db) =>
           hydrateProjectedDispatches(
             db,
@@ -483,7 +484,7 @@ export function repositoryEventQueries(
           )[0] ?? null,
       ),
     readRuntimeDispatchesBySession: (runtimeSessionIdValue) =>
-      withRead((db) =>
+      withDb((db) =>
         hydrateProjectedDispatches(
           db,
           queryRows<RevisionRow>(db, RUNTIME_DISPATCHES_BY_COLUMN_SQL("runtime_session_id"), runtimeSessionIdValue),
@@ -491,14 +492,14 @@ export function repositoryEventQueries(
         ),
       ),
     readRuntimeDispatchEventsBySession: (runtimeSessionIdValue) =>
-      withRead((db) =>
+      withDb((db) =>
         hydrateOrderedDispatches(
           queryRows<RevisionRow>(db, RUNTIME_DISPATCHES_BY_COLUMN_SQL("runtime_session_id"), runtimeSessionIdValue),
           readEventsByRevisions,
         ),
       ),
     readRuntimeDispatchesByTaskIds: (taskIds) =>
-      withRead((db) => {
+      withDb((db) => {
         if (
           !Array.isArray(taskIds) ||
           taskIds.length === 0 ||
@@ -514,7 +515,7 @@ export function repositoryEventQueries(
         return hydrateOrderedDispatches(rows, readEventsByRevisions);
       }),
     readLatestRuntimeDispatchesByTaskIds: (taskIds) =>
-      withRead((db) => {
+      withDb((db) => {
         if (
           !Array.isArray(taskIds) ||
           taskIds.length === 0 ||
@@ -530,7 +531,7 @@ export function repositoryEventQueries(
         return hydrateOrderedDispatches(matched, readEventsByRevisions);
       }),
     readLatestRuntimeDispatchBySession: (runtimeSessionId) =>
-      withRead((db) => {
+      withDb((db) => {
         if (typeof runtimeSessionId !== "string" || runtimeSessionId.length === 0)
           throw new Error("runtime dispatch session latest read requires a non-empty session id");
         const row = queryRow<RevisionRow>(db, RUNTIME_LATEST_DISPATCH_BY_SESSION_SQL, runtimeSessionId);
@@ -538,7 +539,7 @@ export function repositoryEventQueries(
         return hydrateOrderedDispatches([row], readEventsByRevisions)[0] ?? null;
       }),
     readRuntimeDispatchByDispatchIdPrefix: (prefix, limit) =>
-      withRead((db) => {
+      withDb((db) => {
         if (typeof prefix !== "string" || prefix.length === 0)
           throw new Error("runtime dispatch id prefix requires a non-empty prefix");
         if (!validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.standard))
@@ -550,9 +551,9 @@ export function repositoryEventQueries(
         );
       }),
     countRuntimeDispatchesByAgent: (agentId) =>
-      withRead((db) => Number(queryRow(db, RUNTIME_DISPATCH_COUNT_BY_AGENT_SQL, agentId)?.count ?? 0)),
+      withDb((db) => Number(queryRow(db, RUNTIME_DISPATCH_COUNT_BY_AGENT_SQL, agentId)?.count ?? 0)),
     readRuntimeDispatchesByTaskExecution: (taskId, executionId) =>
-      withRead((db) =>
+      withDb((db) =>
         hydrateProjectedDispatches(
           db,
           queryRows<RevisionRow>(db, RUNTIME_DISPATCHES_BY_TASK_EXECUTION_SQL, taskId, executionId),
@@ -560,7 +561,7 @@ export function repositoryEventQueries(
         ),
       ),
     readRuntimeDispatchesByAttemptGroup: (attemptGroupId) =>
-      withRead((db) =>
+      withDb((db) =>
         hydrateProjectedDispatches(
           db,
           queryRows<RevisionRow>(db, RUNTIME_DISPATCHES_BY_COLUMN_SQL("attempt_group_id"), attemptGroupId),
@@ -568,7 +569,7 @@ export function repositoryEventQueries(
         ),
       ),
     readRuntimeDispatchesByDecision: (decisionId) =>
-      withRead((db) =>
+      withDb((db) =>
         hydrateProjectedDispatches(
           db,
           queryRows<RevisionRow>(db, RUNTIME_DISPATCHES_BY_COLUMN_SQL("review_target_decision_id"), decisionId),
@@ -578,7 +579,7 @@ export function repositoryEventQueries(
     readRuntimeDispatchesByDecisions: (decisionIds) =>
       decisionIds.length === 0
         ? []
-        : withRead((db) =>
+        : withDb((db) =>
             hydrateOrderedDispatches(
               queryRows<RevisionRow>(db, DECISION_REVIEW_DISPATCHES_SQL, JSON.stringify(decisionIds)),
               readEventsByRevisions,
@@ -596,7 +597,7 @@ export function repositoryEventQueries(
       cursor,
       limit: pageLimit,
     }) =>
-      withRead((db) => {
+      withDb((db) => {
         if (!validateStorageReadWindow(pageLimit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("runtime dispatch page requires a limit from 1 to 500");
         if (order !== "asc" && order !== "desc") throw new Error("runtime dispatch page order must be asc or desc");
@@ -711,7 +712,7 @@ export function repositoryEventQueries(
         };
       }),
     readRuntimeDispatchesByMember: ({ agentId, squadId, personId, nodeId, limit }) =>
-      withRead((db) => {
+      withDb((db) => {
         if ((agentId === undefined) === (squadId === undefined))
           throw new Error("runtime dispatch member page requires exactly one of agentId or squadId");
         if (!validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.standard))
@@ -742,7 +743,7 @@ export function repositoryEventQueries(
         return { rows, truncated: raw.length > limit, sessions };
       }),
     readRuntimeSessionEvents: (runtimeSessionIdValue, afterRevision, limit) =>
-      withRead((db) => {
+      withDb((db) => {
         if (!validateStorageReadWindow(limit, undefined, afterRevision))
           throw new Error("runtime session event page requires a non-negative revision and a positive limit");
         const rows = queryRows<RevisionRow>(
@@ -757,7 +758,7 @@ export function repositoryEventQueries(
           .map((event) => (event.type === "runtime_dispatch_requested" ? publicRuntimeDispatch(event) : event));
       }),
     readRuntimeSessionEventsByType: (runtimeSessionIdValue, types, options) =>
-      withRead((db) => {
+      withDb((db) => {
         const requested = assertRuntimeEventTypes(types),
           afterRevision = options?.afterRevision,
           maxRevision = options?.maxRevision,
@@ -862,7 +863,7 @@ export function repositoryEventQueries(
         };
       }),
     readReckoningEvents: ({ type, after, before }) =>
-      withRead((db) => {
+      withDb((db) => {
         const rows = queryRows<RevisionRow>(
           db,
           "SELECT workspace_revision FROM event_index WHERE event_type = ? " +
@@ -874,7 +875,7 @@ export function repositoryEventQueries(
         return hydrateOrderedEvents(rows, readEventsByRevisions);
       }),
     readScheduleOutputEvents: (runtimeSessionIds) =>
-      withRead((db) => {
+      withDb((db) => {
         if (runtimeSessionIds.length === 0) return [];
         const sql = [
           "SELECT workspace_revision FROM event_index",
