@@ -55,21 +55,11 @@ test("unsettled-only runtime read stays index-bounded and scopes its own node", 
         "INSERT INTO runtime_session(runtime_session_id, workspace_revision, value_json) VALUES (?, ?, ?)",
       ),
       insertDispatch = db.prepare(
-        "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",
+        "INSERT INTO event_index(op_id, workspace_revision, task_id, event_schema, event_type, runtime_session_id, source_node_id) VALUES (?, ?, ?, 'agent-runtime-event/v1', 'runtime_dispatch_requested', ?, ?)",
       );
     let revision = 1;
     const dispatch = (runtimeSessionId: string, nodeId: string) =>
-      insertDispatch.run(
-        `op-${runtimeSessionId}`,
-        revision++,
-        null,
-        JSON.stringify({
-          schema: "agent-runtime-event/v1",
-          type: "runtime_dispatch_requested",
-          source: { kind: "node", nodeId },
-          payload: { runtimeSessionId },
-        }),
-      );
+      insertDispatch.run(`op-${runtimeSessionId}`, revision++, null, runtimeSessionId, nodeId);
     for (let index = 0; index < settledCount; index += 1) {
       const runtimeSessionId = `runtime-settled-${String(index).padStart(5, "0")}`;
       insert.run(runtimeSessionId, revision++, JSON.stringify(session(runtimeSessionId, "succeeded")));

@@ -19,10 +19,10 @@ const byCodePoint = (left: string, right: string): number => {
 };
 
 function addEvent(db: DatabaseSync, revision: number, occurredAt: string): void {
-  db.prepare("INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)").run(
+  db.prepare("INSERT INTO event_index(op_id, workspace_revision, task_id, occurred_at) VALUES (?, ?, NULL, ?)").run(
     `op-${revision}`,
     revision,
-    JSON.stringify({ occurredAt }),
+    occurredAt,
   );
 }
 

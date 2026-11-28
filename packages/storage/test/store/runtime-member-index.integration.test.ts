@@ -2,8 +2,14 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import type { CanonicalEventV1 } from "@harness-anything/kernel";
 import { applyDecision, projectionFixture, proposal } from "./relation-graph-projection.fixtures.ts";
 import { withTempStoreAsync } from "./helpers.ts";
+import {
+  EVENT_INDEX_INSERT_SQL,
+  eventIndexInsertParams,
+  extractEventIndexRow,
+} from "../../src/projection/rebuildable-task-projection-sql.ts";
 import {
   assertRuntimeDispatchKeyIndexReady,
   ensureRuntimeMemberIndex,
@@ -17,8 +23,6 @@ test("SQLite task point reads remain indexed through the member expansion", (t) 
   try {
     db.exec(REPOSITORY_READ_TABLES_SQL);
     plans.before = explain();
-    db.exec("ALTER TABLE event_index ADD COLUMN runtime_session_present INTEGER");
-    plans.afterColumn = explain();
     ensureRuntimeMemberIndex(db);
     plans.afterExpansion = explain();
     t.diagnostic(`SQLITE_TASK_POINT_PLANS ${JSON.stringify(plans)}`);
@@ -31,16 +35,47 @@ test("SQLite task point reads remain indexed through the member expansion", (t) 
   }
 });
 
-test("SQLite dispatch key expansion backfills both historical and current spellings", (t) => {
+test("SQLite dispatch key scalar extraction handles both historical and current spellings", (t) => {
   const db = new DatabaseSync(":memory:");
   try {
     db.exec(REPOSITORY_READ_TABLES_SQL);
-    const insert = db.prepare("INSERT INTO event_index(op_id,workspace_revision,event_json) VALUES(?,?,?)"),
-      dispatch = (payload: Readonly<Record<string, unknown>>) =>
-        JSON.stringify({ schema: "agent-runtime-event/v1", type: "runtime_dispatch_requested", payload });
-    insert.run("old", 1, dispatch({ dispatchId: "dispatch-old", idempotencyKey: "key-old" }));
-    insert.run("new", 2, dispatch({ dispatchId: "dispatch-new", dispatchKey: "key-new" }));
-    insert.run("task", 3, JSON.stringify({ schema: "task-event/v1", type: "task_created", payload: {} }));
+    const insert = db.prepare(EVENT_INDEX_INSERT_SQL),
+      insertEvent = (event: Readonly<Record<string, unknown>>) => {
+        const raw = JSON.stringify(event);
+        insert.run(
+          ...eventIndexInsertParams(
+            extractEventIndexRow({
+              opId: String(event.opId),
+              workspaceRevision: Number(event.workspaceRevision),
+              taskId: typeof event.taskId === "string" ? event.taskId : null,
+              eventJson: raw,
+              parsedEvent: event,
+              runtimeSessionPresent: null,
+            }),
+          ),
+        );
+      };
+    insertEvent({
+      schema: "agent-runtime-event/v1",
+      type: "runtime_dispatch_requested",
+      opId: "old",
+      workspaceRevision: 1,
+      payload: { dispatchId: "dispatch-old", idempotencyKey: "key-old" },
+    });
+    insertEvent({
+      schema: "agent-runtime-event/v1",
+      type: "runtime_dispatch_requested",
+      opId: "new",
+      workspaceRevision: 2,
+      payload: { dispatchId: "dispatch-new", dispatchKey: "key-new" },
+    });
+    insertEvent({
+      schema: "task-event/v1",
+      type: "task_created",
+      opId: "task",
+      workspaceRevision: 3,
+      payload: {},
+    });
     const progress: { applied: number; total: number }[] = [];
     ensureRuntimeMemberIndex(db, (entry) => progress.push(entry));
     assert.deepEqual(
@@ -57,18 +92,22 @@ test("SQLite dispatch key expansion backfills both historical and current spelli
     assert.deepEqual(progress, [{ applied: 3, total: 3 }]);
     const plan = db
       .prepare(
-        "EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested' AND dispatch_key = ? ORDER BY workspace_revision LIMIT 1",
+        "EXPLAIN QUERY PLAN SELECT workspace_revision FROM event_index WHERE event_schema = 'agent-runtime-event/v1' AND event_type = 'runtime_dispatch_requested' AND dispatch_key = ? ORDER BY workspace_revision LIMIT 1",
       )
       .all("key-old") as readonly { readonly detail: string }[];
     t.diagnostic(`SQLITE_DISPATCH_KEY_PLAN ${JSON.stringify(plan)}`);
     assert.match(
       plan.map(({ detail }) => detail).join("\n"),
-      /SEARCH event_index USING INDEX event_index_runtime_dispatch_key/u,
+      /SEARCH event_index USING (?:COVERING )?INDEX event_index_runtime_dispatch_key/u,
     );
     assert.doesNotThrow(() => assertRuntimeDispatchKeyIndexReady(db));
-    // Old prepared statements and mixed-version writers insert only the original columns; the
-    // AFTER INSERT trigger still derives the key.
-    insert.run("after", 4, dispatch({ dispatchId: "dispatch-after", idempotencyKey: "key-after" }));
+    insertEvent({
+      schema: "agent-runtime-event/v1",
+      type: "runtime_dispatch_requested",
+      opId: "after",
+      workspaceRevision: 4,
+      payload: { dispatchId: "dispatch-after", idempotencyKey: "key-after" },
+    });
     assert.equal(
       db.prepare("SELECT dispatch_key FROM event_index WHERE op_id='after'").all()[0]!.dispatch_key,
       "key-after",
@@ -87,31 +126,41 @@ test("SQLite member reads skip duplicate and orphan dispatch history", async (t)
     const { projection } = fixture,
       db = new DatabaseSync(projection.path);
     try {
-      const insert = db.prepare("INSERT INTO event_index(op_id,workspace_revision,event_json) VALUES(?,?,?)");
+      const insert = db.prepare(EVENT_INDEX_INSERT_SQL);
       db.exec("BEGIN");
-      for (let n = 1; n <= 100002; n++)
+      for (let n = 1; n <= 100002; n++) {
+        const event = {
+          schema: "agent-runtime-event/v1",
+          type: "runtime_dispatch_requested",
+          workspaceRevision: n + 1,
+          eventId: `dispatch-${n}`,
+          opId: `dispatch-${n}`,
+          actor: { principal: { personId: "test" }, executor: null },
+          source: "local",
+          occurredAt: "2026-11-04",
+          payload: {
+            dispatchId: `dispatch-${String(n).padStart(6, "0")}`,
+            runtimeSessionId: n <= 50000 ? `orphan-${n}` : n === 100002 ? "session-b" : "session-a",
+            agentId: "agent-target",
+            squadId: "squad-target",
+            startedAt: "2026-11-04",
+            dispatchKey: `key-${n}`,
+          },
+        };
+        fixture.events.set(n + 1, event as unknown as CanonicalEventV1);
         insert.run(
-          `dispatch-${n}`,
-          n + 1,
-          JSON.stringify({
-            schema: "agent-runtime-event/v1",
-            type: "runtime_dispatch_requested",
-            workspaceRevision: n + 1,
-            eventId: `dispatch-${n}`,
-            opId: `dispatch-${n}`,
-            actor: { principal: { personId: "test" }, executor: null },
-            source: "local",
-            occurredAt: "2026-11-04",
-            payload: {
-              dispatchId: `dispatch-${String(n).padStart(6, "0")}`,
-              runtimeSessionId: n <= 50000 ? `orphan-${n}` : n === 100002 ? "session-b" : "session-a",
-              agentId: "agent-target",
-              squadId: "squad-target",
-              startedAt: "2026-11-04",
-              dispatchKey: `key-${n}`,
-            },
-          }),
+          ...eventIndexInsertParams(
+            extractEventIndexRow({
+              opId: event.opId,
+              workspaceRevision: event.workspaceRevision,
+              taskId: null,
+              eventJson: JSON.stringify(event),
+              parsedEvent: event,
+              runtimeSessionPresent: null,
+            }),
+          ),
         );
+      }
       for (const id of ["session-a", "session-b"])
         db.prepare("INSERT INTO runtime_session(runtime_session_id,workspace_revision,value_json) VALUES(?,1,?)").run(
           id,
@@ -204,23 +253,32 @@ test("SQLite dispatch scope retains the matching rows beyond the 12 and 500 unsc
     const { projection } = fixture;
     const db = new DatabaseSync(projection.path);
     try {
-      const insert = db.prepare("INSERT INTO event_index(op_id,workspace_revision,event_json) VALUES(?,?,?)");
+      const insert = db.prepare(EVENT_INDEX_INSERT_SQL);
       const write = (revision: number, type: string, personId: string, source: unknown, payload: object) => {
         const id = `scope-${revision}`;
+        const event = {
+          schema: "agent-runtime-event/v1",
+          type,
+          workspaceRevision: revision,
+          eventId: id,
+          opId: id,
+          actor: { principal: { personId }, executor: null },
+          source,
+          occurredAt: "2026-11-17T00:00:00Z",
+          payload,
+        };
+        fixture.events.set(revision, event as unknown as CanonicalEventV1);
         insert.run(
-          id,
-          revision,
-          JSON.stringify({
-            schema: "agent-runtime-event/v1",
-            type,
-            workspaceRevision: revision,
-            eventId: id,
-            opId: id,
-            actor: { principal: { personId }, executor: null },
-            source,
-            occurredAt: "2026-11-17T00:00:00Z",
-            payload,
-          }),
+          ...eventIndexInsertParams(
+            extractEventIndexRow({
+              opId: id,
+              workspaceRevision: revision,
+              taskId: null,
+              eventJson: JSON.stringify(event),
+              parsedEvent: event,
+              runtimeSessionPresent: null,
+            }),
+          ),
         );
       };
       const ids = ["alice-old", "alice-older", "bob"];
@@ -286,6 +344,7 @@ test("SQLite dispatch scope retains the matching rows beyond the 12 and 500 unsc
       }
     } finally {
       db.close();
+      projection.close();
     }
   });
 });

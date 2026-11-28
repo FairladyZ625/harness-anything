@@ -53,6 +53,7 @@ import { readDispatchLifecycleRows } from "./dispatch-lifecycle-projection.ts";
 import { readInboxRows } from "./inbox-projection.ts";
 import { readPeerRequestRows } from "./inbox-projection.ts";
 import { readKbDocumentRows } from "./kb-document-projection.ts";
+import { hydrateEventsByRevisions } from "./rebuildable-task-projection-sql.ts";
 export type {
   ProjectionPage,
   TaskProjectionListQuery,
@@ -63,35 +64,35 @@ export type { TaskProjection } from "@harness-anything/kernel";
 
 const TASK_SUBMISSION_OPERATION_SQL = [
   "SELECT op_id FROM event_index WHERE task_id = ?",
-  "AND json_extract(event_json, '$.schema') = 'task-event/v1'",
-  "AND json_extract(event_json, '$.type') = 'execution_submitted'",
-  "AND json_extract(event_json, '$.payload.execution.executionId') = ?",
+  "AND event_schema = 'task-event/v1'",
+  "AND event_type = 'execution_submitted'",
+  "AND execution_id = ?",
   "ORDER BY workspace_revision DESC LIMIT 1",
 ].join(" ");
 const TASK_COMPLETION_SQL = [
-  "SELECT event_json FROM event_index WHERE task_id = ?",
-  "AND json_extract(event_json, '$.schema') = 'task-event/v1'",
-  "AND json_extract(event_json, '$.type') = 'task_completed'",
-  "AND json_extract(event_json, '$.payload.execution.executionId') IS ?",
+  "SELECT workspace_revision FROM event_index WHERE task_id = ?",
+  "AND event_schema = 'task-event/v1'",
+  "AND event_type = 'task_completed'",
+  "AND execution_id IS ?",
   "ORDER BY workspace_revision DESC LIMIT 1",
 ].join(" ");
 const TASK_IMPORTED_EVENT_SQL = [
-  "SELECT event_json FROM event_index WHERE task_id = ?",
-  "AND json_extract(event_json, '$.schema') = 'migration-import-event/v1'",
-  "AND json_extract(event_json, '$.type') = 'entity_migrated'",
-  "AND json_extract(event_json, '$.payload.entity.kind') = 'task'",
+  "SELECT workspace_revision FROM event_index WHERE task_id = ?",
+  "AND event_schema = 'migration-import-event/v1'",
+  "AND event_type = 'entity_migrated'",
+  "AND migration_entity_kind = 'task'",
   "ORDER BY workspace_revision DESC LIMIT 1",
 ].join(" ");
 const CANONICAL_EVENTS_SQL = [
-  "SELECT event_json FROM event_index WHERE workspace_revision > ?",
+  "SELECT workspace_revision FROM event_index WHERE workspace_revision > ?",
   "ORDER BY workspace_revision LIMIT ?",
 ].join(" ");
 const REPLICA_EVENTS_SQL = [
-  "SELECT event_json FROM event_index",
+  "SELECT workspace_revision FROM event_index",
   "WHERE workspace_revision > ? AND workspace_revision <= ?",
   "ORDER BY workspace_revision LIMIT 64",
 ].join(" ");
-const EVENT_BY_OP_SQL = "SELECT event_json FROM event_index WHERE op_id = ?";
+const EVENT_BY_OP_SQL = "SELECT workspace_revision, event_schema FROM event_index WHERE op_id = ?";
 const TASK_EVENT_EXISTS_SQL = "SELECT 1 FROM event_index WHERE task_id = ? LIMIT 1";
 
 // Task relations, task status, document, replica, and progress query API.
@@ -181,8 +182,10 @@ export function taskQueryApi(
           sourceRevision: cut.sourceRevision,
         };
       }),
-    ...repositoryEventQueries((read) =>
-      withDatabase(projectionPath, readHead, (db) => read(db, readProjectionCut(db, readHead))),
+    ...repositoryEventQueries(
+      (read) => withDatabase(projectionPath, readHead, (db) => read(db, readProjectionCut(db, readHead))),
+      eventStore.readEventsByRevisions,
+      (read) => withDatabase(projectionPath, readHead, read),
     ),
     readTaskIndex: (query = {}) => {
       const existed = localRuntimeStateFileSystem.exists(projectionPath);
@@ -318,8 +321,11 @@ export function taskQueryApi(
           /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-task-queries.sqlite-database */ db.prepare(
             sql,
           ),
-        ).get(opId) as { readonly event_json: string } | undefined;
-        return row === undefined ? null : { event: JSON.parse(row.event_json), watermark: watermark(db) };
+        ).get(opId) as { readonly workspace_revision: number; readonly event_schema: string | null } | undefined;
+        if (row === undefined) return null;
+        const revision = Number(row.workspace_revision);
+        const event = hydrateEventsByRevisions([revision], eventStore.readEventsByRevisions).get(revision)!;
+        return { event, watermark: watermark(db) };
       }),
     readRelationEdge: (relationId) =>
       withDatabase(projectionPath, readHead, (db) => readRelationProjectionRow(db, relationId)),
@@ -333,9 +339,10 @@ export function taskQueryApi(
           /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-task-queries.sqlite-database */ db.prepare(
             sql,
           ),
-        ).get(opId) as { readonly event_json: string } | undefined;
-        if (!row) return null;
-        const event = JSON.parse(row.event_json);
+        ).get(opId) as { readonly workspace_revision: number; readonly event_schema: string | null } | undefined;
+        if (!row || row.event_schema !== "task-event/v1") return null;
+        const revision = Number(row.workspace_revision);
+        const event = hydrateEventsByRevisions([revision], eventStore.readEventsByRevisions).get(revision)!;
         return isTaskEvent(event) ? { event, watermark: watermark(db) } : null;
       }),
     readTaskSubmissionOperation: (taskId, executionId) =>
@@ -348,17 +355,19 @@ export function taskQueryApi(
       return withDatabase(projectionPath, readHead, (db) => {
         // Completion lookup is write-recovery admission, not a serving read: it must observe a
         // published completion before a retry can append a duplicate.
-        const row = queryRows(db, TASK_COMPLETION_SQL, taskId, executionId)[0];
+        const row = queryRows<{ readonly workspace_revision: number }>(db, TASK_COMPLETION_SQL, taskId, executionId)[0];
         if (!row) return null;
-        const event = JSON.parse(String(row.event_json));
+        const revision = Number(row.workspace_revision);
+        const event = hydrateEventsByRevisions([revision], eventStore.readEventsByRevisions).get(revision)!;
         return isTaskEvent(event) ? event : null;
       });
     },
     readTaskImportedEvent: (taskId) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const row = queryRows(db, TASK_IMPORTED_EVENT_SQL, taskId)[0];
+        const row = queryRows<{ readonly workspace_revision: number }>(db, TASK_IMPORTED_EVENT_SQL, taskId)[0];
         if (!row) return null;
-        const event = JSON.parse(String(row.event_json));
+        const revision = Number(row.workspace_revision);
+        const event = hydrateEventsByRevisions([revision], eventStore.readEventsByRevisions).get(revision)!;
         return isMigrationImportEvent(event) && event.payload.entity.kind === "task" ? event : null;
       }),
     readCanonicalEvents: (afterRevision, pageLimit) =>
@@ -366,11 +375,16 @@ export function taskQueryApi(
         if (!validateStorageReadWindow(pageLimit, storageReadPolicy.defaultValue.pageSizes.standard, afterRevision))
           throw new Error("canonical event page requires a non-negative revision and a limit from 1 to 500");
         const cut = readProjectionCut(db, readHead);
+        const revisions = queryRows<{ readonly workspace_revision: number }>(
+          db,
+          CANONICAL_EVENTS_SQL,
+          afterRevision,
+          pageLimit,
+        ).map((row) => Number(row.workspace_revision));
+        const hydrated = hydrateEventsByRevisions(revisions, eventStore.readEventsByRevisions);
         return {
           status: cut.status,
-          events: queryRows(db, CANONICAL_EVENTS_SQL, afterRevision, pageLimit).map((row) =>
-            JSON.parse(String(row.event_json)),
-          ),
+          events: revisions.map((revision) => hydrated.get(revision)!),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };
@@ -394,17 +408,34 @@ export function taskQueryApi(
       return withDatabase(projectionPath, readHead, (db) =>
         queryTransaction(db, () => {
           const current = watermark(db),
-            head =
+            headRow =
               current === 0
                 ? undefined
-                : queryRows(db, "SELECT event_json FROM event_index WHERE workspace_revision = ?", current)[0],
-            rows = afterRevision === null ? [] : queryRows(db, REPLICA_EVENTS_SQL, afterRevision, current),
+                : queryRows<{ readonly workspace_revision: number }>(
+                    db,
+                    "SELECT workspace_revision FROM event_index WHERE workspace_revision = ?",
+                    current,
+                  )[0],
+            pageRevisions =
+              afterRevision === null
+                ? []
+                : queryRows<{ readonly workspace_revision: number }>(
+                    db,
+                    REPLICA_EVENTS_SQL,
+                    afterRevision,
+                    current,
+                  ).map((row) => Number(row.workspace_revision)),
+            headRevision = headRow ? Number(headRow.workspace_revision) : null,
+            hydrated = hydrateEventsByRevisions(
+              [...(headRevision === null ? [] : [headRevision]), ...pageRevisions],
+              eventStore.readEventsByRevisions,
+            ),
             documents = readDocumentRows(db, "");
           return {
             watermark: current,
             sourceRevision,
-            headEvent: head ? JSON.parse(String(head.event_json)) : null,
-            events: rows.map((row) => JSON.parse(String(row.event_json))),
+            headEvent: headRevision === null ? null : hydrated.get(headRevision)!,
+            events: pageRevisions.map((revision) => hydrated.get(revision)!),
             documents,
           };
         }),

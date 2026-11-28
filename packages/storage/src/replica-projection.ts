@@ -28,10 +28,19 @@ export function openReplicaProjection(input: {
       const deferredSize = input.deferredColdBlobSizes?.get(sha256);
       return deferredSize !== undefined ? new Uint8Array(deferredSize) : null;
     };
+    const readContentBlobSize = (sha256: string): number | null => {
+      const localSize = reader.readContentObjectSize(sha256);
+      if (localSize !== null) return localSize;
+      return input.deferredColdBlobSizes?.get(sha256) ?? null;
+    };
     const events = {
         readHead: () => reader.eventIdentityAtRevision(reader.revision()),
-        readBatch: (cursor: string | null, size: number) => sqliteEventBatch(reader, cursor, size, readContentBlob),
+        readBatch: (cursor: string | null, size: number) =>
+          sqliteEventBatch(reader, cursor, size, readContentBlob, readContentBlobSize),
         readContentBlob,
+        readContentBlobSize,
+        readEventsByRevisions: reader.eventsByRevisions,
+        verifyRevisionContinuity: reader.verifyRevisionContinuity,
       },
       projection = makeTaskProjection({
         rootDir: input.rootDir,

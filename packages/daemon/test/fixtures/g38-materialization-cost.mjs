@@ -104,9 +104,7 @@ export async function measureColdMaterialization(root, size, policy = "in_flight
         ),
         insertDoc = db.prepare("INSERT INTO document(path,workspace_revision,value_json) VALUES (?,1,?)"),
         insertPackage = db.prepare("INSERT INTO task_package VALUES (?,?)"),
-        insertEventIndex = db.prepare(
-          "INSERT INTO event_index(op_id,workspace_revision,task_id,event_json) VALUES (?,?,?,'{}')",
-        ),
+        insertEventIndex = db.prepare("INSERT INTO event_index(op_id,workspace_revision,task_id) VALUES (?,?,?)"),
         addDoc = (target) =>
           insertDoc.run(
             target,

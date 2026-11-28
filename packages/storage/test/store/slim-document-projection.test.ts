@@ -450,7 +450,7 @@ test("schema v39->v40 upgrades in place without full replay and produces byte-id
           readonly schema_version: number;
         };
         assert.equal(Number(meta.schema_version), taskProjectionSchemaVersion);
-        assert.equal(taskProjectionSchemaVersion, 40);
+        assert.equal(taskProjectionSchemaVersion, 41);
         const trigger = inspectDb
           .prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name='document_artifact_update'")
           .get();

@@ -52,6 +52,14 @@ test("frozen flat events pass canonical staging and fresh projection catch-up", 
     const source: EventStreamPort = {
       readHead: () => ({ revision: head }),
       readContentBlob: () => null,
+      readEventsByRevisions: (revisions) => {
+        const requested = new Set(revisions);
+        return new Map(
+          events
+            .filter((event) => requested.has(event.workspaceRevision))
+            .map((event) => [event.workspaceRevision, event]),
+        );
+      },
       readBatch: (cursor, limit) => {
         const offset = Number(cursor ?? 0),
           batch = events.slice(offset, offset + limit),

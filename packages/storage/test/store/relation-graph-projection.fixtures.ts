@@ -283,19 +283,30 @@ export function writeLegacyFactEvent(rootDir: string, event: FactEventDraftV1): 
 export function projectionFixture(rootDir: string) {
   let eventStreamHead: { readonly revision: number; readonly eventDigest: `sha256:${string}` } | null = null;
   const blobs = new Map<string, Uint8Array>(),
+    events = new Map<number, CanonicalEventV1>(),
     eventStore = {
       readHead: () => eventStreamHead,
       readBatch: () => ({ sourceRevision: 0, events: [], cursor: null, done: true, accessedItems: 0 }),
       readContentBlob: (sha256: string) => blobs.get(sha256) ?? null,
+      readEventsByRevisions: (revisions: readonly number[]) => {
+        const result = new Map<number, CanonicalEventV1>();
+        for (const revision of revisions) {
+          const event = events.get(revision);
+          if (event) result.set(revision, event);
+        }
+        return result;
+      },
     };
   return {
     appendEvent: (event: CanonicalEventV1) => {
+      events.set(event.workspaceRevision, event);
       eventStreamHead = {
         revision: event.workspaceRevision,
         eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
       };
     },
     blobs,
+    events,
     projection: makeTaskProjection({ rootDir, eventStore }),
     /** Open the same projection file again over the same event stream, as a restarted writer does. */
     reopen: () => makeTaskProjection({ rootDir, eventStore }),

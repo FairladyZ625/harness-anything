@@ -211,14 +211,14 @@ export function listPinnedEntityRows(db: DatabaseSync, personId?: string): reado
     const rows = queryRows<{ entity_ref: string; actor_person_id: string; occurred_at: string; event_type: string }>(
       db,
       `WITH actions(entity_ref, revision) AS (
-         SELECT json_extract(e.event_json, '$.payload.entityRef'), s.workspace_revision
+         SELECT e.pin_entity_ref, s.workspace_revision
          FROM event_summary s INDEXED BY event_summary_type_revision
          CROSS JOIN event_index e ON e.workspace_revision=s.workspace_revision
          WHERE s.actor_person_id=? AND s.event_type IN ('entity_pinned','entity_unpinned')
          UNION ALL
-         SELECT 'task/' || json_extract(event_json, '$.payload.entity.task.taskId'), workspace_revision
+         SELECT 'task/' || migrated_task_id, workspace_revision
          FROM event_index
-         WHERE ${sqliteImportedTaskPinPredicate} AND json_extract(event_json,'$.actor.principal.personId')=?
+         WHERE ${sqliteImportedTaskPinPredicate} AND actor_person_id=?
        ), latest_pin AS MATERIALIZED (
          SELECT entity_ref, max(revision) AS revision FROM actions GROUP BY entity_ref
        )
@@ -231,7 +231,7 @@ export function listPinnedEntityRows(db: DatabaseSync, personId?: string): reado
          WHERE ref.entity_ref=pin.entity_ref AND ref.workspace_revision>pin.revision
            AND (retired.event_type IN (SELECT value FROM json_each(?))
              OR (retired.event_type='task_transitioned' AND (
-               SELECT json_extract(e.event_json, '$.payload.task.status')
+               SELECT e.task_transition_status
                FROM event_index e WHERE e.workspace_revision=ref.workspace_revision
              )='cancelled'))
        )`,

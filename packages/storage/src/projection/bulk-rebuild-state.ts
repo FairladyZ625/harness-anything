@@ -1,5 +1,10 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
+import {
+  EVENT_INDEX_INSERT_SQL,
+  eventIndexInsertParams,
+  extractEventIndexRow,
+} from "./rebuildable-task-projection-sql.ts";
 import { prepareQuery, queryRows, runSql, transaction } from "./rebuildable-task-projection-sql.ts";
 
 export interface DocumentBaseMetadata {
@@ -157,46 +162,21 @@ export function insertEventIndexRow(
   event?: PersistedCanonicalEventV1,
 ): void {
   const ctx = bulkRebuildContexts.get(db);
-  if (ctx === undefined) {
-    runSql(
-      db,
-      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",
-      opId,
-      workspaceRevision,
-      taskId,
-      eventJson,
-    );
-    return;
-  }
-  let dispatchKey = "";
-  if (event !== undefined && event.schema === "agent-runtime-event/v1") {
-    if (event.type === "runtime_session_started") {
-      const source = event.source as { readonly nodeId?: unknown };
-      if (typeof event.source === "object" && event.source !== null && typeof source.nodeId === "string")
-        ctx.sessionLaunchNode.set(event.payload.runtimeSessionId, source.nodeId);
-    } else if (event.type === "runtime_dispatch_requested") {
-      const payload = event.payload as {
-        readonly dispatchKey?: unknown;
-        readonly idempotencyKey?: unknown;
-        readonly runtimeSessionId?: unknown;
-      };
-      const rawKey = payload.dispatchKey ?? payload.idempotencyKey;
-      dispatchKey = rawKey === undefined || rawKey === null ? "" : String(rawKey);
-      ctx.dispatchRows.push({
-        opId,
-        runtimeSessionId: typeof payload.runtimeSessionId === "string" ? payload.runtimeSessionId : null,
-      });
-    }
-  }
-  runSql(
-    db,
-    "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json, runtime_session_present, dispatch_key) VALUES (?, ?, ?, ?, 0, ?)",
+  const row = extractEventIndexRow({
     opId,
     workspaceRevision,
     taskId,
     eventJson,
-    dispatchKey,
-  );
+    parsedEvent: event as unknown as Readonly<Record<string, unknown>> | undefined,
+    runtimeSessionPresent: ctx === undefined ? null : 0,
+  });
+  if (ctx !== undefined && row.event_schema === "agent-runtime-event/v1") {
+    if (row.event_type === "runtime_session_started" && row.runtime_session_id !== null && row.source_node_id !== null)
+      ctx.sessionLaunchNode.set(row.runtime_session_id, row.source_node_id);
+    else if (row.event_type === "runtime_dispatch_requested")
+      ctx.dispatchRows.push({ opId, runtimeSessionId: row.runtime_session_id });
+  }
+  runSql(db, EVENT_INDEX_INSERT_SQL, ...eventIndexInsertParams(row));
 }
 
 function compareCodeUnits(left: string, right: string): number {

@@ -48,6 +48,7 @@ export interface SqliteAppendPreparation {
 export interface SqliteCanonicalEventStore extends CanonicalEventStore {
   readonly append: (bundle: CanonicalWriteBundle, preparation?: SqliteAppendPreparation) => CanonicalEventAppendReceipt;
   readonly readCommandOutcome: (opId: string) => SqliteCommandOutcome | null;
+  readonly readEventsByRevisions: SqliteEventStore["eventsByRevisions"];
   readonly readDocumentRetirementRevision: SqliteEventStore["readDocumentRetirementRevision"];
   readonly verifyRevisionContinuity: SqliteEventStore["verifyRevisionContinuity"];
   /** Drops replication-log rows below the sequence; the writer's retention call, never a reader's. */
@@ -321,6 +322,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     readEvent: sqlite.event,
     readEventById: sqlite.eventById,
     readEventAtRevision: sqlite.eventAtRevision,
+    readEventsByRevisions: sqlite.eventsByRevisions,
     queryEvents: sqlite.queryEvents,
     readEntityDeclarations: sqlite.readEntityDeclarations,
     readTaskEvent: (opId) => {
@@ -381,6 +383,7 @@ export function sqliteEventBatch(
   cursor: string | null,
   maxItems: number,
   readContent: (sha256: string) => Uint8Array | null,
+  readContentSize: (sha256: string) => number | null = sqlite.readContentObjectSize,
 ): EventFileBatch {
   const start = cursor === null ? 0 : Number(cursor);
   if (!Number.isInteger(start) || start < 0 || !Number.isInteger(maxItems) || maxItems < 1)
@@ -400,7 +403,7 @@ export function sqliteEventBatch(
     },
     prefetchSizes: (digests) => {
       const map = new Map<string, number | null>();
-      for (const sha256 of digests) map.set(sha256, sqlite.readContentObjectSize(sha256));
+      for (const sha256 of digests) map.set(sha256, readContentSize(sha256));
       return map;
     },
   });

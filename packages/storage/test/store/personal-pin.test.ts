@@ -233,7 +233,7 @@ test("personal Pin read grows with the toggle history plus one Work event suffix
     try {
       createProjectionTables(db);
       const insert = db.prepare(
-          "INSERT INTO event_index(op_id,workspace_revision,task_id,event_json) VALUES (?,?,?,?)",
+          "INSERT INTO event_index(op_id,workspace_revision,task_id,event_schema,event_type,occurred_at,actor_person_id,pin_entity_ref) VALUES (?,?,?,?,?,?,?,?)",
         ),
         workId = "task-scale-work",
         entityRef = `task/${workId}`,
@@ -251,7 +251,16 @@ test("personal Pin read grows with the toggle history plus one Work event suffix
           type: revision > size ? "task_amended" : revision % 2 === 0 ? "entity_pinned" : "entity_unpinned",
           payload: revision > size ? { taskId: workId } : { entityRef },
         };
-        insert.run(event.opId, revision, revision > size ? workId : null, JSON.stringify(event));
+        insert.run(
+          event.opId,
+          revision,
+          revision > size ? workId : null,
+          event.schema,
+          event.type,
+          occurredAt,
+          "person_alice",
+          revision <= size ? entityRef : null,
+        );
         projectEventSummary(db, event as PersistedCanonicalEventV1);
       }
       db.exec("COMMIT");

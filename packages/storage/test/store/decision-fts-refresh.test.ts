@@ -13,6 +13,7 @@ import {
 import type { DocumentState } from "@harness-anything/kernel/internal/domain/doc-sync-types.ts";
 import { compileDecisionWrite } from "@harness-anything/kernel";
 import { decisionIdSortKey, reduceDecisionEvent } from "../../src/projection/decision-event-projection.ts";
+import { EVENT_INDEX_TABLE_SQL } from "../../src/projection/rebuildable-task-projection-sql.ts";
 import { refreshDecisionDocumentSearch } from "../../src/projection/decision-projection-reducer.ts";
 import { projectMigration } from "../../src/projection/rebuildable-task-projection-write-model.ts";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
@@ -146,9 +147,7 @@ test("decision migration imports materialize legacy numbers for indexed list rea
       },
     };
   try {
-    db.exec(
-      "CREATE TABLE event_index (op_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, task_id TEXT, event_json TEXT NOT NULL)",
-    );
+    db.exec(EVENT_INDEX_TABLE_SQL);
     projectMigration(db, event, JSON.stringify(event), (blobSha256) => (blobSha256 === sha256 ? bytes : null));
     const row = db
       .prepare("SELECT legacy_number, decision_sort_key FROM decision WHERE decision_id = ?")

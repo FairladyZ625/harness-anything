@@ -25,6 +25,7 @@ import {
   type DispatchLifecycleView,
   type DispatchTaskLease,
 } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
+import { hydrateEventsByRevisions, type BatchEventsByRevisionsReader } from "./rebuildable-task-projection-sql.ts";
 import { queryRows, runSql, transaction } from "./rebuildable-task-projection-sql.ts";
 
 const LIFECYCLE_TABLES = [
@@ -140,21 +141,21 @@ function addressedGroups(
 export function catchUpDispatchLifecycle(
   db: DatabaseSync,
   onProgress?: (progress: { applied: number; total: number }) => void,
+  readEventsByRevisions?: BatchEventsByRevisionsReader,
 ): void {
   ensureDispatchLifecycleModel(db);
   let applied = 0,
     total = 0;
   for (;;) {
     const after = foldedThrough(db),
-      rows = queryRows<{ event_json: string }>(
+      revisions = queryRows<{ readonly workspace_revision: number }>(
         db,
-        `SELECT i.event_json FROM event_summary s
-         JOIN event_index i ON i.workspace_revision = s.workspace_revision
+        `SELECT s.workspace_revision FROM event_summary s
          WHERE s.event_type IN (${lifecycleTypes}) AND s.workspace_revision > ?
          ORDER BY s.workspace_revision LIMIT ${CATCH_UP_BATCH}`,
         after,
-      );
-    if (rows.length === 0) return;
+      ).map(({ workspace_revision }) => Number(workspace_revision));
+    if (revisions.length === 0) return;
     if (total === 0)
       total = Number(
         queryRows<{ count: number }>(
@@ -163,10 +164,12 @@ export function catchUpDispatchLifecycle(
           after,
         )[0]!.count,
       );
+    const hydrated = hydrateEventsByRevisions(revisions, readEventsByRevisions);
     transaction(db, () => {
-      for (const row of rows) projectDispatchLifecycleEvent(db, JSON.parse(row.event_json) as DispatchLifecycleInput);
+      for (const revision of revisions)
+        projectDispatchLifecycleEvent(db, hydrated.get(revision)! as DispatchLifecycleInput);
     });
-    applied += rows.length;
+    applied += revisions.length;
     onProgress?.({ applied, total });
   }
 }

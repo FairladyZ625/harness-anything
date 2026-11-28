@@ -1367,19 +1367,31 @@ test("replica replay indexes future events, degrades unknown entities and rebuil
 
   const index = new DatabaseSync(projectionPath, { readOnly: true });
   try {
-    const rows = index.prepare("SELECT op_id, event_json FROM event_index ORDER BY workspace_revision").all() as {
+    const rows = index
+      .prepare("SELECT op_id, event_schema, event_type FROM event_index ORDER BY workspace_revision")
+      .all() as {
       readonly op_id: string;
-      readonly event_json: string;
+      readonly event_schema: string | null;
+      readonly event_type: string | null;
     }[];
     assert.equal(rows.length, eventRows.length);
     assert.deepEqual(
       rows.map((row) => row.op_id),
       events.map((event) => event.opId),
     );
-    assert.equal(JSON.parse(rows[0]!.event_json).payload.task.futureOptionalField, "center-added");
+    assert.deepEqual(
+      rows.map((row) => row.event_schema),
+      events.map((event) => event.schema),
+    );
   } finally {
     index.close();
   }
+  const hydratedFirst = projection.readOperation(events[0]!.opId);
+  assert.equal(
+    (hydratedFirst?.event as unknown as { payload: { task: { futureOptionalField: string } } }).payload.task
+      .futureOptionalField,
+    "center-added",
+  );
   projection.close();
 
   const newer = new DatabaseSync(projectionPath);
@@ -1450,14 +1462,16 @@ test("replica seed hydration retains an unknown schema event byte-for-byte", asy
         (ledger.prepare("SELECT event_json FROM event WHERE revision = 1").get() as { event_json: string }).event_json,
         futureBytes,
       );
-      assert.equal(
-        (
-          projection.prepare("SELECT event_json FROM event_index WHERE workspace_revision = 1").get() as {
-            event_json: string;
-          }
-        ).event_json,
-        futureBytes.trimEnd(),
-      );
+      const indexedFuture = projection
+        .prepare("SELECT op_id, event_schema, event_type FROM event_index WHERE workspace_revision = 1")
+        .get() as {
+        readonly op_id: string;
+        readonly event_schema: string | null;
+        readonly event_type: string | null;
+      };
+      assert.equal(indexedFuture.op_id, futureEvent.opId);
+      assert.equal(indexedFuture.event_schema, "task-event/v2");
+      assert.equal(indexedFuture.event_type, futureEvent.type);
       const summary = JSON.parse(
         (
           projection.prepare("SELECT summary_json FROM event_summary WHERE workspace_revision = 1").get() as {

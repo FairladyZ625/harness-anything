@@ -30,4 +30,7 @@
 // Version 39 fills Decision list columns from the previous SQLite projection in place.
 // Version 40 strips inline document bodies from `document` and `document_history` in place,
 // storing canonical metadata + `blobSha256` and hydrating body bytes on demand from CAS.
-export const taskProjectionSchemaVersion = 40;
+// Version 41 scalarizes `event_index` query/index fields in place, removes duplicate `event_json`
+// storage and `json_extract(event_json, ...)` expression indexes, and hydrates full events on demand
+// from `ledger.sqlite` by revision.
+export const taskProjectionSchemaVersion = 41;

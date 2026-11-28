@@ -129,28 +129,57 @@ export function readMigrationProjectionOracleAtPath(
         "migration_projection_oracle_cut_mismatch",
         `Projection watermark ${watermark} does not match canonical event head ${eventHeadRevision}.`,
       );
+    const eventIndexColumns = new Set(
+      rows(database, "PRAGMA table_info(event_index)").map((column) => String(column.name)),
+    );
+    const hasEventJson = eventIndexColumns.has("event_json");
     const tasks = new Map(
         rows(
           database,
-          [
-            "SELECT snapshot.task_id, snapshot.workspace_revision, snapshot.snapshot_json, package.package_path,",
-            "first_event.event_json FROM task_snapshot AS snapshot",
-            "LEFT JOIN task_package AS package USING(task_id)",
-            "LEFT JOIN event_index AS first_event ON first_event.op_id=(SELECT candidate.op_id FROM event_index",
-            "AS candidate WHERE candidate.task_id=snapshot.task_id ORDER BY candidate.workspace_revision LIMIT 1)",
-            "ORDER BY snapshot.task_id",
-          ].join(" "),
+          hasEventJson
+            ? [
+                "SELECT snapshot.task_id, snapshot.workspace_revision, snapshot.snapshot_json, package.package_path,",
+                "first_event.event_json FROM task_snapshot AS snapshot",
+                "LEFT JOIN task_package AS package USING(task_id)",
+                "LEFT JOIN event_index AS first_event ON first_event.op_id=(SELECT candidate.op_id FROM event_index",
+                "AS candidate WHERE candidate.task_id=snapshot.task_id ORDER BY candidate.workspace_revision LIMIT 1)",
+                "ORDER BY snapshot.task_id",
+              ].join(" ")
+            : [
+                "SELECT snapshot.task_id, snapshot.workspace_revision, snapshot.snapshot_json, package.package_path,",
+                "first_event.event_id AS first_event_id, first_event.occurred_at AS first_occurred_at,",
+                "first_event.workspace_revision AS first_workspace_revision FROM task_snapshot AS snapshot",
+                "LEFT JOIN task_package AS package USING(task_id)",
+                "LEFT JOIN event_index AS first_event ON first_event.op_id=(SELECT candidate.op_id FROM event_index",
+                "AS candidate WHERE candidate.task_id=snapshot.task_id ORDER BY candidate.workspace_revision LIMIT 1)",
+                "ORDER BY snapshot.task_id",
+              ].join(" "),
         ).map((row) => {
           const taskId = text(row.task_id, "task id"),
             snapshot = record(row.snapshot_json, `task ${taskId} snapshot`),
-            event = row.event_json === null ? null : record(row.event_json, `task ${taskId} first event`),
-            firstEvent =
-              event === null
+            firstEvent = hasEventJson
+              ? (() => {
+                  const event = row.event_json === null ? null : record(row.event_json, `task ${taskId} first event`);
+                  return event === null
+                    ? null
+                    : {
+                        eventId: text(event.eventId, `task ${taskId} first event id`),
+                        occurredAt: text(event.occurredAt, `task ${taskId} first event occurredAt`),
+                        workspaceRevision: number(
+                          event.workspaceRevision,
+                          `task ${taskId} first event workspace revision`,
+                        ),
+                      };
+                })()
+              : row.first_workspace_revision === null
                 ? null
                 : {
-                    eventId: text(event.eventId, `task ${taskId} first event id`),
-                    occurredAt: text(event.occurredAt, `task ${taskId} first event occurredAt`),
-                    workspaceRevision: number(event.workspaceRevision, `task ${taskId} first event workspace revision`),
+                    eventId: text(row.first_event_id, `task ${taskId} first event id`),
+                    occurredAt: text(row.first_occurred_at, `task ${taskId} first event occurredAt`),
+                    workspaceRevision: number(
+                      row.first_workspace_revision,
+                      `task ${taskId} first event workspace revision`,
+                    ),
                   };
           return [
             taskId,
@@ -219,7 +248,7 @@ export function readMigrationProjectionOracleAtPath(
           ] as const;
         }),
       ),
-      sourceEvents = readEntitySourceEvents(database),
+      sourceEvents = readEntitySourceEvents(database, hasEventJson, layout.localRoot),
       agents = readEntityRows(database, "agent", (entityId, workspaceRevision, value) => ({
         agentId: entityId,
         workspaceRevision,
@@ -322,7 +351,11 @@ function readEntityRows<T>(
   );
 }
 
-function readEntitySourceEvents(database: DatabaseSync): {
+function readEntitySourceEvents(
+  database: DatabaseSync,
+  hasEventJson: boolean,
+  localRoot: string,
+): {
   readonly agents: ReadonlyMap<string, MigrationSourceAnchor>;
   readonly schedules: ReadonlyMap<string, MigrationSourceAnchor>;
   readonly runtimeSessions: ReadonlyMap<
@@ -344,15 +377,11 @@ function readEntitySourceEvents(database: DatabaseSync): {
         outcome: ProjectionOracleRuntimeSession["outcome"];
       }
     >();
-  for (const row of rows(
-    database,
-    "SELECT workspace_revision, event_json FROM event_index ORDER BY workspace_revision",
-  )) {
-    const event = record(row.event_json, "source event"),
-      eventId = typeof event.eventId === "string" ? event.eventId : null,
+  const consumeEvent = (event: Readonly<Record<string, unknown>>) => {
+    const eventId = typeof event.eventId === "string" ? event.eventId : null,
       occurredAt = typeof event.occurredAt === "string" ? event.occurredAt : null,
       payload = isMigrationImportRecord(event.payload) ? event.payload : null;
-    if (eventId === null || occurredAt === null || payload === null) continue;
+    if (eventId === null || occurredAt === null || payload === null) return;
     const anchor = { source: `event:${eventId}`, occurredAt };
     if (
       (event.schema === "entity-event/v1" || event.schema === "agent-entity-event/v1") &&
@@ -367,7 +396,7 @@ function readEntitySourceEvents(database: DatabaseSync): {
       typeof event.entity.id === "string"
     )
       schedules.set(event.entity.id, anchor);
-    if (event.schema !== "agent-runtime-event/v1" || typeof payload.runtimeSessionId !== "string") continue;
+    if (event.schema !== "agent-runtime-event/v1" || typeof payload.runtimeSessionId !== "string") return;
     const sessionId = payload.runtimeSessionId,
       held = runtime.get(sessionId) ?? { startedAt: occurredAt, latest: anchor, outcome: null };
     held.latest = anchor;
@@ -381,6 +410,44 @@ function readEntitySourceEvents(database: DatabaseSync): {
         ...(typeof payload.reasonCode === "string" ? { reasonCode: payload.reasonCode } : {}),
       };
     runtime.set(sessionId, held);
+  };
+  if (hasEventJson) {
+    for (const row of rows(
+      database,
+      "SELECT workspace_revision, event_json FROM event_index ORDER BY workspace_revision",
+    ))
+      consumeEvent(record(row.event_json, "source event"));
+    return { agents, schedules, runtimeSessions: runtime };
+  }
+  const ledgerPath = ["3", "2", "1"]
+    .map((gen) => path.join(localRoot, "store", "generations", gen, "ledger.sqlite"))
+    .find((candidate) => existsSync(candidate));
+  if (ledgerPath) {
+    const ledger = new DatabaseSync(sqliteDatabasePath(ledgerPath), { readOnly: true });
+    try {
+      for (const row of rows(ledger, "SELECT event_json FROM event ORDER BY revision"))
+        consumeEvent(record(row.event_json, "source event"));
+      return { agents, schedules, runtimeSessions: runtime };
+    } finally {
+      ledger.close();
+    }
+  }
+  for (const row of rows(
+    database,
+    "SELECT workspace_revision, event_schema, event_type, event_id, occurred_at, entity_id, runtime_session_id FROM event_index ORDER BY workspace_revision",
+  )) {
+    const eventId = typeof row.event_id === "string" ? row.event_id : null,
+      occurredAt = typeof row.occurred_at === "string" ? row.occurred_at : null;
+    if (eventId === null || occurredAt === null) continue;
+    const anchor = { source: `event:${eventId}`, occurredAt };
+    if (row.event_schema === "schedule-event/v1" && typeof row.entity_id === "string")
+      schedules.set(row.entity_id, anchor);
+    if (row.event_schema === "agent-runtime-event/v1" && typeof row.runtime_session_id === "string") {
+      const held = runtime.get(row.runtime_session_id) ?? { startedAt: occurredAt, latest: anchor, outcome: null };
+      held.latest = anchor;
+      if (row.event_type === "runtime_session_started") held.startedAt = occurredAt;
+      runtime.set(row.runtime_session_id, held);
+    }
   }
   return { agents, schedules, runtimeSessions: runtime };
 }

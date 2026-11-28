@@ -1,6 +1,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import path from "node:path";
+import { isAgentRuntimeEvent } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
+import type {
+  CanonicalEventV1,
+  PersistedCanonicalEventV1,
+} from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
+import { withReviewerQualifiedDispatchKey } from "@harness-anything/kernel/internal/domain/event-shape-migration-event.ts";
+import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
 import type * as ReadSet from "@harness-anything/kernel/internal/domain/task-read-set.ts";
+import { isRecord } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
 import { DatabaseSync } from "node:sqlite";
 import type { SQLOutputValue, StatementSync } from "node:sqlite";
 import {
@@ -26,6 +34,447 @@ import {
 } from "./iso-timestamp-sql.ts";
 
 export { canonicalJson, hashCanonicalJsonTextFieldChunks, hashCanonicalJsonTextFieldChunksAsync };
+
+export type ProjectionEventSourceErrorCode = "event_source_missing";
+
+/** Strict L3 fail-closed error thrown when an indexed revision is missing from the canonical ledger. */
+export class ProjectionEventSourceError extends Error {
+  readonly code: ProjectionEventSourceErrorCode;
+  readonly missingRevisions: readonly number[];
+
+  constructor(missingRevisions: readonly number[], message?: string) {
+    super(message ?? `canonical event payload is unavailable for indexed revision(s): ${missingRevisions.join(", ")}`);
+    this.name = "ProjectionEventSourceError";
+    this.code = "event_source_missing";
+    this.missingRevisions = [...missingRevisions];
+  }
+}
+
+export type BatchEventsByRevisionsReader = (
+  revisions: readonly number[],
+) => ReadonlyMap<number, PersistedCanonicalEventV1>;
+
+export interface EventIndexRowValues {
+  readonly op_id: string;
+  readonly workspace_revision: number;
+  readonly task_id: string | null;
+  readonly event_schema: string | null;
+  readonly event_type: string | null;
+  readonly event_id: string | null;
+  readonly occurred_at: string | null;
+  readonly occurred_at_ms: number | null;
+  readonly actor_person_id: string | null;
+  readonly actor_executor_id: string | null;
+  readonly source_node_id: string | null;
+  readonly source_resolved_node_id: string | null;
+  readonly source_runtime_session_id: string | null;
+  readonly entity_id: string | null;
+  readonly execution_id: string | null;
+  readonly payload_task_id: string | null;
+  readonly migration_created_at: string | null;
+  readonly migration_entity_kind: string | null;
+  readonly migrated_task_id: string | null;
+  readonly migrated_task_pinned: 0 | 1;
+  readonly pin_entity_ref: string | null;
+  readonly task_transition_status: string | null;
+  readonly runtime_session_id: string | null;
+  readonly dispatch_id: string | null;
+  readonly dispatch_key: string;
+  readonly runtime_session_present: 0 | 1 | null;
+  readonly agent_id: string | null;
+  readonly agent_name: string | null;
+  readonly squad_id: string | null;
+  readonly attempt_group_id: string | null;
+  readonly definition_snapshot_ref: string | null;
+  readonly resumed_from_dispatch_id: string | null;
+  readonly started_at: string | null;
+  readonly dispatch_activity_at: string | null;
+  readonly dispatch_activity_ms: number | null;
+  readonly review_target_kind: string | null;
+  readonly review_target_decision_id: string | null;
+  readonly has_control_request: 0 | 1;
+  readonly control_request_action: string | null;
+  readonly has_control_receipt: 0 | 1;
+  readonly control_receipt_request_op_id: string | null;
+  readonly control_receipt_status: string | null;
+  readonly has_control_receipt_steer_version: 0 | 1;
+}
+
+export const EVENT_INDEX_INSERT_COLUMN_NAMES = [
+  "op_id",
+  "workspace_revision",
+  "task_id",
+  "event_schema",
+  "event_type",
+  "event_id",
+  "occurred_at",
+  "occurred_at_ms",
+  "actor_person_id",
+  "actor_executor_id",
+  "source_node_id",
+  "source_resolved_node_id",
+  "source_runtime_session_id",
+  "entity_id",
+  "execution_id",
+  "payload_task_id",
+  "migration_created_at",
+  "migration_entity_kind",
+  "migrated_task_id",
+  "migrated_task_pinned",
+  "pin_entity_ref",
+  "task_transition_status",
+  "runtime_session_id",
+  "dispatch_id",
+  "dispatch_key",
+  "runtime_session_present",
+  "agent_id",
+  "agent_name",
+  "squad_id",
+  "attempt_group_id",
+  "definition_snapshot_ref",
+  "resumed_from_dispatch_id",
+  "started_at",
+  "dispatch_activity_at",
+  "dispatch_activity_ms",
+  "review_target_kind",
+  "review_target_decision_id",
+  "has_control_request",
+  "control_request_action",
+  "has_control_receipt",
+  "control_receipt_request_op_id",
+  "control_receipt_status",
+  "has_control_receipt_steer_version",
+] as const;
+
+export const EVENT_INDEX_INSERT_SQL =
+  `INSERT INTO event_index(${EVENT_INDEX_INSERT_COLUMN_NAMES.join(", ")}) ` +
+  `VALUES (${EVENT_INDEX_INSERT_COLUMN_NAMES.map(() => "?").join(", ")})`;
+
+/** Canonical deterministic witness columns for `readStateDigest()` (excludes disposable `runtime_session_present`). */
+export const EVENT_INDEX_STATE_DIGEST_COLUMNS = EVENT_INDEX_INSERT_COLUMN_NAMES.filter(
+  (column) => column !== "runtime_session_present",
+).join(",");
+
+export const EVENT_INDEX_TABLE_SQL = `
+    /* @gate-identity state-store/task.projection.event_index */ CREATE TABLE IF NOT EXISTS event_index (
+      op_id TEXT PRIMARY KEY,
+      workspace_revision INTEGER NOT NULL UNIQUE,
+      task_id TEXT,
+      event_schema TEXT,
+      event_type TEXT,
+      event_id TEXT,
+      occurred_at TEXT,
+      occurred_at_ms INTEGER,
+      actor_person_id TEXT,
+      actor_executor_id TEXT,
+      source_node_id TEXT,
+      source_resolved_node_id TEXT,
+      source_runtime_session_id TEXT,
+      entity_id TEXT,
+      execution_id TEXT,
+      payload_task_id TEXT,
+      migration_created_at TEXT,
+      migration_entity_kind TEXT,
+      migrated_task_id TEXT,
+      migrated_task_pinned INTEGER NOT NULL DEFAULT 0,
+      pin_entity_ref TEXT,
+      task_transition_status TEXT,
+      runtime_session_id TEXT,
+      dispatch_id TEXT,
+      dispatch_key TEXT,
+      runtime_session_present INTEGER,
+      agent_id TEXT,
+      agent_name TEXT,
+      squad_id TEXT,
+      attempt_group_id TEXT,
+      definition_snapshot_ref TEXT,
+      resumed_from_dispatch_id TEXT,
+      started_at TEXT,
+      dispatch_activity_at TEXT,
+      dispatch_activity_ms INTEGER,
+      review_target_kind TEXT,
+      review_target_decision_id TEXT,
+      has_control_request INTEGER NOT NULL DEFAULT 0,
+      control_request_action TEXT,
+      has_control_receipt INTEGER NOT NULL DEFAULT 0,
+      control_receipt_request_op_id TEXT,
+      control_receipt_status TEXT,
+      has_control_receipt_steer_version INTEGER NOT NULL DEFAULT 0
+    )`;
+
+function asEventScalarString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+export function parseEventTimestampMs(value: string | null): number | null {
+  if (value === null || value.length === 0) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+}
+
+/**
+ * Extract all scalar `event_index` columns deterministically from one accepted event JSON string.
+ * Shared across incremental apply, cold rebuild, and v40→v41 in-place upgrade so all three produce
+ * byte-identical rows and `stateDigest` without redundant per-write SHA-256 hashing.
+ */
+export function extractEventIndexRow(input: {
+  readonly opId: string;
+  readonly workspaceRevision: number;
+  readonly taskId: string | null;
+  readonly eventJson: string;
+  readonly parsedEvent?: Readonly<Record<string, unknown>>;
+  readonly runtimeSessionPresent: 0 | 1 | null;
+}): EventIndexRowValues {
+  const raw: unknown = input.parsedEvent ?? JSON.parse(input.eventJson);
+  const event = isRecord(raw) ? raw : {},
+    schema = asEventScalarString(event.schema),
+    type = asEventScalarString(event.type),
+    eventId = asEventScalarString(event.eventId),
+    occurredAt = asEventScalarString(event.occurredAt),
+    occurredAtMs = parseEventTimestampMs(occurredAt),
+    actor = isRecord(event.actor) ? event.actor : null,
+    principal = actor && isRecord(actor.principal) ? actor.principal : null,
+    executor = actor && isRecord(actor.executor) ? actor.executor : null,
+    actorPersonId = principal ? asEventScalarString(principal.personId) : null,
+    actorExecutorId = executor ? asEventScalarString(executor.id) : null,
+    source = event.source,
+    sourceRecord = isRecord(source) ? source : null,
+    sourceNodeId = sourceRecord ? asEventScalarString(sourceRecord.nodeId) : null,
+    sourceResolvedNodeId =
+      source === "local"
+        ? "center"
+        : sourceRecord && (sourceRecord.kind === "node" || sourceRecord.kind === "assignment")
+          ? sourceNodeId && sourceNodeId.length > 0
+            ? sourceNodeId
+            : null
+          : null,
+    sourceRuntimeSessionId =
+      typeof source === "string" && source.startsWith("runtime-session/") ? source.slice(16) : null,
+    entity = isRecord(event.entity) ? event.entity : null,
+    entityId = entity ? asEventScalarString(entity.id) : null,
+    payload = isRecord(event.payload) ? event.payload : null;
+
+  const isDispatch = schema === "agent-runtime-event/v1" && type === "runtime_dispatch_requested";
+  const payloadExecution = payload && isRecord(payload.execution) ? payload.execution : null;
+  const executionId =
+    schema === "task-event/v1"
+      ? payloadExecution
+        ? asEventScalarString(payloadExecution.executionId)
+        : null
+      : payload
+        ? asEventScalarString(payload.executionId)
+        : null;
+  const payloadTaskId = payload ? asEventScalarString(payload.taskId) : null;
+  const migrationCreatedAt =
+    schema === "migration-import-event/v1" && payload ? asEventScalarString(payload.createdAt) : null;
+  const migrationEntity = payload && isRecord(payload.entity) ? payload.entity : null;
+  const migrationEntityKind = migrationEntity ? asEventScalarString(migrationEntity.kind) : null;
+  const migratedTask =
+    migrationEntity && migrationEntityKind === "task" && isRecord(migrationEntity.task) ? migrationEntity.task : null;
+  const migratedTaskId = migratedTask ? asEventScalarString(migratedTask.taskId) : null;
+  const isEntityMigrated = type === "entity_migrated";
+  const migratedTaskPinnedFlag = migratedTask?.pinned === true;
+  const migratedTaskPinned: 0 | 1 = isEntityMigrated && migratedTaskPinnedFlag ? 1 : 0;
+  const pinEntityRef = payload ? asEventScalarString(payload.entityRef) : null;
+  const payloadTask = payload && isRecord(payload.task) ? payload.task : null;
+  const taskTransitionStatus =
+    type === "task_transitioned" && payloadTask ? asEventScalarString(payloadTask.status) : null;
+
+  const runtimeSessionId = payload ? asEventScalarString(payload.runtimeSessionId) : null;
+  const dispatchId = payload ? asEventScalarString(payload.dispatchId) : null;
+  const rawDispatchKey = isDispatch && payload ? (payload.dispatchKey ?? payload.idempotencyKey) : undefined;
+  const dispatchKey =
+    !isDispatch || rawDispatchKey === undefined || rawDispatchKey === null ? "" : String(rawDispatchKey);
+  const agentId = payload ? asEventScalarString(payload.agentId) : null;
+  const agentName = payload ? asEventScalarString(payload.agentName) : null;
+  const squadId = payload ? asEventScalarString(payload.squadId) : null;
+  const attemptGroupId = payload ? asEventScalarString(payload.attemptGroupId) : null;
+  const definitionSnapshotRef = payload ? asEventScalarString(payload.definitionSnapshotRef) : null;
+  const resumedFromDispatchId = payload ? asEventScalarString(payload.resumedFromDispatchId) : null;
+  const startedAt = payload ? asEventScalarString(payload.startedAt) : null;
+  const dispatchActivityAt = startedAt ?? occurredAt;
+  const dispatchActivityMs = parseEventTimestampMs(dispatchActivityAt);
+
+  const reviewTarget = payload && isRecord(payload.reviewTarget) ? payload.reviewTarget : null;
+  const reviewTargetKind = reviewTarget ? asEventScalarString(reviewTarget.kind) : null;
+  const reviewTargetDecisionId = reviewTarget ? asEventScalarString(reviewTarget.decisionId) : null;
+
+  const controlRequest = payload ? payload.controlRequest : undefined;
+  const hasControlRequest: 0 | 1 = controlRequest !== undefined && controlRequest !== null ? 1 : 0;
+  const controlRequestAction = isRecord(controlRequest) ? asEventScalarString(controlRequest.action) : null;
+
+  const controlReceipt = payload ? payload.controlReceipt : undefined;
+  const hasControlReceipt: 0 | 1 = controlReceipt !== undefined && controlReceipt !== null ? 1 : 0;
+  const controlReceiptRecord = isRecord(controlReceipt) ? controlReceipt : null;
+  const controlReceiptRequestOpId = controlReceiptRecord ? asEventScalarString(controlReceiptRecord.requestOpId) : null;
+  const controlReceiptStatus = controlReceiptRecord ? asEventScalarString(controlReceiptRecord.status) : null;
+  const hasControlReceiptSteerVersion: 0 | 1 =
+    controlReceiptRecord !== null &&
+    controlReceiptRecord.steerVersion !== undefined &&
+    controlReceiptRecord.steerVersion !== null
+      ? 1
+      : 0;
+
+  return {
+    op_id: input.opId,
+    workspace_revision: input.workspaceRevision,
+    task_id: input.taskId,
+    event_schema: schema,
+    event_type: type,
+    event_id: eventId,
+    occurred_at: occurredAt,
+    occurred_at_ms: occurredAtMs,
+    actor_person_id: actorPersonId,
+    actor_executor_id: actorExecutorId,
+    source_node_id: sourceNodeId,
+    source_resolved_node_id: sourceResolvedNodeId,
+    source_runtime_session_id: sourceRuntimeSessionId,
+    entity_id: entityId,
+    execution_id: executionId,
+    payload_task_id: payloadTaskId,
+    migration_created_at: migrationCreatedAt,
+    migration_entity_kind: migrationEntityKind,
+    migrated_task_id: migratedTaskId,
+    migrated_task_pinned: migratedTaskPinned,
+    pin_entity_ref: pinEntityRef,
+    task_transition_status: taskTransitionStatus,
+    runtime_session_id: runtimeSessionId,
+    dispatch_id: dispatchId,
+    dispatch_key: dispatchKey,
+    runtime_session_present: input.runtimeSessionPresent,
+    agent_id: agentId,
+    agent_name: agentName,
+    squad_id: squadId,
+    attempt_group_id: attemptGroupId,
+    definition_snapshot_ref: definitionSnapshotRef,
+    resumed_from_dispatch_id: resumedFromDispatchId,
+    started_at: startedAt,
+    dispatch_activity_at: dispatchActivityAt,
+    dispatch_activity_ms: dispatchActivityMs,
+    review_target_kind: reviewTargetKind,
+    review_target_decision_id: reviewTargetDecisionId,
+    has_control_request: hasControlRequest,
+    control_request_action: controlRequestAction,
+    has_control_receipt: hasControlReceipt,
+    control_receipt_request_op_id: controlReceiptRequestOpId,
+    control_receipt_status: controlReceiptStatus,
+    has_control_receipt_steer_version: hasControlReceiptSteerVersion,
+  };
+}
+
+export function eventIndexInsertParams(row: EventIndexRowValues): readonly (string | number | null)[] {
+  return [
+    row.op_id,
+    row.workspace_revision,
+    row.task_id,
+    row.event_schema,
+    row.event_type,
+    row.event_id,
+    row.occurred_at,
+    row.occurred_at_ms,
+    row.actor_person_id,
+    row.actor_executor_id,
+    row.source_node_id,
+    row.source_resolved_node_id,
+    row.source_runtime_session_id,
+    row.entity_id,
+    row.execution_id,
+    row.payload_task_id,
+    row.migration_created_at,
+    row.migration_entity_kind,
+    row.migrated_task_id,
+    row.migrated_task_pinned,
+    row.pin_entity_ref,
+    row.task_transition_status,
+    row.runtime_session_id,
+    row.dispatch_id,
+    row.dispatch_key,
+    row.runtime_session_present,
+    row.agent_id,
+    row.agent_name,
+    row.squad_id,
+    row.attempt_group_id,
+    row.definition_snapshot_ref,
+    row.resumed_from_dispatch_id,
+    row.started_at,
+    row.dispatch_activity_at,
+    row.dispatch_activity_ms,
+    row.review_target_kind,
+    row.review_target_decision_id,
+    row.has_control_request,
+    row.control_request_action,
+    row.has_control_receipt,
+    row.control_receipt_request_op_id,
+    row.control_receipt_status,
+    row.has_control_receipt_steer_version,
+  ];
+}
+
+/** Matches PG `eventIndexEvent`: keeps accepted bytes unless the registered reviewer-key transform changes a dispatch. */
+export function normalizeHydratedIndexEvent<Event extends PersistedCanonicalEventV1>(event: Event): Event {
+  if (!isAgentRuntimeEvent(event) || event.type !== "runtime_dispatch_requested") return event;
+  return withReviewerQualifiedDispatchKey(event) === event ? event : (normalizeHistoricalEvent(event) as Event);
+}
+
+/**
+ * Hydrate full canonical events for the requested indexed revisions in ONE batched read.
+ * Strict L3 fail-closed: if any indexed revision is missing from the canonical event source,
+ * throws `ProjectionEventSourceError` instead of fabricating or silently omitting rows.
+ */
+export function hydrateEventsByRevisions(
+  revisions: readonly number[],
+  readEventsByRevisions: BatchEventsByRevisionsReader | undefined,
+): ReadonlyMap<number, CanonicalEventV1> {
+  if (revisions.length === 0) return new Map();
+  const unique = [...new Set(revisions)];
+  if (!readEventsByRevisions) throw new ProjectionEventSourceError(unique);
+  const loaded = readEventsByRevisions(unique);
+  const missing: number[] = [];
+  const hydrated = new Map<number, CanonicalEventV1>();
+  for (const revision of unique) {
+    const event = loaded.get(revision);
+    if (event === undefined) missing.push(revision);
+    else hydrated.set(revision, normalizeHydratedIndexEvent(event) as CanonicalEventV1);
+  }
+  if (missing.length > 0) throw new ProjectionEventSourceError(missing);
+  return hydrated;
+}
+
+/** Build a fallback `BatchEventsByRevisionsReader` from an `EventStreamPort` plus optional ledger fallback. */
+export function eventStreamEventsByRevisionsReader(
+  eventStore: EventStreamPort,
+  fallbackLedgerReader?: BatchEventsByRevisionsReader,
+): BatchEventsByRevisionsReader {
+  if (eventStore.readEventsByRevisions) return eventStore.readEventsByRevisions;
+  const maybeSingle = (
+    eventStore as EventStreamPort & {
+      readonly readEventAtRevision?: (revision: number) => PersistedCanonicalEventV1 | null;
+    }
+  ).readEventAtRevision;
+  return (revisions) => {
+    if (revisions.length === 0) return new Map();
+    if (maybeSingle) {
+      const map = new Map<number, PersistedCanonicalEventV1>();
+      for (const revision of revisions) {
+        const event = maybeSingle(revision);
+        if (event !== null) map.set(revision, event);
+      }
+      return map;
+    }
+    if (fallbackLedgerReader) {
+      const fromLedger = fallbackLedgerReader(revisions);
+      if (fromLedger.size === revisions.length) return fromLedger;
+    }
+    const map = new Map<number, PersistedCanonicalEventV1>();
+    for (const revision of revisions) {
+      if (revision < 1) continue;
+      const batch = eventStore.readBatch(String(revision - 1), 1);
+      const match = batch.events.find((event) => event.workspaceRevision === revision);
+      if (match !== undefined) map.set(revision, match);
+    }
+    return map;
+  };
+}
 
 // SQL execution, projection watermark, canonical serialization, and state digest primitives.
 const stateDigestTables = [
@@ -67,7 +516,7 @@ const stateDigestTables = [
 
 /** Disposable lookup and derived columns added after a table's state fingerprint was defined. */
 const stateDigestColumns: Partial<Record<(typeof stateDigestTables)[number][0], string>> = {
-  event_index: "op_id,workspace_revision,task_id,event_json",
+  event_index: EVENT_INDEX_STATE_DIGEST_COLUMNS,
   decision:
     "decision_id,legacy_number,decision_sort_key,state,title,question,risk_tier,urgency,vertical,preset,decision_class," +
     "applies_json,proposer_json,arbiter_json,proposed_at,decided_at,provenance_json,workspace_revision",
@@ -98,7 +547,7 @@ export async function withProjectionSqlHeartbeat<Result>(
   }
 }
 
-function markProjectionSqlProgress(): void {
+export function markProjectionSqlProgress(): void {
   const heartbeat = projectionSqlHeartbeat.getStore()?.state;
   if (heartbeat !== undefined) Atomics.store(heartbeat, 0, process.hrtime.bigint());
 }
@@ -194,12 +643,15 @@ function digestDocumentRows(db: DatabaseSync, digest: string, table: "document" 
   return digest;
 }
 export function transaction<A>(db: DatabaseSync, run: () => A): A {
+  markProjectionSqlProgress();
   /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-sql.sqlite-database */
   db.exec("BEGIN IMMEDIATE");
   try {
     const value = run();
+    markProjectionSqlProgress();
     /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-sql.sqlite-database */
     db.exec("COMMIT");
+    markProjectionSqlProgress();
     return value;
   } catch (error) {
     try {
@@ -241,6 +693,14 @@ export function runSql(db: DatabaseSync, sql: string, ...values: readonly SqlVal
   ).run(...values).changes;
 }
 const connectionStatements = new WeakMap<DatabaseSync, Map<string, StatementSync>>();
+/** Release cached prepared statements after an in-place DDL rewrite of a table. */
+export function clearConnectionStatements(db: DatabaseSync): void {
+  connectionStatements.get(db)?.clear();
+  connectionTables.set(
+    db,
+    new Set(queryRows(db, "SELECT name FROM sqlite_master WHERE type='table'").map(({ name }) => String(name))),
+  );
+}
 /** Release the cache before close finalizes the connection's native statements. */
 export function closeProjectionConnection(db: DatabaseSync): void {
   connectionStatements.delete(db);

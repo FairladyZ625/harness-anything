@@ -70,13 +70,21 @@ export function readProjectionShape(rootDir) {
       MAX(COALESCE(CAST(json_extract(value_json, '$.size') AS INTEGER), 0)) AS largestContentBytes FROM document`,
       )
       .get();
-    const event = db
-      .prepare(
-        `SELECT COUNT(*) AS count,
+    const eventColumns = new Set(
+      db
+        .prepare("PRAGMA table_info(event_index)")
+        .all()
+        .map(({ name }) => String(name)),
+    );
+    const event = eventColumns.has("event_json")
+      ? db
+          .prepare(
+            `SELECT COUNT(*) AS count,
       SUM(LENGTH(CAST(event_json AS BLOB))) AS jsonBytes,
       AVG(LENGTH(CAST(event_json AS BLOB))) AS averageJsonBytes FROM event_index`,
-      )
-      .get();
+          )
+          .get()
+      : db.prepare(`SELECT COUNT(*) AS count, 0 AS jsonBytes, 0 AS averageJsonBytes FROM event_index`).get();
     return { document: { ...document }, event: { ...event }, includesFixtureSettings: true };
   } finally {
     db.close();

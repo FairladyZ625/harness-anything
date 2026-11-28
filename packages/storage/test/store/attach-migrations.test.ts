@@ -109,6 +109,7 @@ test("attach migration registry covers each retired historical field and is idem
       "projection.decision-list-summaries",
       "ledger.occurred-at-epoch-index",
       "projection.slim-document-body",
+      "projection.slim-event-index",
     ],
   );
   assert.deepEqual(
@@ -361,6 +362,9 @@ test("derived projection upgrades are registered without rewriting canonical his
   const slim = attachMigrationRegistry.find((entry) => entry.name === "projection.slim-document-body");
   assert.equal(slim?.kind === "read-conclusion" && slim.attachRequired, false);
   assert.deepEqual(slim?.fields, ["Projection.document.value_json", "Projection.document_history.value_json"]);
+  const slimEventIndex = attachMigrationRegistry.find((entry) => entry.name === "projection.slim-event-index");
+  assert.equal(slimEventIndex?.kind === "read-conclusion" && slimEventIndex.attachRequired, false);
+  assert.deepEqual(slimEventIndex?.fields, ["Projection.event_index"]);
   const { store, events } = fakeStore([]);
   assert.deepEqual(applyAttachMigrations({ store }).applied, []);
   assert.deepEqual(events, [], "derived-index upgrade appends no event");

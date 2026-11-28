@@ -703,7 +703,7 @@ test("F4: real SQLite partial indexes & watermark advancement avoid scanning non
   t.after(() => db.close());
   const controlPlan = db
     .prepare(
-      "EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE workspace_revision > ? AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? AND (json_extract(event_json, '$.type') IN ('runtime_cancel_requested', 'runtime_steer_requested') OR (json_extract(event_json, '$.type') = 'runtime_session_liveness_changed' AND json_extract(event_json, '$.payload.controlRequest') IS NOT NULL)) ORDER BY workspace_revision LIMIT ?",
+      "EXPLAIN QUERY PLAN SELECT workspace_revision FROM event_index WHERE workspace_revision > ? AND event_schema = 'agent-runtime-event/v1' AND runtime_session_id = ? AND (event_type IN ('runtime_cancel_requested', 'runtime_steer_requested') OR (event_type = 'runtime_session_liveness_changed' AND has_control_request = 1)) ORDER BY workspace_revision LIMIT ?",
     )
     .all(0, sessionId, 64) as { detail: string }[];
   assert.ok(
@@ -712,7 +712,7 @@ test("F4: real SQLite partial indexes & watermark advancement avoid scanning non
   );
   const receiptPlan = db
     .prepare(
-      "EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE workspace_revision > ? AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') IN ('runtime_session_provider_bound', 'runtime_session_liveness_changed') AND json_extract(event_json, '$.payload.runtimeSessionId') = ? AND json_extract(event_json, '$.payload.controlReceipt.status') = 'applied' AND json_extract(event_json, '$.payload.controlReceipt.steerVersion') IS NOT NULL ORDER BY workspace_revision DESC LIMIT ?",
+      "EXPLAIN QUERY PLAN SELECT workspace_revision FROM event_index WHERE workspace_revision > ? AND event_schema = 'agent-runtime-event/v1' AND event_type IN ('runtime_session_provider_bound', 'runtime_session_liveness_changed') AND runtime_session_id = ? AND control_receipt_status = 'applied' AND has_control_receipt_steer_version = 1 ORDER BY workspace_revision DESC LIMIT ?",
     )
     .all(0, sessionId, 1) as { detail: string }[];
   assert.ok(
@@ -1219,7 +1219,7 @@ test("F13: full page of deferred steers never blocks or starves a subsequent can
   t.after(() => db.close());
   const cancelPlan = db
     .prepare(
-      "EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE workspace_revision > ? AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? AND (json_extract(event_json, '$.type') = 'runtime_cancel_requested' OR (json_extract(event_json, '$.type') = 'runtime_session_liveness_changed' AND json_extract(event_json, '$.payload.controlRequest.action') = 'cancel')) ORDER BY workspace_revision ASC LIMIT ?",
+      "EXPLAIN QUERY PLAN SELECT workspace_revision FROM event_index WHERE workspace_revision > ? AND event_schema = 'agent-runtime-event/v1' AND runtime_session_id = ? AND (event_type = 'runtime_cancel_requested' OR (event_type = 'runtime_session_liveness_changed' AND control_request_action = 'cancel')) ORDER BY workspace_revision ASC LIMIT ?",
     )
     .all(0, sessionId, 1) as { detail: string }[];
   assert.ok(
@@ -1907,7 +1907,7 @@ test("F19: controlReceipts cursor pagination reaches >500 receipts and requestOp
   t.after(() => db.close());
   const reqPlan = db
     .prepare(
-      "EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE workspace_revision > ? AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? AND json_extract(event_json, '$.type') IN ('runtime_session_provider_bound', 'runtime_session_liveness_changed') AND json_extract(event_json, '$.payload.controlReceipt.requestOpId') IS NOT NULL AND json_extract(event_json, '$.payload.controlReceipt.requestOpId') = ? ORDER BY workspace_revision ASC LIMIT ?",
+      "EXPLAIN QUERY PLAN SELECT workspace_revision FROM event_index WHERE workspace_revision > ? AND event_schema = 'agent-runtime-event/v1' AND runtime_session_id = ? AND event_type IN ('runtime_session_provider_bound', 'runtime_session_liveness_changed') AND control_receipt_request_op_id IS NOT NULL AND control_receipt_request_op_id = ? ORDER BY workspace_revision ASC LIMIT ?",
     )
     .all(0, sessionId, "op-req-19-515", 1) as { detail: string }[];
   assert.ok(

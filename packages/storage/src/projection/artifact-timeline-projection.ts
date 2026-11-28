@@ -47,10 +47,8 @@ const documentArtifactRowSql = (): string => {
     `substr(${path}, 7, instr(substr(${path}, 7), '/') - 1),`,
     `substr(${path}, instr(${path}, '/artifacts/') + 1),`,
     `${artifactKindOf(value)},`,
-    `${sortMillisecondsOf("(SELECT json_extract(event_json, '$.occurredAt') FROM event_index WHERE workspace_revision = " + source + ".workspace_revision)")},`,
-    "(SELECT json_extract(event_json, '$.occurredAt') FROM event_index WHERE workspace_revision = " +
-      source +
-      ".workspace_revision),",
+    `${sortMillisecondsOf("(SELECT occurred_at FROM event_index WHERE workspace_revision = " + source + ".workspace_revision)")},`,
+    "(SELECT occurred_at FROM event_index WHERE workspace_revision = " + source + ".workspace_revision),",
     `json_extract(${value}, '$.size')`,
   ].join(" ");
 };
@@ -91,7 +89,7 @@ export const ARTIFACT_TIMELINE_INDEX_AND_TRIGGERS_SQL = `
       INSERT INTO artifact_document ${artifactDocumentColumns}
       ${documentArtifactRowSql()}
       WHERE (${isTimelineArtifact("NEW.value_json")})
-        AND (SELECT json_extract(event_json, '$.occurredAt') FROM event_index WHERE workspace_revision = NEW.workspace_revision) IS NOT NULL
+        AND (SELECT occurred_at FROM event_index WHERE workspace_revision = NEW.workspace_revision) IS NOT NULL
       ${artifactDocumentUpsert};
       INSERT INTO artifact_count(kind, total)
       SELECT kind, 1 FROM artifact_document WHERE path = NEW.path
@@ -105,7 +103,7 @@ export const ARTIFACT_TIMELINE_INDEX_AND_TRIGGERS_SQL = `
       INSERT INTO artifact_document ${artifactDocumentColumns}
       ${documentArtifactRowSql()}
       WHERE (${isTimelineArtifact("NEW.value_json")})
-        AND (SELECT json_extract(event_json, '$.occurredAt') FROM event_index WHERE workspace_revision = NEW.workspace_revision) IS NOT NULL
+        AND (SELECT occurred_at FROM event_index WHERE workspace_revision = NEW.workspace_revision) IS NOT NULL
       ${artifactDocumentUpsert};
       DELETE FROM artifact_document
       WHERE path = NEW.path AND NOT (${isTimelineArtifact("NEW.value_json")});
@@ -152,12 +150,12 @@ export function ensureArtifactTimelineBackfill(db: DatabaseSync): void {
         "substr(document.path, 7, instr(substr(document.path, 7), '/') - 1),",
         "substr(document.path, instr(document.path, '/artifacts/') + 1),",
         `${artifactKindOf("document.value_json")},`,
-        `${sortMillisecondsOf("(SELECT json_extract(event_json, '$.occurredAt') FROM event_index WHERE workspace_revision = document.workspace_revision)")},`,
-        "(SELECT json_extract(event_json, '$.occurredAt') FROM event_index WHERE workspace_revision = document.workspace_revision),",
+        `${sortMillisecondsOf("(SELECT occurred_at FROM event_index WHERE workspace_revision = document.workspace_revision)")},`,
+        "(SELECT occurred_at FROM event_index WHERE workspace_revision = document.workspace_revision),",
         "json_extract(document.value_json, '$.size')",
         "FROM document WHERE document.path IN (SELECT value FROM json_each(?))",
         `AND (${isTimelineArtifact("document.value_json")})`,
-        "AND (SELECT json_extract(event_json, '$.occurredAt') FROM event_index WHERE workspace_revision = document.workspace_revision) IS NOT NULL",
+        "AND (SELECT occurred_at FROM event_index WHERE workspace_revision = document.workspace_revision) IS NOT NULL",
         artifactDocumentUpsert,
       ].join(" "),
       JSON.stringify(paths.map(({ path }) => path)),
