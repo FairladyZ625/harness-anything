@@ -407,7 +407,7 @@ function projectionDatabaseOwner(
       if (
         observed !== null &&
         observed !== taskProjectionSchemaVersion &&
-        !(observed === 38 && expandDecisionListColumns(db!, readHead()))
+        !upgradeProjectionSchemaInPlace(db!, observed, readHead(), onValidationProgress)
       ) {
         throw new ProjectionSchemaMismatchError(observed, projectionPath);
       }
@@ -453,10 +453,31 @@ function projectionDatabaseOwner(
   return owner;
 }
 
-/** Upgrade the previous cache at its existing cut. A full replay does work proportional to the ledger. */
+const stripDocumentBodyBatchSize = 2000;
+
+/** Upgrade previous caches in place without discarding and replaying the full event stream. */
+function upgradeProjectionSchemaInPlace(
+  db: DatabaseSync,
+  observed: number,
+  head: ReturnType<EventStreamPort["readHead"]>,
+  onValidationProgress?: ProjectionProgress,
+): boolean {
+  let current = observed;
+  if (current === 38) {
+    if (!expandDecisionListColumns(db, head)) return false;
+    current = projectionSchemaVersion(db) ?? current;
+  }
+  if (current === 39) {
+    return stripInlineDocumentBodies(db, head, onValidationProgress);
+  }
+  return current === taskProjectionSchemaVersion;
+}
+
+/** Upgrade schema 38 to 39 at its existing cut. A full replay does work proportional to the ledger. */
 function expandDecisionListColumns(db: DatabaseSync, head: ReturnType<EventStreamPort["readHead"]>): boolean {
   return transaction(db, () => {
-    if (projectionSchemaVersion(db) === taskProjectionSchemaVersion) return true;
+    const version = projectionSchemaVersion(db);
+    if (version !== null && version >= 39) return true;
     const columns = new Set(queryRows<{ name: string }>(db, "PRAGMA table_info(decision)").map(({ name }) => name));
     if (!columns.has("decision_sort_key")) return false;
     assertLedgerIdentity(db, head);
@@ -471,6 +492,76 @@ function expandDecisionListColumns(db: DatabaseSync, head: ReturnType<EventStrea
       "SELECT decision_id FROM decision",
     ))
       refreshDecisionListReview(db, id);
+    runSql(db, "UPDATE projection_meta SET schema_version=? WHERE singleton=1", 39);
+    return true;
+  });
+}
+
+function hasTableColumns(db: DatabaseSync, table: string, required: readonly string[]): boolean {
+  const columns = new Set(
+    queryRows<{ readonly name: string }>(db, `PRAGMA table_xinfo(${table})`).map(({ name }) => name),
+  );
+  return required.every((name) => columns.has(name));
+}
+
+/**
+ * Upgrade schema 39 to 40 in place by stripping inline `body` from `document` and `document_history`
+ * in bounded batches while preserving all metadata columns and `blobSha256`.
+ */
+function stripInlineDocumentBodies(
+  db: DatabaseSync,
+  head: ReturnType<EventStreamPort["readHead"]>,
+  onValidationProgress?: ProjectionProgress,
+): boolean {
+  return transaction(db, () => {
+    if (projectionSchemaVersion(db) === taskProjectionSchemaVersion) return true;
+    if (
+      !hasTableColumns(db, "decision", ["decision_sort_key", "list_options_json", "review_summary_json"]) ||
+      !hasTableColumns(db, "lease_cas", ["execution_id"]) ||
+      !hasTableColumns(db, "task_snapshot", ["package_disposition"]) ||
+      !hasTableColumns(db, "document", ["path", "workspace_revision", "value_json"]) ||
+      !hasTableColumns(db, "document_history", ["path", "workspace_revision", "value_json"])
+    )
+      return false;
+    assertLedgerIdentity(db, head);
+    const updateTrigger = queryRows<{ readonly sql: string }>(
+      db,
+      "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='document_artifact_update'",
+    )[0]?.sql;
+    if (updateTrigger) {
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+      db.exec("DROP TRIGGER IF EXISTS document_artifact_update");
+    }
+    const documentCount = Number(queryRows(db, "SELECT COUNT(*) AS count FROM document")[0]?.count ?? 0);
+    const historyCount = Number(queryRows(db, "SELECT COUNT(*) AS count FROM document_history")[0]?.count ?? 0);
+    const total = documentCount + historyCount;
+    let applied = 0;
+    for (const table of ["document", "document_history"] as const) {
+      let cursor = 0;
+      for (;;) {
+        const window = queryRows<{ readonly last_rowid: number | null; readonly batch_count: number }>(
+          db,
+          `SELECT MAX(rowid) AS last_rowid, COUNT(*) AS batch_count FROM (SELECT rowid FROM ${table} WHERE rowid > ? ORDER BY rowid LIMIT ?)`,
+          cursor,
+          stripDocumentBodyBatchSize,
+        )[0];
+        if (!window || Number(window.batch_count) === 0 || window.last_rowid === null) break;
+        const nextCursor = Number(window.last_rowid);
+        runSql(
+          db,
+          `UPDATE ${table} SET value_json = json_remove(value_json, '$.body') WHERE rowid > ? AND rowid <= ? AND json_type(value_json, '$.body') IS NOT NULL`,
+          cursor,
+          nextCursor,
+        );
+        cursor = nextCursor;
+        applied += Number(window.batch_count);
+        if (total > 0) onValidationProgress?.({ applied: Math.min(applied, total), total });
+      }
+    }
+    if (updateTrigger) {
+      /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+      db.exec(updateTrigger);
+    }
     runSql(db, "UPDATE projection_meta SET schema_version=? WHERE singleton=1", taskProjectionSchemaVersion);
     return true;
   });

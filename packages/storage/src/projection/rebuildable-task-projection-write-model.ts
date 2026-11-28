@@ -34,6 +34,11 @@ import { terminalDecisionMaterializationStates } from "@harness-anything/kernel/
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import { canonicalJson, prepareQuery, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
+import {
+  decisionDocumentPattern,
+  serializeProjectedDocument,
+  type ProjectedDocumentMetadata,
+} from "./document-projection-content.ts";
 import { projectInterpretedEntityValue } from "./rebuildable-task-projection-entities.ts";
 import { readRuntimeSession, readSnapshot } from "./rebuildable-task-projection-runtime.ts";
 import { applyRelationProjectionEvent } from "./relation-entity-projection.ts";
@@ -63,8 +68,16 @@ const ARCHIVE_DOCUMENT_SQL = [
   "SELECT path, ?, value_json FROM document WHERE path = ?",
   "ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
 ].join(" ");
-function upsertDocument(db: DatabaseSync, path: string, revision: number, document: DocumentState): void {
-  runSql(db, UPSERT_DOCUMENT_SQL, path, revision, canonicalJson(document));
+function blobByteLength(
+  sha256: string,
+  readBlob: EventStreamPort["readContentBlob"],
+  readBlobSize?: EventStreamPort["readContentBlobSize"],
+): number | null {
+  return readBlobSize ? readBlobSize(sha256) : (readBlob(sha256)?.byteLength ?? null);
+}
+
+function upsertDocument(db: DatabaseSync, path: string, revision: number, document: ProjectedDocumentMetadata): void {
+  runSql(db, UPSERT_DOCUMENT_SQL, path, revision, serializeProjectedDocument(document));
   recordDocumentUpsert(db, path, document);
 }
 function archiveDocument(db: DatabaseSync, path: string, revision: number): void {
@@ -72,20 +85,25 @@ function archiveDocument(db: DatabaseSync, path: string, revision: number): void
   runSql(db, "DELETE FROM document WHERE path = ?", path);
   recordDocumentArchive(db, path);
 }
-function storeHistoricalDocument(db: DatabaseSync, document: DocumentState): void {
+function storeHistoricalDocument(db: DatabaseSync, document: ProjectedDocumentMetadata): void {
   runSql(
     db,
     "INSERT INTO document_history(path, workspace_revision, value_json) VALUES (?, ?, ?) " +
       "ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
     document.path,
     document.workspaceRevision,
-    canonicalJson(document),
+    serializeProjectedDocument(document),
   );
   runSql(db, "DELETE FROM document WHERE path = ?", document.path);
   recordDocumentHistoryUpsert(db, document.path, document);
   recordDocumentDelete(db, document.path);
 }
-function upsertActiveDocument(db: DatabaseSync, path: string, revision: number, document: DocumentState): void {
+function upsertActiveDocument(
+  db: DatabaseSync,
+  path: string,
+  revision: number,
+  document: ProjectedDocumentMetadata,
+): void {
   runSql(db, "DELETE FROM document_history WHERE path = ?", path);
   recordDocumentHistoryDelete(db, path);
   upsertDocument(db, path, revision, document);
@@ -97,24 +115,23 @@ export function projectProgress(
   event: TaskProgressEventV1,
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
+  readBlobSize?: EventStreamPort["readContentBlobSize"],
 ): void {
   const taskId = event.payload.taskId,
     snapshot = readSnapshot(db, taskId),
     packagePath = queryRows(db, "SELECT package_path FROM task_package WHERE task_id = ?", taskId)[0]?.package_path,
     claim = event.payload.resultDocumentClaim,
     base = readDocumentBaseMetadata(db, claim.path),
-    bytes = readBlob(claim.sha256),
+    resultSize = blobByteLength(claim.sha256, readBlob, readBlobSize),
     runtimeSessionIdValue = event.payload.runtimeSessionId,
     runtime = runtimeSessionIdValue ? readRuntimeSession(db, runtimeSessionIdValue) : null;
   // Admission checks the current lease. Replay checks accepted fact references, not today's authority.
   assertTaskProgressReferences(snapshot, event, packagePath, runtime);
-  if (event.payload.baseDocumentSha256 !== (base?.blobSha256 ?? null) || !bytes || bytes.byteLength !== claim.size)
+  if (event.payload.baseDocumentSha256 !== (base?.blobSha256 ?? null) || resultSize !== claim.size)
     throw new Error(`progress document base or blob mismatch for task ${taskId}`);
-  const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  const document: DocumentState = {
+  const document: ProjectedDocumentMetadata = {
     path: claim.path as DocumentState["path"],
     blobSha256: claim.sha256,
-    body,
     size: docByteLength(claim.size),
     mediaType: claim.mediaType,
     policyId: claim.policyId,
@@ -132,28 +149,34 @@ export function projectProgress(
   upsertDocument(db, claim.path, event.workspaceRevision, document);
   for (const change of event.payload.carriedDocumentClaims ?? []) {
     const carriedBase = readDocumentBaseMetadata(db, change.path),
-      carriedBytes = readBlob(change.candidate.sha256);
-    if (!carriedBytes || carriedBytes.byteLength !== change.candidate.size)
-      throw new Error(`carried document blob ${change.candidate.sha256} is unavailable`);
-    let carriedBody: string;
-    try {
-      carriedBody = new TextDecoder("utf-8", { fatal: true }).decode(carriedBytes);
-    } catch {
-      throw new Error(`carried document blob ${change.candidate.sha256} is not UTF-8`);
+      needsSearchBody = change.policyId === DECISION_DOCUMENT_POLICY_ID || decisionDocumentPattern.test(change.path);
+    let carriedBody: string | undefined;
+    if (needsSearchBody) {
+      const carriedBytes = readBlob(change.candidate.sha256);
+      if (!carriedBytes || carriedBytes.byteLength !== change.candidate.size)
+        throw new Error(`carried document blob ${change.candidate.sha256} is unavailable`);
+      try {
+        carriedBody = new TextDecoder("utf-8", { fatal: true }).decode(carriedBytes);
+      } catch {
+        throw new Error(`carried document blob ${change.candidate.sha256} is not UTF-8`);
+      }
+    } else {
+      const carriedSize = blobByteLength(change.candidate.sha256, readBlob, readBlobSize);
+      if (carriedSize !== change.candidate.size)
+        throw new Error(`carried document blob ${change.candidate.sha256} is unavailable`);
     }
     if (change.baseBlobSha256 !== (carriedBase?.blobSha256 ?? null))
       throw new Error(`carried document proof mismatch for ${change.path}`);
-    const carriedDocument: DocumentState = {
+    const carriedDocument: ProjectedDocumentMetadata = {
       path: change.path as DocumentState["path"],
       blobSha256: change.candidate.sha256,
-      body: carriedBody,
       size: docByteLength(change.candidate.size),
       mediaType: change.candidate.mediaType,
       policyId: change.policyId,
       workspaceRevision: event.workspaceRevision,
     };
     upsertDocument(db, change.path, event.workspaceRevision, carriedDocument);
-    refreshDecisionDocumentSearch(db, carriedDocument);
+    if (needsSearchBody) refreshDecisionDocumentSearch(db, { path: change.path, body: carriedBody });
   }
 }
 
@@ -162,6 +185,7 @@ export function projectFact(
   event: FactEventV1,
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
+  readBlobSize?: EventStreamPort["readContentBlobSize"],
 ): void {
   if (event.type === "fact_archived") {
     const retirement = event.payload.factsDocumentRetirement,
@@ -180,15 +204,13 @@ export function projectFact(
   }
   const claim = event.payload.factsDocumentClaim;
   if (!claim) throw new Error(`fact document claim missing for ${event.factId}`);
-  const bytes = readBlob(claim.sha256);
-  if (claim.path !== `facts/${event.factId}.md` || !bytes || bytes.byteLength !== claim.size)
+  const factSize = blobByteLength(claim.sha256, readBlob, readBlobSize);
+  if (claim.path !== `facts/${event.factId}.md` || factSize !== claim.size)
     throw new Error(`fact document path or blob mismatch for ${event.factId}`);
   reduceFactEvent(db, event);
-  const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  const document: DocumentState = {
+  const document: ProjectedDocumentMetadata = {
     path: claim.path as DocumentState["path"],
     blobSha256: claim.sha256,
-    body,
     size: docByteLength(claim.size),
     mediaType: claim.mediaType,
     policyId: claim.policyId,
@@ -198,13 +220,12 @@ export function projectFact(
   upsertActiveDocument(db, claim.path, event.workspaceRevision, document);
   const supersededClaim = event.payload.supersededFactsDocumentClaim;
   if (!supersededClaim) return;
-  const supersededBytes = readBlob(supersededClaim.sha256);
-  if (!supersededBytes || supersededBytes.byteLength !== supersededClaim.size)
+  const supersededSize = blobByteLength(supersededClaim.sha256, readBlob, readBlobSize);
+  if (supersededSize !== supersededClaim.size)
     throw new Error(`superseded fact document blob ${supersededClaim.sha256} is unavailable`);
-  const supersededDocument: DocumentState = {
+  const supersededDocument: ProjectedDocumentMetadata = {
     path: supersededClaim.path as DocumentState["path"],
     blobSha256: supersededClaim.sha256,
-    body: new TextDecoder("utf-8", { fatal: true }).decode(supersededBytes),
     size: docByteLength(supersededClaim.size),
     mediaType: supersededClaim.mediaType,
     policyId: supersededClaim.policyId,
@@ -221,6 +242,8 @@ export function projectDecision(
   event: DecisionEventV1,
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
+  readBlobSize?: EventStreamPort["readContentBlobSize"],
+  readDecisionBlob?: EventStreamPort["readContentBlob"],
 ): void {
   const claim = event.payload.decisionDocumentClaim,
     previous = readDocumentBaseMetadata(db, claim.path),
@@ -232,14 +255,13 @@ export function projectDecision(
     bytes.byteLength !== claim.size
   )
     throw new Error(`decision document path, base, or blob mismatch for ${event.decisionId}`);
-  reduceDecisionEvent(db, event);
+  reduceDecisionEvent(db, event, readDecisionBlob ?? readBlob);
   const state = readDecisionDocumentState(db, event.decisionId);
   if (!state) throw new Error(`decision projection missing for ${event.decisionId}`);
   const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  const document: DocumentState = {
+  const document: ProjectedDocumentMetadata = {
     path: claim.path as DocumentState["path"],
     blobSha256: claim.sha256,
-    body,
     size: docByteLength(claim.size),
     mediaType: claim.mediaType,
     policyId: claim.policyId,
@@ -252,20 +274,28 @@ export function projectDecision(
     storeHistoricalDocument(db, document);
   } else {
     upsertActiveDocument(db, claim.path, event.workspaceRevision, document);
-    refreshDecisionDocumentSearch(db, document);
+    refreshDecisionDocumentSearch(db, { path: claim.path, body });
   }
   if (event.type === "decision_review_recorded")
     for (const change of event.payload.carriedDocumentClaims ?? []) {
       const carriedBase = readDocumentBaseMetadata(db, change.path),
-        carriedBytes = readBlob(change.candidate.sha256);
-      if (!carriedBytes || carriedBytes.byteLength !== change.candidate.size)
-        throw new Error(`carried document blob ${change.candidate.sha256} is unavailable`);
+        needsSearchBody = change.policyId === DECISION_DOCUMENT_POLICY_ID || decisionDocumentPattern.test(change.path);
+      let carriedBody: string | undefined;
+      if (needsSearchBody) {
+        const carriedBytes = readBlob(change.candidate.sha256);
+        if (!carriedBytes || carriedBytes.byteLength !== change.candidate.size)
+          throw new Error(`carried document blob ${change.candidate.sha256} is unavailable`);
+        carriedBody = new TextDecoder("utf-8", { fatal: true }).decode(carriedBytes);
+      } else {
+        const carriedSize = blobByteLength(change.candidate.sha256, readBlob, readBlobSize);
+        if (carriedSize !== change.candidate.size)
+          throw new Error(`carried document blob ${change.candidate.sha256} is unavailable`);
+      }
       if (change.baseBlobSha256 !== (carriedBase?.blobSha256 ?? null))
         throw new Error(`carried document proof mismatch for ${change.path}`);
-      const carriedDocument: DocumentState = {
+      const carriedDocument: ProjectedDocumentMetadata = {
         path: change.path as DocumentState["path"],
         blobSha256: change.candidate.sha256,
-        body: new TextDecoder("utf-8", { fatal: true }).decode(carriedBytes),
         size: docByteLength(change.candidate.size),
         mediaType: change.candidate.mediaType,
         policyId: change.policyId,
@@ -274,7 +304,7 @@ export function projectDecision(
       if (terminal && !held) storeHistoricalDocument(db, carriedDocument);
       else {
         upsertActiveDocument(db, change.path, event.workspaceRevision, carriedDocument);
-        refreshDecisionDocumentSearch(db, carriedDocument);
+        if (needsSearchBody) refreshDecisionDocumentSearch(db, { path: change.path, body: carriedBody });
       }
     }
   if (terminal && !held) archiveDecisionCarriedDocuments(db, event.decisionId, event.workspaceRevision);
@@ -452,51 +482,67 @@ export function projectEntityDocumentRematerialization(
   event: EntityDocumentEventV1 | DossierSynthesisEventV1,
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
+  readBlobSize?: EventStreamPort["readContentBlobSize"],
 ): void {
   insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
   for (const claim of event.payload.documentClaims) {
-    const bytes = readBlob(claim.sha256);
-    if (!bytes || bytes.byteLength !== claim.size)
-      throw new Error(`rematerialized document blob ${claim.sha256} is unavailable`);
-    const document: DocumentState = {
+    const needsSearchBody = claim.policyId === DECISION_DOCUMENT_POLICY_ID || decisionDocumentPattern.test(claim.path);
+    let body: string | undefined;
+    if (needsSearchBody) {
+      const bytes = readBlob(claim.sha256);
+      if (!bytes || bytes.byteLength !== claim.size)
+        throw new Error(`rematerialized document blob ${claim.sha256} is unavailable`);
+      body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } else {
+      const size = blobByteLength(claim.sha256, readBlob, readBlobSize);
+      if (size !== claim.size) throw new Error(`rematerialized document blob ${claim.sha256} is unavailable`);
+    }
+    const document: ProjectedDocumentMetadata = {
       path: claim.path as DocumentState["path"],
       blobSha256: claim.sha256,
-      body: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
       size: docByteLength(claim.size),
       mediaType: claim.mediaType,
       policyId: claim.policyId,
       workspaceRevision: event.workspaceRevision,
     };
     upsertDocument(db, claim.path, event.workspaceRevision, document);
-    if (claim.policyId === DECISION_DOCUMENT_POLICY_ID) refreshDecisionDocumentSearch(db, document);
+    if (needsSearchBody) refreshDecisionDocumentSearch(db, { path: claim.path, body });
   }
 }
 export function projectRelationDocuments(
   db: DatabaseSync,
   event: RelationEventV1,
   readBlob: EventStreamPort["readContentBlob"],
+  readBlobSize?: EventStreamPort["readContentBlobSize"],
 ): void {
   for (const claim of event.payload.documentClaims ?? []) {
-    const bytes = readBlob(claim.sha256);
-    if (!bytes || bytes.byteLength !== claim.size)
-      throw new Error(`relation document blob ${claim.sha256} is unavailable`);
+    const needsSearchBody = claim.policyId === DECISION_DOCUMENT_POLICY_ID || decisionDocumentPattern.test(claim.path);
+    let body: string | undefined;
+    if (needsSearchBody) {
+      const bytes = readBlob(claim.sha256);
+      if (!bytes || bytes.byteLength !== claim.size)
+        throw new Error(`relation document blob ${claim.sha256} is unavailable`);
+      body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } else {
+      const size = blobByteLength(claim.sha256, readBlob, readBlobSize);
+      if (size !== claim.size) throw new Error(`relation document blob ${claim.sha256} is unavailable`);
+    }
     if (
       (claim.policyId === DECISION_DOCUMENT_POLICY_ID &&
         !/^decisions\/decision-[^/]+\/decision\.md$/u.test(claim.path)) ||
       (claim.policyId === FACT_DOCUMENT_POLICY_ID && !/^facts\/F-[0-9A-HJKMNP-TV-Z]{8}\.md$/u.test(claim.path))
     )
       throw new Error(`relation document path ${claim.path} does not match its policy`);
-    const document: DocumentState = {
+    const document: ProjectedDocumentMetadata = {
       path: claim.path as DocumentState["path"],
       blobSha256: claim.sha256,
-      body: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
       size: docByteLength(claim.size),
       mediaType: claim.mediaType,
       policyId: claim.policyId,
       workspaceRevision: event.workspaceRevision,
     };
     upsertDocument(db, claim.path, event.workspaceRevision, document);
-    if (claim.policyId === DECISION_DOCUMENT_POLICY_ID) refreshDecisionDocumentSearch(db, document);
+    if (needsSearchBody) refreshDecisionDocumentSearch(db, { path: claim.path, body });
   }
 }
 
@@ -521,6 +567,7 @@ export function projectMigration(
   event: MigrationImportEventV1,
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
+  readBlobSize?: EventStreamPort["readContentBlobSize"],
 ): void {
   const entity = event.payload.entity,
     taskId =
@@ -557,7 +604,7 @@ export function projectMigration(
       event.occurredAt,
       entity.packagePath,
     );
-    storeMigrationDocument(db, event, entity.documentClaim, readBlob);
+    storeMigrationDocument(db, event, entity.documentClaim, readBlob, readBlobSize);
     return;
   }
   if (entity.kind === "decision") {
@@ -622,8 +669,8 @@ export function projectMigration(
         revision,
         row.fulfillment ? revision : null,
       );
-    storeMigrationDocument(db, event, entity.documentClaim, readBlob);
-    refreshDecisionDocumentSearch(db, migrationDocument(db, entity.documentClaim.path)!);
+    const decisionBody = storeMigrationDocument(db, event, entity.documentClaim, readBlob, readBlobSize, true);
+    refreshDecisionDocumentSearch(db, { path: entity.documentClaim.path, body: decisionBody });
     return;
   }
   if (entity.kind === "fact") {
@@ -654,7 +701,7 @@ export function projectMigration(
       JSON.stringify(row),
     );
     runSql(db, "INSERT INTO fact_fts VALUES (?, ?, ?)", value.factId, value.statement, value.evidenceSource);
-    storeMigrationDocument(db, event, entity.documentClaim, readBlob);
+    storeMigrationDocument(db, event, entity.documentClaim, readBlob, readBlobSize);
     return;
   }
   if (entity.kind === "execution") {
@@ -685,17 +732,17 @@ export function projectMigration(
       event.workspaceRevision,
       `event:${event.opId}`,
     );
-    storeMigrationDocument(db, event, entity.documentClaim, readBlob);
+    storeMigrationDocument(db, event, entity.documentClaim, readBlob, readBlobSize);
     return;
   }
   if (entity.kind === "task-document") {
     if (!hasTaskSnapshot(db, entity.taskId))
       throw new Error(`migration task document owner is missing for ${entity.taskId}`);
-    storeMigrationDocument(db, event, entity.documentClaim, readBlob);
+    storeMigrationDocument(db, event, entity.documentClaim, readBlob, readBlobSize);
     return;
   }
   if (entity.kind === "repo-document") {
-    storeMigrationDocument(db, event, entity.documentClaim, readBlob);
+    storeMigrationDocument(db, event, entity.documentClaim, readBlob, readBlobSize);
     return;
   }
   if (entity.kind === "relation") {
@@ -718,28 +765,36 @@ export function projectMigration(
     );
     return;
   }
-  storeMigrationDocument(db, event, entity.documentClaim, readBlob);
+  storeMigrationDocument(db, event, entity.documentClaim, readBlob, readBlobSize);
 }
 export function storeMigrationDocument(
   db: DatabaseSync,
   event: MigrationImportEventV1,
   claim: MigrationDocumentClaim,
   readBlob: EventStreamPort["readContentBlob"],
-): void {
-  const bytes = readBlob(claim.sha256);
-  if (!bytes || bytes.byteLength !== claim.size)
-    throw new Error(`migration document blob ${claim.sha256} is unavailable`);
-  const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  const document: DocumentState = {
+  readBlobSize?: EventStreamPort["readContentBlobSize"],
+  decodeBody = false,
+): string | undefined {
+  let body: string | undefined;
+  if (decodeBody) {
+    const bytes = readBlob(claim.sha256);
+    if (!bytes || bytes.byteLength !== claim.size)
+      throw new Error(`migration document blob ${claim.sha256} is unavailable`);
+    body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } else {
+    const size = blobByteLength(claim.sha256, readBlob, readBlobSize);
+    if (size !== claim.size) throw new Error(`migration document blob ${claim.sha256} is unavailable`);
+  }
+  const document: ProjectedDocumentMetadata = {
     path: claim.path as DocumentState["path"],
     blobSha256: claim.sha256,
-    body,
     size: docByteLength(claim.size),
     mediaType: claim.mediaType,
     policyId: claim.policyId,
     workspaceRevision: event.workspaceRevision,
   };
   upsertDocument(db, claim.path, event.workspaceRevision, document);
+  return body;
 }
 export function migrationDocument(db: DatabaseSync, path: string): DocumentState | null {
   const row = queryRows(db, "SELECT value_json FROM document WHERE path=?", path)[0];
@@ -789,11 +844,9 @@ export function initializeTerminalMaterialization(
   if (!readBlob && missing.length) return;
   const restore = (factId: string, preimage: NonNullable<ReturnType<typeof archivedFactDocumentPreimage>>) => {
     const bytes = readBlob?.(preimage.document.blobSha256);
-    if (!bytes) throw new Error(`projection document blob ${preimage.document.blobSha256} is unavailable`);
-    upsertActiveDocument(db, preimage.document.path, preimage.retiredAt, {
-      ...preimage.document,
-      body: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-    });
+    if (!bytes || bytes.byteLength !== preimage.document.size)
+      throw new Error(`projection document blob ${preimage.document.blobSha256} is unavailable`);
+    upsertActiveDocument(db, preimage.document.path, preimage.retiredAt, preimage.document);
     if (!factMaterializationHeld(db, `fact/${factId}`, "archived"))
       archiveDocument(db, preimage.document.path, preimage.retiredAt);
   };

@@ -12,7 +12,15 @@ test("SQLite terminal documents retain canonical holds and unlock incrementally"
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const store = makeTaskEventStore({ repoId: "terminal-materialization", rootDir }),
-      projection = makeTaskProjection({ rootDir, eventStore: store });
+      replayedBlobs = new Map<string, Uint8Array>(),
+      projection = makeTaskProjection({
+        rootDir,
+        eventStore: {
+          ...store,
+          readContentBlob: (sha256) => replayedBlobs.get(sha256) ?? store.readContentBlob(sha256),
+          readContentBlobSize: (sha256) => replayedBlobs.get(sha256)?.byteLength ?? store.readContentBlobSize(sha256),
+        },
+      });
     try {
       await assertTerminalMaterialization({
         append: (bundle) => {
@@ -20,12 +28,12 @@ test("SQLite terminal documents retain canonical holds and unlock incrementally"
           projection.apply(bundle.event, bundle.plan);
         },
         replayAcceptedDocument: (bundle) => {
+          for (const blob of bundle.blobs) {
+            replayedBlobs.set(blob.sha256, typeof blob.body === "string" ? Buffer.from(blob.body) : blob.body);
+          }
           const db = new DatabaseSync(projection.path),
             event = bundle.event,
-            readBlob = (sha256: string) => {
-              const blob = bundle.blobs.find((entry) => entry.sha256 === sha256);
-              return blob ? Buffer.from(blob.body) : store.readContentBlob(sha256);
-            };
+            readBlob = (sha256: string) => replayedBlobs.get(sha256) ?? store.readContentBlob(sha256);
           try {
             db.exec("BEGIN");
             if (event.schema === "doc-event/v1") {

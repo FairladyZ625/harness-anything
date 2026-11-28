@@ -332,6 +332,16 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
       "64-row backfill in ha_backfill_event_read_indexes with a projection_pending gate. Canonical event_json, occurred_at " +
       "text, and digests remain byte-identical.",
   },
+  {
+    kind: "read-conclusion",
+    name: "projection.slim-document-body",
+    fields: ["Projection.document.value_json", "Projection.document_history.value_json"],
+    attachRequired: false,
+    conclusion:
+      "SQLite strips inline document bodies from document and document_history in place when upgrading schema 39 to 40, " +
+      "preserving metadata + blobSha256 and hydrating body bytes on demand from CAS with fail-closed integrity checks. " +
+      "Canonical events and content blobs remain byte-identical.",
+  },
 ]);
 
 const registeredRetiredFields = new Set(

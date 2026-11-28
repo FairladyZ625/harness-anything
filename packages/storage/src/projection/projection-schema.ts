@@ -28,4 +28,6 @@
 // serving the scrubbed rows through a read-boundary strip takes 37 ms. A version bump here would
 // therefore turn "some rows are hidden" into "the repository cannot attach".
 // Version 39 fills Decision list columns from the previous SQLite projection in place.
-export const taskProjectionSchemaVersion = 39;
+// Version 40 strips inline document bodies from `document` and `document_history` in place,
+// storing canonical metadata + `blobSha256` and hydrating body bytes on demand from CAS.
+export const taskProjectionSchemaVersion = 40;

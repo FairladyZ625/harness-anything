@@ -3,7 +3,7 @@ import { taskAttributionRows } from "./event-summary-read-index.ts";
 import type { TaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
 import type { TaskV2 } from "@harness-anything/kernel/internal/domain/task.ts";
 import type { DatabaseSync } from "node:sqlite";
-import { type DocumentState } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
+import { hydrateDocumentRow } from "./document-projection-content.ts";
 import { localRuntimeStateFileSystem } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import {
   auditRelationCycles,
@@ -201,7 +201,7 @@ export function readDocument(
       ).get(documentPath) as { readonly value_json: string } | undefined;
     return {
       status: cut.status,
-      document: row ? (JSON.parse(row.value_json) as DocumentState) : null,
+      document: row ? hydrateDocumentRow(row.value_json, eventStore.readContentBlob) : null,
       watermark: cut.watermark,
       sourceRevision: cut.sourceRevision,
     };
@@ -223,7 +223,7 @@ export function readDocumentHistory(
       ).get(documentPath) as { readonly value_json: string } | undefined;
     return {
       status: cut.status,
-      document: row ? (JSON.parse(row.value_json) as DocumentState) : null,
+      document: row ? hydrateDocumentRow(row.value_json, eventStore.readContentBlob) : null,
       watermark: cut.watermark,
       sourceRevision: cut.sourceRevision,
     };

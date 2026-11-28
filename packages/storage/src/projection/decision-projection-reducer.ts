@@ -1,9 +1,10 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { DecisionEventV1 } from "@harness-anything/kernel/internal/domain/decision-event.ts";
-import type {
-  DocumentState,
-  PersistedCanonicalEventV1,
-} from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
+import {
+  decisionDocumentProse,
+  type DecisionEventV1,
+} from "@harness-anything/kernel/internal/domain/decision-event.ts";
+import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
+import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import { assertDecisionAdmission, decisionState, fail } from "./decision-projection-admission.ts";
 import {
   changedDecisionDocuments,
@@ -16,7 +17,11 @@ import { decisionIdSortKey, decisionLegacyNumber, readDecisionDocumentState } fr
 import { applyEmbeddedRelationProjectionEvents } from "./relation-entity-projection.ts";
 import { prepareQuery, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 
-export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): void {
+export function reduceDecisionEvent(
+  db: DatabaseSync,
+  event: DecisionEventV1,
+  readBlob?: EventStreamPort["readContentBlob"],
+): void {
   assertDecisionAdmission(db, event);
   const revision = event.workspaceRevision;
   if (event.type === "decision_proposed") {
@@ -61,7 +66,7 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
       );
     }
     applyEmbeddedRelationProjectionEvents(db, event);
-    refreshDecisionFts(db, event.decisionId);
+    refreshDecisionFts(db, event.decisionId, readBlob);
     return;
   }
   prepareQuery(db, "UPDATE decision SET workspace_revision=? WHERE decision_id=?").run(revision, event.decisionId);
@@ -91,7 +96,7 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
     insertDecisionPin(db, event);
     if (["decision_accepted", "decision_rejected"].includes(event.type))
       prepareQuery(db, "DELETE FROM pinned_entities WHERE entity_ref=?").run(`decision/${event.decisionId}`);
-    refreshDecisionFts(db, event.decisionId);
+    refreshDecisionFts(db, event.decisionId, readBlob);
     return;
   }
   if (event.type === "decision_superseded" || event.type === "decision_retired") {
@@ -104,7 +109,7 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
     );
     insertDecisionPin(db, event);
     prepareQuery(db, "DELETE FROM pinned_entities WHERE entity_ref=?").run(`decision/${event.decisionId}`);
-    refreshDecisionFts(db, event.decisionId);
+    refreshDecisionFts(db, event.decisionId, readBlob);
     return;
   }
   if (event.type === "decision_amended") {
@@ -145,7 +150,7 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
       JSON.stringify(event.payload.amendment),
     );
     insertDecisionPin(db, event);
-    refreshDecisionFts(db, event.decisionId);
+    refreshDecisionFts(db, event.decisionId, readBlob);
     return;
   }
   if (event.type === "decision_repinned") {
@@ -207,7 +212,7 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
       event.payload.loadBearing ? 1 : 0,
       revision,
     );
-    refreshDecisionFts(db, event.decisionId);
+    refreshDecisionFts(db, event.decisionId, readBlob);
     return;
   }
   if (event.type === "decision_claim_fulfillment_declared") {
@@ -239,18 +244,29 @@ function insertDecisionPin(db: DatabaseSync, event: DecisionEventV1): void {
   );
 }
 
-export function refreshDecisionDocumentSearch(db: DatabaseSync, document: DocumentState): void {
+export function refreshDecisionDocumentSearch(
+  db: DatabaseSync,
+  document: { readonly path: string; readonly body?: string },
+  readBlob?: EventStreamPort["readContentBlob"],
+): void {
   const id =
     /* @gate-identity state-store/task.source.storage.src.projection.decision-projection-reducer.sqlite-database */ decisionDocumentPattern.exec(
       document.path,
     )?.[1];
-  if (id && decisionState(db, id)) refreshDecisionFts(db, id);
+  if (id && decisionState(db, id)) {
+    const prose = typeof document.body === "string" ? decisionDocumentProse(document.body) : undefined;
+    refreshDecisionFts(db, id, readBlob, prose);
+  }
 }
 
-export function refreshDecisionListReview(db: DatabaseSync, id: string): void {
+export function refreshDecisionListReview(
+  db: DatabaseSync,
+  id: string,
+  readBlob?: EventStreamPort["readContentBlob"],
+): void {
   const decision = readDecisionDocumentState(db, id);
   if (decision === null) return;
-  const body = readDecisionBody(db, id);
+  const body = readDecisionBody(db, id, readBlob);
   runSql(
     db,
     "UPDATE decision SET list_options_json=?,review_summary_json=? WHERE decision_id=?",
@@ -260,7 +276,11 @@ export function refreshDecisionListReview(db: DatabaseSync, id: string): void {
   );
 }
 
-export function refreshDecisionListReviews(db: DatabaseSync, event: PersistedCanonicalEventV1): void {
+export function refreshDecisionListReviews(
+  db: DatabaseSync,
+  event: PersistedCanonicalEventV1,
+  readBlob?: EventStreamPort["readContentBlob"],
+): void {
   const owners = changedDecisionDocuments(event),
     relationIds = changedDecisionEvidenceRelations(event);
   if (relationIds.length > 0)
@@ -271,10 +291,15 @@ export function refreshDecisionListReviews(db: DatabaseSync, event: PersistedCan
       JSON.stringify(relationIds),
     ))
       owners.add(owner_ref.slice("decision/".length));
-  for (const id of owners) refreshDecisionListReview(db, id);
+  for (const id of owners) refreshDecisionListReview(db, id, readBlob);
 }
 
-function refreshDecisionFts(db: DatabaseSync, decisionId: string): void {
+function refreshDecisionFts(
+  db: DatabaseSync,
+  decisionId: string,
+  readBlob?: EventStreamPort["readContentBlob"],
+  precomputedBody?: string,
+): void {
   // decision_id is UNINDEXED in the fts5 table, so the search row is keyed by the decision rowid
   // (stable: decision rows are inserted once and only updated) instead of deleted by a column scan.
   const row = prepareQuery(db, "SELECT rowid, title, question FROM decision WHERE decision_id=?").get(decisionId) as
@@ -291,7 +316,7 @@ function refreshDecisionFts(db: DatabaseSync, decisionId: string): void {
     claims = queryRows<{ readonly text: string }>(db, "SELECT text FROM decision_claim WHERE decision_id=?", decisionId)
       .map((c) => c.text)
       .join(" "),
-    body = readDecisionBody(db, decisionId)?.body ?? "";
+    body = precomputedBody ?? readDecisionBody(db, decisionId, readBlob)?.body ?? "";
   prepareQuery(db, "DELETE FROM decision_fts WHERE rowid=?").run(row.rowid);
   prepareQuery(
     db,

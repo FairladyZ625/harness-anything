@@ -30,6 +30,7 @@ import type {
 import { TaskEventStoreError } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import type { SqliteStorageBackendConfig } from "../storage-backend.ts";
 import { openSqliteEventStore } from "./sqlite-event-store.ts";
+import { registerBatchContentReader } from "../projection/document-projection-content.ts";
 import type { SqliteCommandOutcome, SqliteEventStore, SqliteOutboxBaseline } from "./sqlite-event-store-types.ts";
 import { assertAuthorizedReplacements } from "./task-event-store-replacement-authorization.ts";
 
@@ -386,15 +387,26 @@ export function sqliteEventBatch(
       sourceRevision: sqlite.revision(),
     })),
     next = selected.at(-1)?.workspaceRevision ?? start;
+  const prefetchContent: NonNullable<EventFileBatch["prefetchContent"]> = (replay) =>
+    new Map(replay.flatMap((event) => contentClaims(event).map((claim) => [claim.sha256, readContent(claim.sha256)])));
+  registerBatchContentReader(prefetchContent, {
+    prefetchBytes: (digests) => {
+      const map = new Map<string, Uint8Array | null>();
+      for (const sha256 of digests) map.set(sha256, readContent(sha256));
+      return map;
+    },
+    prefetchSizes: (digests) => {
+      const map = new Map<string, number | null>();
+      for (const sha256 of digests) map.set(sha256, sqlite.readContentObjectSize(sha256));
+      return map;
+    },
+  });
   return {
     sourceRevision,
     events: selected,
     cursor: selected.length ? String(next) : cursor,
     done: next >= sourceRevision,
     accessedItems: selected.length,
-    prefetchContent: (replay) =>
-      new Map(
-        replay.flatMap((event) => contentClaims(event).map((claim) => [claim.sha256, readContent(claim.sha256)])),
-      ),
+    prefetchContent,
   };
 }

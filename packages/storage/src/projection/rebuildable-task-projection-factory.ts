@@ -78,6 +78,7 @@ import {
   withDatabase,
   withQueryOnlyDatabaseSession,
 } from "./rebuildable-task-projection-database.ts";
+import { resolveContentBlobReader } from "./document-projection-content.ts";
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { reduceBatch } from "./rebuildable-task-projection-event-application.ts";
 import { requiresEventShapeReplay } from "./event-shape-replay.ts";
@@ -238,7 +239,14 @@ export function makeTaskProjection(
         );
       // As with schema repair at open, prerequisite replay is separate from this apply receipt.
       return withDatabase(projectionPath, readHead, (db) =>
-        reduceBatch(db, [event], limit, options.eventStore.readContentBlob, options.eventStore.readHead()),
+        reduceBatch(
+          db,
+          [event],
+          limit,
+          options.eventStore.readContentBlob,
+          options.eventStore.readHead(),
+          options.eventStore.readContentBlobSize,
+        ),
       );
     },
     rebuild: () => {
@@ -321,6 +329,7 @@ export interface TaskProjectionReaderFactoryOptions {
   readonly rootDir: string;
   readonly projectionPath?: string;
   readonly now?: () => string;
+  readonly readContentBlob?: EventStreamPort["readContentBlob"];
 }
 export interface PostgresTaskProjectionReaderFactoryOptions
   extends Omit<TaskProjectionReaderFactoryOptions, "rootDir" | "storage"> {
@@ -356,7 +365,8 @@ export function makeTaskProjectionReader(
   }
   requireSqliteBackend(options);
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir ?? ""),
-    now = options.now ?? (() => new Date().toISOString());
+    now = options.now ?? (() => new Date().toISOString()),
+    readContentBlob = options.readContentBlob ?? resolveContentBlobReader(projectionPath, options.rootDir);
   let publishedHead: ReturnType<EventStreamPort["readHead"]> = null;
   const readHead = () => publishedHead,
     unavailableSource: EventStreamPort = {
@@ -364,7 +374,7 @@ export function makeTaskProjectionReader(
       readBatch: () => {
         throw new Error("query-only projection reader cannot catch up from the canonical event source");
       },
-      readContentBlob: () => null,
+      readContentBlob,
     },
     context: ProjectionContext = {
       projectionPath,

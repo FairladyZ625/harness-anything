@@ -77,8 +77,8 @@ test("Schedule definition and run view share one canonical stream and rebuild ex
       });
     }
 
-    // Version 39 expands the existing Decision projection with stored list and review summaries.
-    assert.equal(taskProjectionSchemaVersion, 39);
+    // Version 40 strips inline document bodies from document/document_history in place.
+    assert.equal(taskProjectionSchemaVersion, 40);
     assert.equal(projection.readCut().status, "ready");
     const definition = projection.readDocument("schedules/schedule-heartbeat.json").document,
       row = projection.getEntity("schedule", "schedule-heartbeat"),

@@ -61,7 +61,6 @@ const stateDigestColumns: Partial<Record<(typeof stateDigestTables)[number][0], 
   relation_edge:
     "relation_id,source_ref,target_ref,relation_type,state,target_observed_version,owner_ref,workspace_revision,updated_at,row_json",
 };
-const stateDigestChunkBytes = 1024 * 1024;
 const projectionSqlHeartbeat = new AsyncLocalStorage<{ state: BigInt64Array | undefined } | undefined>();
 
 export async function withProjectionSqlHeartbeat<Result>(
@@ -161,29 +160,28 @@ export function readStateDigest(db: DatabaseSync, sourceRevision: number): `sha2
 function digestDocumentRows(db: DatabaseSync, digest: string, table: "document" | "document_history"): string {
   const documents = prepareQuery(
     db,
-    `SELECT path, workspace_revision, CAST(value_json AS BLOB) AS document_bytes FROM ${table} ORDER BY path`,
+    `SELECT path, workspace_revision, value_json FROM ${table} ORDER BY path`,
   ).iterate() as Iterable<{
     readonly path: string;
     readonly workspace_revision: number;
-    readonly document_bytes: Uint8Array;
+    readonly value_json: string;
   }>;
-  for (const { path, workspace_revision, document_bytes } of documents) {
+  for (const { path, workspace_revision, value_json } of documents) {
     markProjectionSqlProgress();
-    digest = hashCanonicalJsonTextFieldChunks(
-      digest,
-      { path, workspace_revision, value_json: "" },
-      "value_json",
-      documentDigestChunks(document_bytes),
+    const parsed = JSON.parse(value_json) as Record<string, unknown>;
+    const metadata: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (key !== "body") metadata[key] = value;
+    }
+    digest = sha256Text(
+      `${digest}\n${canonicalJson({
+        path,
+        workspace_revision,
+        value_json: canonicalJson(metadata),
+      })}`,
     );
   }
   return digest;
-}
-
-function* documentDigestChunks(bytes: Uint8Array): Iterable<Uint8Array> {
-  for (let offset = 0; offset < bytes.length; offset += stateDigestChunkBytes) {
-    markProjectionSqlProgress();
-    yield bytes.subarray(offset, offset + stateDigestChunkBytes);
-  }
 }
 export function transaction<A>(db: DatabaseSync, run: () => A): A {
   /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-sql.sqlite-database */
